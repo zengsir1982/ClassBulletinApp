@@ -98,24 +98,4 @@ public static class Store
         if (!File.Exists(OverridesPath)) return new();
         return JsonSerializer.Deserialize<List<LessonOverride>>(File.ReadAllText(OverridesPath), Opt) ?? new();
     }
-
-    // ---------- 数据清除（导入前 / 手动清空用） ----------
-    public static bool ExistsSchedule() => File.Exists(SchedulePath);
-    public static bool ExistsTeacherSchedule() => File.Exists(TeacherSchedulePath);
-    public static bool ExistsOverrides() => File.Exists(OverridesPath);
-    public static bool ExistsNotifications() => File.Exists(NotificationsPath);
-
-    public static void DeleteSchedule() { try { File.Delete(SchedulePath); } catch { } }
-    public static void DeleteTeacherSchedule() { try { File.Delete(TeacherSchedulePath); } catch { } }
-    public static void DeleteOverrides() { try { File.Delete(OverridesPath); } catch { } }
-    public static void DeleteNotifications() { try { File.Delete(NotificationsPath); } catch { } }
-
-    /// <summary>清空全部课表类数据：班级课表、教师个人课表、调课代课记录、通知公告。</summary>
-    public static void ClearAllData()
-    {
-        DeleteSchedule();
-        DeleteTeacherSchedule();
-        DeleteOverrides();
-        DeleteNotifications();
-    }
 }

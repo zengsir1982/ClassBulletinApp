@@ -82,78 +82,8 @@ public partial class ScheduleWindow : Window
 
         _hider?.Dispose();
         _hider = (l.AutoHide || l.AutoHideDuringClass)
-            ? new AutoHider(this, l, () => l.AutoHide || (l.AutoHideDuringClass && IsClassTimeNow()), OnCompactChanged)
+            ? new AutoHider(this, l, () => l.AutoHide || (l.AutoHideDuringClass && IsClassTimeNow()))
             : null;
-        // 非隐藏模式下确保显示完整面板
-        if (_hider == null) SetCompactUi(false);
-    }
-
-    // ---------- 自动隐藏：完整面板 ⇄ 悬浮小条 ----------
-    private void OnCompactChanged(bool compact) => SetCompactUi(compact);
-
-    private void SetCompactUi(bool compact)
-    {
-        if (MainCard == null || DockBar == null) return;
-        MainCard.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        DockBar.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
-        if (compact)
-        {
-            string name = string.IsNullOrEmpty(_selectedName) ? "" : _selectedName;
-            TxtDock.Text = string.IsNullOrEmpty(name)
-                ? (_isTeacherMode ? "教师课表" : "课表")
-                : name;
-        }
-    }
-
-    /// <summary>当前是否处于悬浮小条状态（此时点击只用于拖动位置，不触发调课）。</summary>
-    private bool InDockMode => _hider != null && _hider.IsCompact && DockBar != null &&
-                               DockBar.Visibility == Visibility.Visible;
-
-    private bool _dockDragging;
-    private System.Windows.Point _dockStartScreen, _dockStartWin;
-
-    private void DockBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!InDockMode) return;
-        _dockDragging = true;
-        _dockStartScreen = PointToScreen(e.GetPosition(this));
-        _dockStartWin = new System.Windows.Point(Left, Top);
-        Mouse.Capture(DockBar);
-        if (_hider != null) { _hider.CancelHover(); _hider.Suspended = true; }
-        e.Handled = true;
-    }
-
-    private void DockBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (!_dockDragging || _hider == null) return;
-        var cur = PointToScreen(e.GetPosition(this));
-        _hider.SetDockPosition(
-            _dockStartWin.X + (cur.X - _dockStartScreen.X),
-            _dockStartWin.Y + (cur.Y - _dockStartScreen.Y));
-        e.Handled = true;
-    }
-
-    private void DockBar_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (!_dockDragging) return;
-        _dockDragging = false;
-        if (Mouse.Captured == DockBar) Mouse.Capture(null);
-        SaveDockPosition();
-        // 拖完保持小条状态，不要立刻展开，避免影响后续操作
-        _hider?.SuppressExpand();
-        if (_hider != null) _hider.Suspended = false;
-        e.Handled = true;
-    }
-
-    /// <summary>把小条位置写入设置，下次自动隐藏时会停在同一位置。</summary>
-    private void SaveDockPosition()
-    {
-        if (_hider == null) return;
-        var r = _hider.DockRect;
-        var s = Store.LoadSettings();
-        s.ScheduleLayout.DockLeft = r.X;
-        s.ScheduleLayout.DockTop = r.Y;
-        Store.SaveSettings(s);
     }
 
     private void OnLayoutChanged()
@@ -216,9 +146,6 @@ public partial class ScheduleWindow : Window
 
         TxtHint.Visibility = (!_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
         TxtTeacherHint.Visibility = (_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
-
-        // 处于小条状态时同步刷新小条上的名称
-        if (InDockMode) SetCompactUi(true);
     }
 
     /// <summary>确保有有效的显示对象；原选中项不存在时自动取第一个并回写设置。</summary>
@@ -288,7 +215,6 @@ public partial class ScheduleWindow : Window
     // ---------- 长按 / 右键 弹出调课编辑（仅班级课表可编辑） ----------
     private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (InDockMode) return;          // 小条状态不做右键调课
         if (_isTeacherMode) return;
         if (_clickThrough) return;
         var row = FindPeriodRow(e.OriginalSource as DependencyObject);
@@ -297,7 +223,6 @@ public partial class ScheduleWindow : Window
 
     private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (InDockMode) return;          // 小条状态的拖动由 DockBar 自身处理
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
         if (_isTeacherMode || _clickThrough)
         {

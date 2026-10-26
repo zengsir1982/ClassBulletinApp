@@ -41,15 +41,9 @@ public class AppSettings
 
     /// <summary>
     /// 桌面有窗口最大化时，自动隐藏课表与通知悬浮窗，避免遮挡正在使用的程序（不影响操作）。
-    /// 仅在“最大化窗口存在”时隐藏；窗口恢复/关闭后自动重新显示。默认关闭（避免误隐藏）。
+    /// 仅在“最大化窗口存在”时隐藏；窗口恢复/关闭后自动重新显示。
     /// </summary>
     public bool AutoHideOnMaxWindow { get; set; }
-
-    /// <summary>
-    /// 全屏播放课件 / 放映文档 / 全屏视频时（窗口铺满整个屏幕），自动隐藏通知栏与悬浮课表，
-    /// 以免影响授课。默认开启。退出全屏后自动恢复显示。
-    /// </summary>
-    public bool AutoHideOnFullscreen { get; set; } = true;
 
     /// <summary>当前选中的教师（用于教师个人课表）。</summary>
     public string SelectedTeacher { get; set; } = "";

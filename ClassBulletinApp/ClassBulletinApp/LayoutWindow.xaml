@@ -41,11 +41,9 @@
 
                         <CheckBox x:Name="ChkSchTop" Content="置顶显示（始终在最前）" FontSize="14" Margin="0,16,0,8"/>
                         <CheckBox x:Name="ChkSchClick" Content="鼠标穿透（教室纯展示：仅隐藏按钮/标题/课卡仍可点，其余区域的点击落到底层窗口）" FontSize="14" Margin="0,0,0,8"/>
-                        <CheckBox x:Name="ChkSchHide" Content="自动靠边隐藏（缩小成一条悬浮小条，鼠标移上去展开，小条可拖动位置）" FontSize="14" Margin="0,0,0,4"/>
-                        <CheckBox x:Name="ChkSchClassHide" Content="上课时间自动隐藏（上课期间缩成悬浮小条，移到小条上才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
-                        <Button x:Name="BtnSchDockReset" Content="把悬浮小条位置恢复为默认贴边" Padding="12,6" FontSize="13" HorizontalAlignment="Left" Margin="0,8,0,0" Click="BtnSchDockReset_Click"/>
+                        <CheckBox x:Name="ChkSchHide" Content="自动靠边隐藏（移到屏幕边沿才滑出）" FontSize="14" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkSchClassHide" Content="上课时间自动隐藏（上课期间缩到边沿，移到屏幕边沿才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
                         <TextBlock Text="提示：默认不勾选「鼠标穿透」——此时隐藏按钮可单击、标题可双击换班/换日、课卡可拖动调课。「自动隐藏」模式下窗口本身也是可交互的；只有勾选「鼠标穿透」后，非交互区域的鼠标操作才会落到底层窗口。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                        <TextBlock Text="「自动隐藏」生效时会缩小成一条悬浮小条（默认贴在设置好的屏幕一侧），用鼠标拖动它即可挪到任意位置，松手后位置会被记住，下次自动隐藏仍停在同一处。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -82,9 +80,8 @@
 
                         <CheckBox x:Name="ChkNotTop" Content="置顶显示（始终在最前）" FontSize="14" Margin="0,16,0,8"/>
                         <CheckBox x:Name="ChkNotClick" Content="鼠标穿透（教室纯展示：仅隐藏按钮与通知条仍可点，其余区域点击落到底层窗口）" FontSize="14" Margin="0,0,0,8"/>
-                        <CheckBox x:Name="ChkNotHide" Content="自动靠边隐藏（缩小成一条通知悬浮条，鼠标移上去展开，可拖动位置）" FontSize="14" Margin="0,0,0,4"/>
-                        <CheckBox x:Name="ChkNotClassHide" Content="上课时间自动隐藏（上课期间缩成通知悬浮条，移到上面才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
-                        <Button x:Name="BtnNotDockReset" Content="把通知悬浮条位置恢复为默认贴边" Padding="12,6" FontSize="13" HorizontalAlignment="Left" Margin="0,8,0,0" Click="BtnNotDockReset_Click"/>
+                        <CheckBox x:Name="ChkNotHide" Content="自动靠边隐藏（移到屏幕边沿才滑出）" FontSize="14" Margin="0,0,0,4"/>
+                        <CheckBox x:Name="ChkNotClassHide" Content="上课时间自动隐藏（上课期间缩到边沿，移到屏幕边沿才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
                         <TextBlock Text="提示：默认不勾选「鼠标穿透」——此时通知条可双击编辑、隐藏按钮可单击。勾选后非交互区域的鼠标操作才会落到底层窗口。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>

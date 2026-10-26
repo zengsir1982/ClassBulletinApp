@@ -57,11 +57,8 @@
                             <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportTemp_Click"/>
                             <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#EAF1FD" BorderBrush="#9DBDF0" Click="BtnImportSingle_Click"/>
                             <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#EAF1FD" BorderBrush="#9DBDF0" Click="BtnImportTeacher_Click"/>
-                            <Button x:Name="BtnClearOverrides" Content="清除全部临时调课 / 代课" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
-                            <Button x:Name="BtnClearAllData" Content="清除所有原有数据（清空全部课表 / 教师课表 / 调代课 / 通知）" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FCE8E6" BorderBrush="#D93025" Foreground="#B3261E" Click="BtnClearAllData_Click"/>
+                            <Button x:Name="BtnClearOverrides" Content="清除全部临时调课 / 代课" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
                             <TextBlock Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
-                            <TextBlock Text="每次导入都会先弹出确认框，列出将被清除的原有数据，确定后才清除并更新为本次导入的内容；如需完全重来，可用「清除所有原有数据」。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <TextBlock Text="若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <TextBlock Text="导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <TextBlock Text="调课 / 代课记录也可在「周课程表」标签的周视图中右键安排、单击清除。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap"/>
@@ -83,13 +80,9 @@
                                 <Button x:Name="BtnHideTray" Content="隐藏到托盘" Style="{StaticResource TabBtn}" Click="BtnHideTray_Click"/>
                                 <Button x:Name="BtnSettings" Content="设置（开学周 / 开机自启）" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"/>
                             </WrapPanel>
-                            <CheckBox x:Name="ChkFullHide" Content="全屏播放课件 / 放映文档 / 看全屏视频时，自动隐藏通知栏与悬浮课表（不影响授课，退出全屏后自动恢复）"
-                                      FontSize="14" Foreground="#1F2A37" Margin="8,16,0,0" Click="ChkFullHide_Click"/>
                             <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
-                                      FontSize="14" Foreground="#1F2A37" Margin="8,8,0,0" Click="ChkMaxHide_Click"/>
-                            <TextBlock Text="说明：全屏检测会判断是否有窗口铺满整个屏幕（PPT 放映、希沃白板、视频全屏等）；退出全屏几秒内悬浮窗会自动恢复。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,8,0,0"/>
-                            <TextBlock Text="布局设置可调整悬浮窗位置、大小、透明度、置顶、鼠标穿透或自动靠边隐藏；悬浮窗右上角「自动隐藏 / 置顶显示」按钮可快速切换。「自动隐藏」时会缩小成一条可拖动的悬浮条（位置会被记住），鼠标移上去即展开完整面板。"
+                                      FontSize="14" Foreground="#1F2A37" Margin="8,16,0,0" Click="ChkMaxHide_Click"/>
+                            <TextBlock Text="布局设置可调整悬浮窗位置、大小、透明度、置顶、鼠标穿透或自动靠边隐藏；悬浮窗右上角「自动隐藏 / 置顶显示」按钮可快速切换。「置顶显示」为半透明常驻，隐藏按钮、标题双击、拖动调课均可正常操作；如需纯展示可在布局设置勾选「鼠标穿透」。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,8,0,0"/>
                             <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,6,0,0"/>
