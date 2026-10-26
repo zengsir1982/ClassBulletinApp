@@ -231,18 +231,25 @@ public partial class ScheduleWindow : Window
             return;
         }
 
-        _pressRow = FindPeriodRow(e.OriginalSource as DependencyObject);
-        if (_pressRow != null)
+        // 注意：必须用局部变量保存——StartPressTimer() 内部的 CancelPress() 会把 _pressRow 置 null
+        var row = FindPeriodRow(e.OriginalSource as DependencyObject);
+        _pressRow = row;
+        if (row != null)
         {
             _pressPoint = e.GetPosition(this);
             StartPressTimer();
         }
 
-        // 记录拖拽候选（必须是有课的格子）
-        _dragCandidate = RowHasLesson(_pressRow) ? _pressRow : null;
+        // 记录拖拽候选（必须是有课的格子）；注意用局部变量 row，避免被 CancelPress 清空
+        _dragCandidate = RowHasLesson(row) ? row : null;
         _dragStart = e.GetPosition(this);
         _dragging = false;
-        if (_dragCandidate != null) Mouse.Capture(this);
+        if (_dragCandidate != null)
+        {
+            Mouse.Capture(this);
+            // 按下即暂停自动隐藏，避免课表在伸手取课时滑回边缘
+            if (_hider != null) _hider.Suspended = true;
+        }
     }
 
     private void Window_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)

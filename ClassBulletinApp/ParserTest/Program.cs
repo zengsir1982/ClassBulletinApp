@@ -115,4 +115,12 @@ if (args.Length > 1 && args[1] == "extract")
     }
     Console.WriteLine($"全校教师课时总数: {teachers.Classes.Sum(c => c.Data.Values.Sum(d => d.Values.Sum(v => v.Count)))}");
     Console.WriteLine("EXTRACT DONE");
+
+    // 带第三个参数 "save" 时才落盘：用于在没有重新导入全校课表的情况下，
+    // 从已有的全校班课表反向重建教师个人课表（App 导入时也会自动做这一步）。
+    if (args.Contains("save"))
+    {
+        Store.SaveTeacherSchedule(teachers);
+        Console.WriteLine($"已写入教师课表：教师 {teachers.Classes.Count} 人 -> " + Store.AppDir);
+    }
 }
