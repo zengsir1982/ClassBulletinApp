@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,16 +8,24 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
+// 项目同时引用了 WPF 与 WinForms/System.Drawing（均有同名类型），此处用别名消歧义
+using Brush = System.Windows.Media.Brush;
+using Color = System.Windows.Media.Color;
+using Cursors = System.Windows.Input.Cursors;
+using Brushes = System.Windows.Media.Brushes;
 
 namespace ClassBulletinApp;
 
 public partial class ScheduleWindow : Window
 {
-    /// <summary>显示类别：Class=班级课表，Teacher=教师个人课表。</summary>
-    public string Kind { get; set; } = "Class";
-
     private string _semesterStart = "";
-    private string? _selectedClass;
+
+    /// <summary>当前显示的班级名或教师名。</summary>
+    private string _selectedName = "";
+
+    /// <summary>是否正在显示教师个人课表（由 AppSettings.ScheduleKind 决定，可随时切换）。</summary>
+    private bool _isTeacherMode;
+
     private PanelLayout? _layout;
     private ScheduleFile? _schedule;
     private bool _clickThrough;
@@ -28,9 +37,13 @@ public partial class ScheduleWindow : Window
     private PeriodRow? _pressRow;
     private System.Windows.Point _pressPoint;
 
-    // 拖动调课
-    private PeriodRow? _dragRow;
+    // 拖动调课（手动命中式，不依赖系统拖放，避免“禁止拖放”光标）
+    private PeriodRow? _dragCandidate;
     private System.Windows.Point _dragStart;
+    private bool _dragging;
+    private PeriodRow? _dropRow;
+    private Border? _dropBorder;
+    private Brush? _savedBg, _savedBorder;
 
     public ScheduleWindow()
     {
@@ -43,13 +56,6 @@ public partial class ScheduleWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        var s = Store.LoadSettings();
-        _semesterStart = s.SemesterStartMonday;
-        _selectedClass = Kind == "Teacher" ? s.SelectedTeacher : s.SelectedClass;
-        Title = Kind == "Teacher" ? "教师课表悬浮窗" : "课表悬浮窗";
-        ClassHeader.ToolTip = Kind == "Teacher"
-            ? "双击此处可切换显示其他教师课表"
-            : "双击此处可切换显示其他班级课表";
         ApplyCurrentLayout();
 
         AppEvents.ScheduleChanged += Refresh;
@@ -62,17 +68,16 @@ public partial class ScheduleWindow : Window
     {
         var l = Store.LoadSettings().ScheduleLayout;
         _layout = l;
-        // 置顶显示(AutoHide=false) 即开启鼠标穿透，并按预设透明度显示；自动隐藏态则为普通透明度
+        // 「置顶显示」= 半透明常驻且可交互；只有在布局里显式勾选「鼠标穿透」时才穿透，
+        // 且穿透时隐藏按钮、标题区、课表区仍保持可点击。
         bool topShow = !l.AutoHide;
-        _clickThrough = topShow;
-        FloatingHelper.ApplyLayout(this, l, topShow, topShow ? l.OverlayOpacity : l.Opacity);
-        if (topShow)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, ClassHeader, DateHeader);
+        _clickThrough = l.ClickThrough && !l.AutoHide;
+        FloatingHelper.ApplyLayout(this, l, _clickThrough, topShow ? l.OverlayOpacity : l.Opacity);
+        if (_clickThrough)
+            FloatingHelper.SetClickThrough(this, true, BtnHide, ClassHeader, DateHeader, TodayPanel);
         else
             FloatingHelper.SetClickThrough(this, false);
 
-        TxtHint.Visibility = (!topShow && Kind == "Class") ? Visibility.Visible : Visibility.Collapsed;
-        TxtTeacherHint.Visibility = (!topShow && Kind == "Teacher") ? Visibility.Visible : Visibility.Collapsed;
         BtnHide.Content = l.AutoHide ? "置顶显示" : "自动隐藏";
 
         _hider?.Dispose();
@@ -83,28 +88,54 @@ public partial class ScheduleWindow : Window
 
     private void OnLayoutChanged()
     {
-        _semesterStart = Store.LoadSettings().SemesterStartMonday;
-        _selectedClass = Kind == "Teacher" ? Store.LoadSettings().SelectedTeacher : Store.LoadSettings().SelectedClass;
         ApplyCurrentLayout();
         Refresh();
     }
 
-    private bool IsClassTimeNow() => WeekHelper.IsClassTimeNow(_schedule, _selectedClass);
+    private bool IsClassTimeNow() => WeekHelper.IsClassTimeNow(_schedule, _selectedName);
 
     private void Refresh()
     {
         var s = Store.LoadSettings();
-        _selectedClass = Kind == "Teacher" ? s.SelectedTeacher : s.SelectedClass;
         _semesterStart = s.SemesterStartMonday;
-        _schedule = Kind == "Teacher" ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
-        var displayDate = BoardBuilder.ResolveDisplayDate(s);
-        var res = BoardBuilder.Build(_selectedClass, _semesterStart, _schedule, displayDate);
+        _isTeacherMode = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
 
-        TxtClass.Text = string.IsNullOrEmpty(res.ClassName) ? (Kind == "Teacher" ? "未选择教师" : "未选择班级") : res.ClassName;
+        if (_isTeacherMode)
+        {
+            _schedule = Store.LoadTeacherSchedule();
+            // 尚未整理出教师个人课表时自动退回班级课表，避免悬浮窗空白
+            if (_schedule == null || _schedule.Classes.Count == 0)
+            {
+                _isTeacherMode = false;
+                _schedule = Store.LoadSchedule();
+                _selectedName = PickName(s.SelectedClass, _schedule, s, teacher: false);
+            }
+            else
+            {
+                _selectedName = PickName(s.SelectedTeacher, _schedule, s, teacher: true);
+            }
+        }
+        else
+        {
+            _schedule = Store.LoadSchedule();
+            _selectedName = PickName(s.SelectedClass, _schedule, s, teacher: false);
+        }
+        s.SemesterStartMonday = _semesterStart;
+
+        var displayDate = BoardBuilder.ResolveDisplayDate(s);
+        var res = BoardBuilder.Build(_selectedName, _semesterStart, _schedule, displayDate);
+
+        TxtClass.Text = string.IsNullOrEmpty(res.ClassName)
+            ? (_isTeacherMode ? "未选择教师" : "未选择班级")
+            : res.ClassName;
         TxtDate.Text = res.DateText;
         TxtWeek.Text = res.WeekLine;
 
-        string prefix = Kind == "Teacher" ? "班级：" : "教师：";
+        ClassHeader.ToolTip = _isTeacherMode
+            ? "双击此处可切换到其他教师，或改看某个班的课表"
+            : "双击此处可切换到其他班级，或改看某位教师的课表";
+
+        string prefix = _isTeacherMode ? "班级：" : "教师：";
         var rows = (System.Collections.ObjectModel.ObservableCollection<PeriodRow>)TodayPanel.ItemsSource;
         rows.Clear();
         foreach (var r in res.Rows)
@@ -112,6 +143,25 @@ public partial class ScheduleWindow : Window
             foreach (var lv in r.Lessons) lv.TeacherPrefix = prefix;
             rows.Add(r);
         }
+
+        TxtHint.Visibility = (!_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+        TxtTeacherHint.Visibility = (_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>确保有有效的显示对象；原选中项不存在时自动取第一个并回写设置。</summary>
+    private static string PickName(string? current, ScheduleFile? sf, AppSettings s, bool teacher)
+    {
+        var names = sf?.Classes.Select(c => c.ClassName).Where(n => !string.IsNullOrEmpty(n)).ToList()
+                    ?? new List<string>();
+        if (!string.IsNullOrEmpty(current) && names.Contains(current)) return current!;
+        if (names.Count > 0)
+        {
+            string first = names[0];
+            if (teacher) s.SelectedTeacher = first; else s.SelectedClass = first;
+            Store.SaveSettings(s);
+            return first;
+        }
+        return "";
     }
 
     // ---------- 日期区双击：切换显示日期 / 回到今天 ----------
@@ -125,31 +175,21 @@ public partial class ScheduleWindow : Window
         }
     }
 
-    // ---------- 班级/教师区双击：切换显示 ----------
+    // ---------- 班级 / 教师区双击：统一切换窗口 ----------
     private void ClassHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
         if (e.ClickCount == 2)
         {
-            OpenClassSwitch();
+            OpenTargetSwitch();
             e.Handled = true;
         }
     }
 
-    private void OpenClassSwitch()
+    private void OpenTargetSwitch()
     {
-        if (Kind == "Teacher")
-        {
-            var s = Store.LoadSettings();
-            var w = new TeacherSwitchWindow(s.SelectedTeacher) { Owner = this, Topmost = true };
-            if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
-        }
-        else
-        {
-            var s = Store.LoadSettings();
-            var w = new ClassSwitchWindow(s.SelectedClass) { Owner = this, Topmost = true };
-            if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
-        }
+        var w = new ScheduleTargetWindow { Owner = this, Topmost = true };
+        if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
     }
 
     private void OpenDateSwitch()
@@ -166,7 +206,7 @@ public partial class ScheduleWindow : Window
         var s = Store.LoadSettings();
         bool turnOn = !s.ScheduleLayout.AutoHide;
         s.ScheduleLayout.AutoHide = turnOn;
-        // 置顶显示 ⇔ 鼠标穿透 + 预设透明度；自动隐藏 ⇔ 普通显示、可交互
+        if (turnOn) s.ScheduleLayout.ClickThrough = false;   // 自动隐藏与鼠标穿透互斥
         Store.SaveSettings(s);
         ApplyCurrentLayout();
         AppEvents.RaiseLayoutChanged();
@@ -175,7 +215,7 @@ public partial class ScheduleWindow : Window
     // ---------- 长按 / 右键 弹出调课编辑（仅班级课表可编辑） ----------
     private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_kind_NonEditable) return;
+        if (_isTeacherMode) return;
         if (_clickThrough) return;
         var row = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (row != null) { OpenEditor(row); e.Handled = true; }
@@ -183,17 +223,27 @@ public partial class ScheduleWindow : Window
 
     private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_kind_NonEditable) return;
-        if (_clickThrough) return;
+        if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
+        if (_isTeacherMode || _clickThrough)
+        {
+            _pressRow = null;
+            _dragCandidate = null;
+            return;
+        }
+
         _pressRow = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (_pressRow != null)
         {
             _pressPoint = e.GetPosition(this);
             StartPressTimer();
         }
-    }
 
-    private void Window_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e) => CancelPress();
+        // 记录拖拽候选（必须是有课的格子）
+        _dragCandidate = RowHasLesson(_pressRow) ? _pressRow : null;
+        _dragStart = e.GetPosition(this);
+        _dragging = false;
+        if (_dragCandidate != null) Mouse.Capture(this);
+    }
 
     private void Window_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
@@ -203,11 +253,116 @@ public partial class ScheduleWindow : Window
             if (Math.Abs(p.X - _pressPoint.X) > 8 || Math.Abs(p.Y - _pressPoint.Y) > 8)
                 CancelPress();
         }
+
+        if (_dragCandidate == null || _isTeacherMode || _clickThrough) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { EndDrag(); return; }
+
+        var cur = e.GetPosition(this);
+        if (!_dragging)
+        {
+            if (Math.Abs(cur.X - _dragStart.X) > 6 || Math.Abs(cur.Y - _dragStart.Y) > 6)
+            {
+                CancelPress();
+                _dragging = true;
+                if (_hider != null) _hider.Suspended = true;
+                Mouse.OverrideCursor = Cursors.Hand;
+            }
+            else return;
+        }
+        UpdateDropTarget(cur);
+    }
+
+    private void Window_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        CancelPress();
+        bool wasDragging = _dragging;
+        var src = _dragCandidate;
+        PeriodRow? tgt = null;
+        if (wasDragging) tgt = HitTestRow(e.GetPosition(this));
+        EndDrag();
+
+        if (wasDragging && src != null && tgt != null && !ReferenceEquals(src, tgt))
+            ApplyDayDrag(src, tgt);
+    }
+
+    private void Window_LostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_dragging) EndDrag();
+    }
+
+    private void EndDrag()
+    {
+        ClearHighlight();
+        if (_hider != null) _hider.Suspended = false;
+        _dragging = false;
+        _dragCandidate = null;
+        _dropRow = null;
+        Mouse.OverrideCursor = null;
+        if (Mouse.Captured == this) Mouse.Capture(null);
+    }
+
+    private void UpdateDropTarget(System.Windows.Point pt)
+    {
+        var row = HitTestRow(pt);
+        if (ReferenceEquals(row, _dropRow)) return;
+
+        ClearHighlight();
+        _dropRow = row;
+        if (_dropRow == null || ReferenceEquals(_dropRow, _dragCandidate)) return;
+
+        var border = HitTestBorder(pt);
+        if (border == null) return;
+        _dropBorder = border;
+        _savedBg = border.Background;
+        _savedBorder = border.BorderBrush;
+        border.Background = new SolidColorBrush(Color.FromRgb(0xE3, 0xEE, 0xFD));
+        border.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+    }
+
+    private void ClearHighlight()
+    {
+        if (_dropBorder != null)
+        {
+            _dropBorder.Background = _savedBg ?? Brushes.Transparent;
+            _dropBorder.BorderBrush = _savedBorder ?? Brushes.Transparent;
+        }
+        _dropBorder = null;
+        _savedBg = null;
+        _savedBorder = null;
+    }
+
+    private static bool RowHasLesson(PeriodRow? row)
+        => row != null && row.Period > 0 && row.Lessons.Any(l => !string.IsNullOrEmpty(l.Subject));
+
+    private PeriodRow? HitTestRow(System.Windows.Point pt)
+        => HitTestBorder(pt)?.DataContext as PeriodRow;
+
+    private Border? HitTestBorder(System.Windows.Point pt)
+    {
+        Border? found = null;
+        VisualTreeHelper.HitTest(this,
+            null,
+            result =>
+            {
+                DependencyObject? dep = result.VisualHit;
+                while (dep != null)
+                {
+                    if (dep is Border b && b.DataContext is PeriodRow row && row.Period > 0)
+                    {
+                        found = b;
+                        return HitTestResultBehavior.Stop;
+                    }
+                    dep = VisualTreeHelper.GetParent(dep);
+                }
+                return HitTestResultBehavior.Continue;
+            },
+            new PointHitTestParameters(pt));
+        return found;
     }
 
     private void Window_PreviewTouchDown(object sender, TouchEventArgs e)
     {
-        if (_kind_NonEditable) return;
+        if (_isTeacherMode) return;
         if (_clickThrough) return;
         _pressRow = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (_pressRow != null)
@@ -227,6 +382,7 @@ public partial class ScheduleWindow : Window
         {
             var r = _pressRow;
             CancelPress();
+            EndDrag();
             if (r != null) OpenEditor(r);
         };
         _pressTimer.Start();
@@ -251,9 +407,9 @@ public partial class ScheduleWindow : Window
 
     private void OpenEditor(PeriodRow row)
     {
-        if (string.IsNullOrEmpty(_selectedClass)) return;
+        if (string.IsNullOrEmpty(_selectedName)) return;
         var current = row.Lessons.Count > 0 ? row.Lessons[0] : new LessonView();
-        var w = new LessonOverrideWindow(_selectedClass, row.DayIdx, row.Period, current, _schedule)
+        var w = new LessonOverrideWindow(_selectedName, row.DayIdx, row.Period, current, _schedule)
         {
             Owner = this,
             Topmost = true
@@ -262,58 +418,9 @@ public partial class ScheduleWindow : Window
             AppEvents.RaiseScheduleChanged();
     }
 
-    // ---------- 拖动调课（仅班级课表） ----------
-    private void Card_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (_kind_NonEditable) return;
-        if (_clickThrough) return;
-        if (sender is FrameworkElement fe && fe.DataContext is PeriodRow row && row.Period > 0)
-        {
-            var lesson = row.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
-            if (lesson == null) { _dragRow = null; return; }
-            _dragRow = row;
-            _dragStart = e.GetPosition(fe);
-        }
-    }
-
-    private void Card_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-    {
-        if (_kind_NonEditable) return;
-        if (_clickThrough || _dragRow == null || e.LeftButton != MouseButtonState.Pressed) return;
-        if (sender is not FrameworkElement fe) return;
-        var p = e.GetPosition(fe);
-        if (Math.Abs(p.X - _dragStart.X) > 6 || Math.Abs(p.Y - _dragStart.Y) > 6)
-        {
-            CancelPress();
-            var src = _dragRow;
-            _dragRow = null;
-            System.Windows.DragDrop.DoDragDrop(fe, new System.Windows.DataObject("DayPeriod", src),
-                System.Windows.DragDropEffects.Move);
-        }
-    }
-
-    private void Card_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e) => _dragRow = null;
-
-    private void Card_DragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        if (e.Data.GetDataPresent("DayPeriod")) { e.Effects = System.Windows.DragDropEffects.Move; e.Handled = true; }
-    }
-
-    private void Card_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (e.Data.GetData("DayPeriod") is PeriodRow src
-            && sender is FrameworkElement fe
-            && fe.DataContext is PeriodRow tgt
-            && src != tgt)
-        {
-            ApplyDayDrag(src, tgt);
-            e.Handled = true;
-        }
-    }
-
     private void ApplyDayDrag(PeriodRow src, PeriodRow tgt)
     {
-        if (src.Period == tgt.Period || string.IsNullOrEmpty(_selectedClass)) return;
+        if (src.Period == tgt.Period || string.IsNullOrEmpty(_selectedName)) return;
         var srcLesson = src.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
         if (srcLesson == null) return;
         var tgtLesson = tgt.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
@@ -341,17 +448,17 @@ public partial class ScheduleWindow : Window
         AppEvents.RaiseScheduleChanged();
     }
 
-    private void UpsertOverride(System.Collections.Generic.List<LessonOverride> list, int dayIdx, int period,
+    private void UpsertOverride(List<LessonOverride> list, int dayIdx, int period,
         string subject, string teacher, string location, string type, bool isEmpty = false)
     {
-        if (string.IsNullOrEmpty(_selectedClass)) return;
-        string key = $"{_selectedClass}|{dayIdx}|{period}";
+        if (string.IsNullOrEmpty(_selectedName)) return;
+        string key = $"{_selectedName}|{dayIdx}|{period}";
         list.RemoveAll(o => o.Key == key);
         if (isEmpty)
         {
             list.Add(new LessonOverride
             {
-                ClassName = _selectedClass, DayIdx = dayIdx, Period = period,
+                ClassName = _selectedName, DayIdx = dayIdx, Period = period,
                 IsEmpty = true, Type = "调", Source = "manual", UpdatedAt = DateTime.Now
             });
         }
@@ -359,14 +466,12 @@ public partial class ScheduleWindow : Window
         {
             list.Add(new LessonOverride
             {
-                ClassName = _selectedClass, DayIdx = dayIdx, Period = period,
+                ClassName = _selectedName, DayIdx = dayIdx, Period = period,
                 Subject = subject, Teacher = teacher, Location = location,
                 Type = type, Source = "manual", UpdatedAt = DateTime.Now
             });
         }
     }
-
-    private bool _kind_NonEditable => Kind != "Class";
 
     private bool IsWithinButton(DependencyObject? dep)
     {
@@ -380,6 +485,7 @@ public partial class ScheduleWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        EndDrag();
         _hider?.Dispose();
         AppEvents.ScheduleChanged -= Refresh;
         AppEvents.LayoutChanged -= OnLayoutChanged;

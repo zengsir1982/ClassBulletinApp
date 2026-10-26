@@ -45,8 +45,16 @@ public class AppSettings
     /// </summary>
     public bool AutoHideOnMaxWindow { get; set; }
 
-    /// <summary>当前选中的教师（用于教师个人课表悬浮窗）。</summary>
+    /// <summary>当前选中的教师（用于教师个人课表）。</summary>
     public string SelectedTeacher { get; set; } = "";
+
+    /// <summary>
+    /// 悬浮课表当前显示的对象类型：
+    /// "Class" = 显示某个班级的课表（默认）；
+    /// "Teacher" = 显示某位教师的个人课表。
+    /// 悬浮课表标题双击、控制面板顶栏的班级 / 教师下拉都会更新此值。
+    /// </summary>
+    public string ScheduleKind { get; set; } = "Class";
 
     /// <summary>应用作业公示栏壁纸前系统原有壁纸路径，用于「清除」时恢复。</summary>
     public string SavedWallpaper { get; set; } = "";

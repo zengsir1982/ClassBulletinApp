@@ -34,14 +34,15 @@ public partial class NotificationWindow : Window
     {
         var s = Store.LoadSettings();
         _layout = s.NotificationLayout;
-        // 置顶显示(AutoHide=false) 即开启鼠标穿透 + 预设透明度；自动隐藏态为普通显示
+        // 「置顶显示」= 半透明常驻且完全可交互（双击可编辑、隐藏按钮可单击）；
+        // 只有在布局里显式勾选「鼠标穿透」时才打开穿透（此时通知条与隐藏按钮仍保持可点击）。
         bool topShow = !_layout.AutoHide;
-        _clickThrough = topShow;
+        _clickThrough = _layout.ClickThrough && !_layout.AutoHide;
         _schedule = Store.LoadSchedule();
         _className = s.SelectedClass;
-        FloatingHelper.ApplyLayout(this, _layout, topShow, topShow ? _layout.OverlayOpacity : _layout.Opacity);
-        if (topShow)
-            FloatingHelper.SetClickThrough(this, true, BtnHide);
+        FloatingHelper.ApplyLayout(this, _layout, _clickThrough, topShow ? _layout.OverlayOpacity : _layout.Opacity);
+        if (_clickThrough)
+            FloatingHelper.SetClickThrough(this, true, BtnHide, Bar);
         else
             FloatingHelper.SetClickThrough(this, false);
         TxtMarquee.FontSize = Math.Max(12, _layout.FontSize);

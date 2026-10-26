@@ -29,6 +29,7 @@ public partial class LayoutWindow : Window
         SlSchOpacity.Value = sl.Opacity;
         SlSchOverlay.Value = sl.OverlayOpacity;
         ChkSchTop.IsChecked = sl.TopMost;
+        ChkSchClick.IsChecked = sl.ClickThrough;
         ChkSchHide.IsChecked = sl.AutoHide;
         ChkSchClassHide.IsChecked = sl.AutoHideDuringClass;
 
@@ -40,6 +41,7 @@ public partial class LayoutWindow : Window
         SlNotOpacity.Value = nl.Opacity;
         SlNotOverlay.Value = nl.OverlayOpacity;
         ChkNotTop.IsChecked = nl.TopMost;
+        ChkNotClick.IsChecked = nl.ClickThrough;
         ChkNotHide.IsChecked = nl.AutoHide;
         ChkNotClassHide.IsChecked = nl.AutoHideDuringClass;
     }
@@ -66,9 +68,10 @@ public partial class LayoutWindow : Window
         sl.Opacity = SlSchOpacity.Value;
         sl.OverlayOpacity = SlSchOverlay.Value;
         sl.TopMost = ChkSchTop.IsChecked == true;
-        // 「置顶显示」即开启鼠标穿透，无需单独勾选；这里仅保留靠边隐藏选项
-        sl.AutoHide = ChkSchHide.IsChecked == true;
-        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true;
+        sl.ClickThrough = ChkSchClick.IsChecked == true;
+        // 鼠标穿透与靠边隐藏互斥：穿透开启时强制关闭两类靠边隐藏
+        sl.AutoHide = ChkSchHide.IsChecked == true && !sl.ClickThrough;
+        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true && !sl.ClickThrough;
 
         var nl = _s.NotificationLayout;
         nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
@@ -78,8 +81,9 @@ public partial class LayoutWindow : Window
         nl.Opacity = SlNotOpacity.Value;
         nl.OverlayOpacity = SlNotOverlay.Value;
         nl.TopMost = ChkNotTop.IsChecked == true;
-        nl.AutoHide = ChkNotHide.IsChecked == true;
-        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true;
+        nl.ClickThrough = ChkNotClick.IsChecked == true;
+        nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
+        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true && !nl.ClickThrough;
 
         Store.SaveSettings(_s);
         AppEvents.RaiseLayoutChanged();

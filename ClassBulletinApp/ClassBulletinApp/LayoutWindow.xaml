@@ -35,14 +35,15 @@
                         <Slider x:Name="SlSchOpacity" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtSchOpacity" FontSize="12" Foreground="#6B7280"/>
 
-                        <TextBlock Text="置顶显示时的透明度（此时自动开启鼠标穿透，方便操作底层窗口）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <TextBlock Text="置顶显示时的透明度（半透明常驻，不影响看底层内容）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
                         <Slider x:Name="SlSchOverlay" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtSchOverlay" FontSize="12" Foreground="#6B7280"/>
 
                         <CheckBox x:Name="ChkSchTop" Content="置顶显示（始终在最前）" FontSize="14" Margin="0,16,0,8"/>
+                        <CheckBox x:Name="ChkSchClick" Content="鼠标穿透（教室纯展示：仅隐藏按钮/标题/课卡仍可点，其余区域的点击落到底层窗口）" FontSize="14" Margin="0,0,0,8"/>
                         <CheckBox x:Name="ChkSchHide" Content="自动靠边隐藏（移到屏幕边沿才滑出）" FontSize="14" Margin="0,0,0,4"/>
                         <CheckBox x:Name="ChkSchClassHide" Content="上课时间自动隐藏（上课期间缩到边沿，移到屏幕边沿才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
-                        <TextBlock Text="提示：「置顶显示」会自动开启鼠标穿透并按上方“置顶显示时的透明度”显示，方便操作底层窗口；「自动隐藏」为可交互的普通显示。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock Text="提示：默认不勾选「鼠标穿透」——此时隐藏按钮可单击、标题可双击换班/换日、课卡可拖动调课。「自动隐藏」模式下窗口本身也是可交互的；只有勾选「鼠标穿透」后，非交互区域的鼠标操作才会落到底层窗口。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -73,14 +74,15 @@
                         <Slider x:Name="SlNotOpacity" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotOpacity" FontSize="12" Foreground="#6B7280"/>
 
-                        <TextBlock Text="置顶显示时的透明度（此时自动开启鼠标穿透，方便操作底层窗口）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <TextBlock Text="置顶显示时的透明度（半透明常驻，不影响看底层内容）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
                         <Slider x:Name="SlNotOverlay" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotOverlay" FontSize="12" Foreground="#6B7280"/>
 
                         <CheckBox x:Name="ChkNotTop" Content="置顶显示（始终在最前）" FontSize="14" Margin="0,16,0,8"/>
+                        <CheckBox x:Name="ChkNotClick" Content="鼠标穿透（教室纯展示：仅隐藏按钮与通知条仍可点，其余区域点击落到底层窗口）" FontSize="14" Margin="0,0,0,8"/>
                         <CheckBox x:Name="ChkNotHide" Content="自动靠边隐藏（移到屏幕边沿才滑出）" FontSize="14" Margin="0,0,0,4"/>
                         <CheckBox x:Name="ChkNotClassHide" Content="上课时间自动隐藏（上课期间缩到边沿，移到屏幕边沿才滑出，不影响上课用屏）" FontSize="14" Margin="0,4,0,4"/>
-                        <TextBlock Text="提示：「置顶显示」会自动开启鼠标穿透并按上方“置顶显示时的透明度”显示；「自动隐藏」为可交互的普通显示。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <TextBlock Text="提示：默认不勾选「鼠标穿透」——此时通知条可双击编辑、隐藏按钮可单击。勾选后非交互区域的鼠标操作才会落到底层窗口。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,4,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

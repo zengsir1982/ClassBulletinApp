@@ -10,7 +10,8 @@
         PreviewMouseLeftButtonUp="Window_PreviewMouseLeftButtonUp"
         PreviewMouseMove="Window_PreviewMouseMove"
         PreviewTouchDown="Window_PreviewTouchDown"
-        PreviewTouchUp="Window_PreviewTouchUp">
+        PreviewTouchUp="Window_PreviewTouchUp"
+        LostMouseCapture="Window_LostMouseCapture">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
@@ -54,23 +55,18 @@
             <!-- 课表滚动区 -->
             <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="拖动课卡可调课；右键或长按课卡可调课/代课；双击班级可换班、双击日期可换日（调休上课）"
+                    <TextBlock Text="按住课卡拖动可调课（拖到空节＝移动并清空原节，拖到有课的节＝互换）；右键或长按课卡可调课/代课；双击标题姓名可换班或换教师、双击日期可换日（调休上课）"
                                FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"
                                x:Name="TxtHint"/>
                     <TextBlock x:Name="TxtTeacherHint" Visibility="Collapsed"
-                               Text="双击教师名可切换教师、双击日期可换日（调休上课）"
+                               Text="教师个人课表（不可调课）：双击标题姓名可换其他教师或改看某个班，双击日期可换日（调休上课）"
                                FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"/>
                     <ItemsControl x:Name="TodayPanel">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
                                         CornerRadius="12" Padding="14" Margin="0,0,0,12"
-                                        AllowDrop="True"
-                                        PreviewMouseLeftButtonDown="Card_PreviewMouseLeftButtonDown"
-                                        PreviewMouseMove="Card_PreviewMouseMove"
-                                        PreviewMouseLeftButtonUp="Card_PreviewMouseLeftButtonUp"
-                                        DragOver="Card_DragOver"
-                                        Drop="Card_Drop">
+                                        Cursor="Hand">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="84"/>

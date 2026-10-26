@@ -91,3 +91,28 @@ if (args.Length > 1 && args[1] == "teacher")
     }
     Console.WriteLine("TEACHER DONE");
 }
+
+// ===== 教师提取校验（第二个参数传 "extract"） =====
+if (args.Length > 1 && args[1] == "extract")
+{
+    Console.WriteLine("\n=== 从全校课表反向整理教师个人课表 ===");
+    var teachers = TeacherExtractor.Build(sf);
+    Console.WriteLine($"提取到的教师人数: {teachers.Classes.Count}");
+    var sampleT = teachers.Classes.FirstOrDefault(c => c.ClassName.Contains("曾"))
+                  ?? teachers.Classes.FirstOrDefault();
+    if (sampleT != null)
+    {
+        Console.WriteLine($"=== 样例教师: {sampleT.ClassName} ===");
+        string[] names = { "周一", "周二", "周三", "周四", "周五" };
+        for (int d = 0; d < 5; d++)
+        {
+            if (!sampleT.Data.TryGetValue(d, out var day)) continue;
+            Console.WriteLine($" {names[d]}:");
+            foreach (var p in day.Keys.OrderBy(k => k))
+                foreach (var l in day[p])
+                    Console.WriteLine($"   第{p}节 {l.TimeRange} {l.Subject} / 班级={l.Teacher} {l.Location}");
+        }
+    }
+    Console.WriteLine($"全校教师课时总数: {teachers.Classes.Sum(c => c.Data.Values.Sum(d => d.Values.Sum(v => v.Count)))}");
+    Console.WriteLine("EXTRACT DONE");
+}

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -18,14 +19,18 @@ public partial class MainWindow : Window
     private bool _exiting;
 
     private ScheduleWindow? _schWin;
-    private ScheduleWindow? _teacherWin;
     private NotificationWindow? _notifWin;
-    private bool _schOn, _notOn, _teacherOn;
+    private bool _schOn, _notOn;
     private System.Windows.Forms.NotifyIcon? _tray;
+
+    // 教师个人课表下拉（支持输入姓名查询）
+    private List<string> _allTeachers = new();
+    private bool _teacherGuard;
 
     // 桌面最大化窗口自动隐藏
     private readonly DispatcherTimer _winTimer;
     private bool _maxActive;
+    private DispatcherTimer? _hwApplyTimer;
 
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
@@ -67,6 +72,8 @@ public partial class MainWindow : Window
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
             ReloadHomework();
+            RefreshTeacherCombo();
+            UpdateModeIndicator();
         }
         catch (Exception ex)
         {
@@ -82,7 +89,6 @@ public partial class MainWindow : Window
         {
             if (settings.AutoShowSchedule) ShowScheduleWin();
             if (settings.AutoShowNotification) ShowNotificationWin();
-            if (settings.AutoShowTeacher) ShowTeacherWin();
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
@@ -128,25 +134,6 @@ public partial class MainWindow : Window
         UpdateToggleLabels();
     }
 
-    private void ShowTeacherWin()
-    {
-        if (_teacherWin == null)
-        {
-            _teacherWin = new ScheduleWindow { Kind = "Teacher" };
-            _teacherWin.Closed += (_, _) => { _teacherWin = null; _teacherOn = false; UpdateToggleLabels(); };
-        }
-        _teacherWin.Show();
-        _teacherOn = true;
-        UpdateToggleLabels();
-    }
-
-    private void HideTeacherWin()
-    {
-        _teacherWin?.Hide();
-        _teacherOn = false;
-        UpdateToggleLabels();
-    }
-
     private void HideNotificationWin()
     {
         _notifWin?.Hide();
@@ -158,7 +145,17 @@ public partial class MainWindow : Window
     {
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
-        BtnToggleTeacher.Content = _teacherOn ? "教师课表：开" : "教师课表：关";
+        UpdateModeIndicator();
+    }
+
+    /// <summary>顶栏提示当前悬浮课表显示的是班级课表还是教师个人课表。</summary>
+    private void UpdateModeIndicator()
+    {
+        var s = Store.LoadSettings();
+        bool teacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+        TxtCurrentMode.Text = teacher
+            ? $"当前显示：教师 {s.SelectedTeacher}"
+            : $"当前显示：{s.SelectedClass}";
     }
 
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
@@ -169,11 +166,6 @@ public partial class MainWindow : Window
     private void BtnToggleNot_Click(object sender, RoutedEventArgs e)
     {
         if (_notOn) HideNotificationWin(); else ShowNotificationWin();
-    }
-
-    private void BtnToggleTeacher_Click(object sender, RoutedEventArgs e)
-    {
-        if (_teacherOn) HideTeacherWin(); else ShowTeacherWin();
     }
 
     private void BtnLayout_Click(object sender, RoutedEventArgs e)
@@ -194,10 +186,9 @@ public partial class MainWindow : Window
         var menu = new System.Windows.Forms.ContextMenuStrip();
         var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
-        var miTeacher = new System.Windows.Forms.ToolStripMenuItem("教师课表：开/关", null, (_, _) => BtnToggleTeacher_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
-        menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { miPanel, miSch, miTeacher, miNot, miExit });
+        menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { miPanel, miSch, miNot, miExit });
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowMainWindow();
     }
@@ -227,12 +218,11 @@ public partial class MainWindow : Window
         }
         _tray?.Dispose();
         _schWin?.Close();
-        _teacherWin?.Close();
         _notifWin?.Close();
         base.OnClosing(e);
     }
 
-    // ---------- 班级选择 ----------
+    // ---------- 班级选择（切换到班级课表） ----------
     private void CbClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var cls = CbClass.SelectedItem as string;
@@ -240,9 +230,158 @@ public partial class MainWindow : Window
         {
             var s = Store.LoadSettings();
             s.SelectedClass = cls;
+            s.ScheduleKind = "Class";
             Store.SaveSettings(s);
+            UpdateModeIndicator();
         }
         AppEvents.RaiseScheduleChanged();
+    }
+
+    // ---------- 教师选择（切换到教师个人课表；可输入姓名查询） ----------
+    private void RefreshTeacherCombo()
+    {
+        var sf = Store.LoadTeacherSchedule();
+        _allTeachers = sf?.Classes.Select(c => c.ClassName).Where(n => !string.IsNullOrEmpty(n)).ToList()
+                       ?? new List<string>();
+        var s = Store.LoadSettings();
+        bool teacherMode = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+        string cur = (teacherMode && _allTeachers.Contains(s.SelectedTeacher)) ? s.SelectedTeacher : "";
+        SetTeacherItems(_allTeachers.ToList(), cur, false);
+    }
+
+    private void SetTeacherItems(List<string> items, string text, bool openDrop)
+    {
+        _teacherGuard = true;
+        try
+        {
+            CbTeacher.ItemsSource = items;
+            CbTeacher.Text = text;
+        }
+        finally { _teacherGuard = false; }
+        if (openDrop && items.Count > 0 && CbTeacher.IsFocused) CbTeacher.IsDropDownOpen = true;
+        RestoreTeacherCaret(text);
+    }
+
+    private void RestoreTeacherCaret(string q)
+    {
+        var tb = CbTeacher.Template?.FindName("PART_EditableTextBox", CbTeacher) as System.Windows.Controls.TextBox;
+        if (tb != null)
+        {
+            tb.SelectionStart = q?.Length ?? 0;
+            tb.SelectionLength = 0;
+        }
+    }
+
+    private void CbTeacher_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_teacherGuard) return;
+        FilterTeachers(true);
+    }
+
+    private void FilterTeachers(bool openDrop)
+    {
+        string q = (CbTeacher.Text ?? "").Trim();
+        var list = string.IsNullOrEmpty(q)
+            ? _allTeachers.ToList()
+            : _allTeachers.Where(n => n.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+        SetTeacherItems(list, q, openDrop);
+    }
+
+    private void CbTeacher_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_teacherGuard) return;
+        if (CbTeacher.SelectedItem is string name && !string.IsNullOrEmpty(name))
+            SelectTeacher(name);
+    }
+
+    private void SelectTeacher(string name)
+    {
+        var s = Store.LoadSettings();
+        s.ScheduleKind = "Teacher";
+        s.SelectedTeacher = name;
+        Store.SaveSettings(s);
+        _teacherGuard = true;
+        CbTeacher.Text = name;
+        _teacherGuard = false;
+        UpdateModeIndicator();
+        TxtStatus.Text = $"悬浮课表已切换为教师「{name}」的个人课表（双击悬浮课表标题的姓名处可再切换）。";
+        AppEvents.RaiseScheduleChanged();
+    }
+
+    private void CbTeacher_LostFocus(object sender, RoutedEventArgs e)
+    {
+        string input = (CbTeacher.Text ?? "").Trim();
+        if (input.Length > 0)
+        {
+            var exact = _allTeachers.FirstOrDefault(n => n.Equals(input, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) { SelectTeacher(exact); return; }
+        }
+        var s = Store.LoadSettings();
+        bool teacherMode = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+        string cur = (teacherMode && _allTeachers.Contains(s.SelectedTeacher)) ? s.SelectedTeacher : "";
+        SetTeacherItems(_allTeachers.ToList(), cur, false);
+    }
+
+    // ---------- 课表导入后的统一处理（含教师个人课表整理） ----------
+    private void ApplyImportedSchedule(ScheduleFile sf, string importPath, out int teacherCount)
+    {
+        Store.SaveSchedule(sf);
+        ClassNames.Clear();
+        foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
+
+        var st = Store.LoadSettings();
+        st.LastImportPath = importPath;
+        if (ClassNames.Count > 0 &&
+            (string.IsNullOrEmpty(st.SelectedClass) || !ClassNames.Contains(st.SelectedClass)))
+            st.SelectedClass = ClassNames[0];
+        Store.SaveSettings(st);
+
+        if (!string.IsNullOrEmpty(st.SelectedClass) && ClassNames.Contains(st.SelectedClass))
+            CbClass.SelectedItem = st.SelectedClass;
+        else if (ClassNames.Count > 0)
+            CbClass.SelectedIndex = 0;
+
+        teacherCount = ExtractTeachers(sf);
+        RefreshTeacherCombo();
+        UpdateModeIndicator();
+    }
+
+    /// <summary>由已导入课表反向整理教师个人课表并保存，返回教师人数。</summary>
+    private int ExtractTeachers(ScheduleFile sf)
+    {
+        try
+        {
+            var ts = TeacherExtractor.Build(sf);
+            if (ts.Classes.Count == 0) return 0;
+            Store.SaveTeacherSchedule(ts);
+            var s = Store.LoadSettings();
+            if (string.IsNullOrEmpty(s.SelectedTeacher) || !ts.Classes.Any(c => c.ClassName == s.SelectedTeacher))
+            {
+                s.SelectedTeacher = ts.Classes[0].ClassName;
+                Store.SaveSettings(s);
+            }
+            return ts.Classes.Count;
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "整理教师个人课表时出错：" + ex.Message;
+            return 0;
+        }
+    }
+
+    /// <summary>把单独导入的教师个人课表合并进教师库（保留已整理的其他教师）。</summary>
+    private void MergeTeacherSchedule(ScheduleFile imported)
+    {
+        var existing = Store.LoadTeacherSchedule() ?? new ScheduleFile();
+        foreach (var cs in imported.Classes)
+        {
+            existing.Classes.RemoveAll(c => c.ClassName == cs.ClassName);
+            existing.Classes.Add(cs);
+        }
+        existing.SourceFile = imported.SourceFile;
+        existing.ImportedAt = DateTime.Now;
+        Store.SaveTeacherSchedule(existing);
+        RefreshTeacherCombo();
     }
 
     // ---------- 导入课表 ----------
@@ -257,16 +396,9 @@ public partial class MainWindow : Window
         try
         {
             var sf = ScheduleImporter.Import(dlg.FileName);
-            Store.SaveSchedule(sf);
-            ClassNames.Clear();
-            foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
-            if (ClassNames.Count > 0) CbClass.SelectedIndex = 0;
+            ApplyImportedSchedule(sf, dlg.FileName, out int tc);
 
-            var st = Store.LoadSettings();
-            st.LastImportPath = dlg.FileName;
-            Store.SaveSettings(st);
-
-            TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级。";
+            TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级；已整理 {tc} 位教师的个人课表（顶栏「教师」下拉可输入姓名查询）。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -287,10 +419,7 @@ public partial class MainWindow : Window
         try
         {
             var (sf, tempOverrides) = ScheduleImporter.ImportTempSchedule(dlg.FileName);
-            Store.SaveSchedule(sf);
-            ClassNames.Clear();
-            foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
-            if (ClassNames.Count > 0) CbClass.SelectedIndex = 0;
+            ApplyImportedSchedule(sf, dlg.FileName, out int tcTemp);
 
             // 合并调/代覆盖：移除旧的导入来源，保留手动记录，再写入本次导入结果
             var list = Store.LoadOverrides();
@@ -298,13 +427,9 @@ public partial class MainWindow : Window
             list.AddRange(tempOverrides);
             Store.SaveOverrides(list);
 
-            var st = Store.LoadSettings();
-            st.LastImportPath = dlg.FileName;
-            Store.SaveSettings(st);
-
             int tiao = tempOverrides.Count(o => o.Type == "调");
             int dai = tempOverrides.Count(o => o.Type == "代");
-            TxtStatus.Text = $"已导入临时课表，共 {ClassNames.Count} 个班级；调课 {tiao} 条、代课 {dai} 条。";
+            TxtStatus.Text = $"已导入临时课表，共 {ClassNames.Count} 个班级；调课 {tiao} 条、代课 {dai} 条；已整理 {tcTemp} 位教师的个人课表。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -325,22 +450,18 @@ public partial class MainWindow : Window
         try
         {
             var sf = ScheduleImporter.ImportSingleClass(dlg.FileName);
-            Store.SaveSchedule(sf);
-            ClassNames.Clear();
-            foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
+            ApplyImportedSchedule(sf, dlg.FileName, out int tcSingle);
+
             if (ClassNames.Count > 0)
             {
-                CbClass.SelectedIndex = 0;
                 var st = Store.LoadSettings();
                 st.SelectedClass = ClassNames[0];
+                st.ScheduleKind = "Class";
                 Store.SaveSettings(st);
+                UpdateModeIndicator();
             }
 
-            var st2 = Store.LoadSettings();
-            st2.LastImportPath = dlg.FileName;
-            Store.SaveSettings(st2);
-
-            TxtStatus.Text = $"已导入单个班级课表：{sf.Classes.Count} 个班级（{string.Join("、", sf.Classes.Select(c => c.ClassName))}）。";
+            TxtStatus.Text = $"已导入单个班级课表：{sf.Classes.Count} 个班级（{string.Join("、", sf.Classes.Select(c => c.ClassName))}）；已整理 {tcSingle} 位教师的个人课表。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -361,18 +482,19 @@ public partial class MainWindow : Window
         try
         {
             var sf = ScheduleImporter.ImportTeacherSchedule(dlg.FileName);
-            Store.SaveTeacherSchedule(sf);
+            MergeTeacherSchedule(sf);
             if (sf.Classes.Count > 0)
             {
                 var st = Store.LoadSettings();
                 st.SelectedTeacher = sf.Classes[0].ClassName;
+                st.ScheduleKind = "Teacher";
+                st.LastImportPath = dlg.FileName;
                 Store.SaveSettings(st);
+                RefreshTeacherCombo();
+                UpdateModeIndicator();
             }
-            var st2 = Store.LoadSettings();
-            st2.LastImportPath = dlg.FileName;
-            Store.SaveSettings(st2);
 
-            TxtStatus.Text = $"已导入教师课表：{sf.Classes.Count} 位教师（{string.Join("、", sf.Classes.Select(c => c.ClassName))}）。可在「显示设置」开启教师课表悬浮窗。";
+            TxtStatus.Text = $"已导入并切换到教师课表：{string.Join("、", sf.Classes.Select(c => c.ClassName))}。悬浮课表已显示该教师的个人课表（双击标题姓名可切换）。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -462,13 +584,11 @@ public partial class MainWindow : Window
             {
                 // 临时隐藏，但不改变用户的“开关意图”
                 _schWin?.Hide();
-                _teacherWin?.Hide();
                 _notifWin?.Hide();
             }
             else
             {
                 if (_schOn) _schWin?.Show();
-                if (_teacherOn) _teacherWin?.Show();
                 if (_notOn) _notifWin?.Show();
             }
         }
@@ -530,6 +650,13 @@ public partial class MainWindow : Window
     private void SaveNotes() => Store.SaveNotifications(Notifications.ToList());
 
     // ---------- 作业公示 ----------
+    private static readonly string[] HwAnchors =
+    {
+        "TopLeft", "TopCenter", "TopRight",
+        "MiddleLeft", "MiddleCenter", "MiddleRight",
+        "BottomLeft", "BottomCenter", "BottomRight"
+    };
+
     private void ReloadHomework()
     {
         var board = Store.LoadHomework();
@@ -538,9 +665,118 @@ public partial class MainWindow : Window
         {
             TxtHwTitle.Text = board.Title;
             foreach (var it in board.Items) HomeworkItems.Add(it);
+            ApplyHwLayoutToUi(board.Layout);
+        }
+        else
+        {
+            TxtHwTitle.Text = "各科作业公示";
+            ApplyHwLayoutToUi(null);
         }
         if (HomeworkItems.Count == 0)
             HomeworkItems.Add(new HomeworkItem());
+    }
+
+    private void ApplyHwLayoutToUi(HomeworkWallpaperLayout? lay)
+    {
+        string anchor = string.IsNullOrEmpty(lay?.Anchor) ? "MiddleRight" : lay!.Anchor;
+        int idx = Array.IndexOf(HwAnchors, anchor);
+        if (idx < 0) idx = 5;
+        CbHwAnchor.SelectedIndex = idx;
+        SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
+        SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
+        double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
+        SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
+        UpdateHwLabels();
+    }
+
+    private HomeworkWallpaperLayout CurrentHwLayout() => new()
+    {
+        Anchor = CbHwAnchor.SelectedIndex >= 0 && CbHwAnchor.SelectedIndex < HwAnchors.Length
+            ? HwAnchors[CbHwAnchor.SelectedIndex]
+            : "MiddleRight",
+        OffsetX = SlHwX.Value,
+        OffsetY = SlHwY.Value,
+        WidthRatio = SlHwWidth.Value
+    };
+
+    private HomeworkBoard BuildHomeworkBoard() => new()
+    {
+        Title = (TxtHwTitle.Text ?? "").Trim(),
+        Items = HomeworkItems
+            .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
+            .Select(x => new HomeworkItem { Subject = (x.Subject ?? "").Trim(), Content = (x.Content ?? "").Trim() })
+            .ToList(),
+        UpdatedAt = DateTime.Now,
+        Layout = CurrentHwLayout()
+    };
+
+    private void HwLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateHwLabels();
+        ScheduleHwRepaint();
+    }
+
+    private void UpdateHwLabels()
+    {
+        TxtHwX.Text = $"{SlHwX.Value:0} 像素";
+        TxtHwY.Text = $"{SlHwY.Value:0} 像素";
+        TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
+    }
+
+    /// <summary>已经应用为桌面背景时，调整参数后自动重绘（防抖 0.5 秒），方便直观调整位置。</summary>
+    private void ScheduleHwRepaint()
+    {
+        string outPath = Path.Combine(Store.AppDir, "homework_wallpaper.png");
+        var cur = WallpaperHelper.GetCurrentWallpaper();
+        if (!string.Equals(cur, outPath, StringComparison.OrdinalIgnoreCase)) return;
+
+        _hwApplyTimer?.Stop();
+        _hwApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _hwApplyTimer.Tick += (_, _) =>
+        {
+            _hwApplyTimer?.Stop();
+            ApplyHomeworkWallpaper(silent: true);
+        };
+        _hwApplyTimer.Start();
+    }
+
+    private void ApplyHomeworkWallpaper(bool silent)
+    {
+        try
+        {
+            var board = BuildHomeworkBoard();
+            Store.SaveHomework(board);
+
+            var screen = System.Windows.Forms.Screen.PrimaryScreen;
+            if (screen == null)
+            {
+                if (!silent) TxtStatus.Text = "无法获取主屏幕分辨率，应用壁纸失败。";
+                return;
+            }
+            string outPath = Path.Combine(Store.AppDir, "homework_wallpaper.png");
+            HomeworkRenderer.RenderToPng(board, screen.Bounds.Width, screen.Bounds.Height, outPath);
+
+            // 首次应用前记录系统原壁纸，便于「清除」恢复
+            var cur = WallpaperHelper.GetCurrentWallpaper();
+            if (!string.Equals(cur, outPath, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(cur))
+            {
+                var st = Store.LoadSettings();
+                if (string.IsNullOrEmpty(st.SavedWallpaper)) { st.SavedWallpaper = cur; Store.SaveSettings(st); }
+            }
+            WallpaperHelper.SetWallpaper(outPath);
+            if (!silent)
+                TxtStatus.Text = $"作业公示已保存并应用为桌面背景（共 {board.Items.Count} 科）。调整位置/偏移/宽度会自动更新。";
+        }
+        catch (Exception ex)
+        {
+            if (!silent) TxtStatus.Text = "应用作业公示壁纸失败：" + ex.Message;
+        }
+    }
+
+    private void BtnHwPreview_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyHomeworkWallpaper(silent: false);
+        WindowState = WindowState.Minimized;   // 最小化控制面板，便于看到壁纸效果
     }
 
     private void BtnAddHw_Click(object sender, RoutedEventArgs e)
@@ -555,42 +791,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BtnSaveHw_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var board = new HomeworkBoard
-            {
-                Title = (TxtHwTitle.Text ?? "").Trim(),
-                Items = HomeworkItems
-                    .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
-                    .Select(x => new HomeworkItem { Subject = (x.Subject ?? "").Trim(), Content = (x.Content ?? "").Trim() })
-                    .ToList(),
-                UpdatedAt = DateTime.Now
-            };
-            Store.SaveHomework(board);
-
-            // 渲染为图片并设为桌面壁纸（置于桌面背景，不影响操作）
-            var screen = System.Windows.Forms.Screen.PrimaryScreen;
-            if (screen == null) { TxtStatus.Text = "无法获取主屏幕分辨率，应用壁纸失败。"; return; }
-            string outPath = Path.Combine(Store.AppDir, "homework_wallpaper.png");
-            HomeworkRenderer.RenderToPng(board, screen.Bounds.Width, screen.Bounds.Height, outPath);
-
-            // 首次应用前记录系统原壁纸，便于「清除」恢复
-            var cur = WallpaperHelper.GetCurrentWallpaper();
-            if (!string.Equals(cur, outPath, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(cur))
-            {
-                var st = Store.LoadSettings();
-                if (string.IsNullOrEmpty(st.SavedWallpaper)) { st.SavedWallpaper = cur; Store.SaveSettings(st); }
-            }
-            WallpaperHelper.SetWallpaper(outPath);
-            TxtStatus.Text = $"作业公示已保存并应用为桌面背景（共 {board.Items.Count} 科）。";
-        }
-        catch (Exception ex)
-        {
-            TxtStatus.Text = "应用作业公示壁纸失败：" + ex.Message;
-        }
-    }
+    private void BtnSaveHw_Click(object sender, RoutedEventArgs e) => ApplyHomeworkWallpaper(silent: false);
 
     private void BtnClearHw_Click(object sender, RoutedEventArgs e)
     {

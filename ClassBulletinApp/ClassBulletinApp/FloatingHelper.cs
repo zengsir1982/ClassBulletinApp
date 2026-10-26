@@ -18,6 +18,7 @@ public static class FloatingHelper
     private const int WS_EX_TRANSPARENT = 0x20;
     private const int WM_NCHITTEST = 0x84;
     private const int HTTRANSPARENT = -1;
+    private const int HTCLIENT = 1;
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
@@ -77,11 +78,14 @@ public static class FloatingHelper
                                   .TransformBounds(new Rect(0, 0, el.ActualWidth, el.ActualHeight));
                         if (tb.Contains(rel))
                         {
-                            handled = false;          // 交还 WPF 正常命中测试 → 元素可点击
-                            return IntPtr.Zero;
+                            // 关键：必须显式返回 HTCLIENT。
+                            // 只把 handled 置 false 会让 DefWindowProc 因 WS_EX_TRANSPARENT
+                            // 仍然返回 HTTRANSPARENT，导致该区域收不到鼠标消息（表现为不可点击）。
+                            handled = true;
+                            return new IntPtr(HTCLIENT);
                         }
                     }
-                    handled = true;                   // 其余区域穿透
+                    handled = true;                   // 其余区域穿透到底层窗口
                     return new IntPtr(HTTRANSPARENT);
                 }
                 return IntPtr.Zero;
@@ -145,10 +149,12 @@ public class AutoHider : IDisposable
     private const double Sliver = 20;
     private const double Ease = 0.3;
 
+    /// <summary>拖动等操作期间置为 true 可临时停止自动隐藏，避免操作时窗口缩回。</summary>
+    public bool Suspended { get; set; }
+
     public AutoHider(Window w, PanelLayout l, Func<bool> enforceHide)
     {
-        _w = w;
-        _l = l;
+        _w = w;        _l = l;
         _enforceHide = enforceHide;
         ComputeRects();
         _lastEnforce = _enforceHide();
@@ -205,6 +211,9 @@ public class AutoHider : IDisposable
 
     private void Tick(object? sender, EventArgs e)
     {
+        // 拖动等操作期间暂停自动隐藏，避免操作过程中窗口缩回导致拖不动
+        if (Suspended) return;
+
         bool enforce = _enforceHide();
         if (enforce != _lastEnforce)
         {
