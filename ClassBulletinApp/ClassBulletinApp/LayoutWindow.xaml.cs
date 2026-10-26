@@ -17,6 +17,34 @@ public partial class LayoutWindow : Window
         WireLabels();
     }
 
+    // ---------- 悬浮小条位置恢复默认 ----------
+    private void BtnSchDockReset_Click(object sender, RoutedEventArgs e) => ResetDockPosition(true);
+
+    private void BtnNotDockReset_Click(object sender, RoutedEventArgs e) => ResetDockPosition(false);
+
+    private void ResetDockPosition(bool schedule)
+    {
+        var s = Store.LoadSettings();
+        if (schedule)
+        {
+            s.ScheduleLayout.DockLeft = double.NaN;
+            s.ScheduleLayout.DockTop = double.NaN;
+        }
+        else
+        {
+            s.NotificationLayout.DockLeft = double.NaN;
+            s.NotificationLayout.DockTop = double.NaN;
+        }
+        Store.SaveSettings(s);
+        AppEvents.RaiseLayoutChanged();
+        _s.ScheduleLayout = s.ScheduleLayout;
+        _s.NotificationLayout = s.NotificationLayout;
+        System.Windows.MessageBox.Show(
+            schedule ? "课表悬浮小条已恢复为默认贴边位置（下次自动隐藏时生效）。"
+                     : "通知悬浮条已恢复为默认贴边位置（下次自动隐藏时生效）。",
+            "已恢复默认位置", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void LoadValues()
     {
         var sl = _s.ScheduleLayout;

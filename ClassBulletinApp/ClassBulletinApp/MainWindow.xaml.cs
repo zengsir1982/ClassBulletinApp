@@ -74,6 +74,7 @@ public partial class MainWindow : Window
             }
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
+            ChkFullHide.IsChecked = settings.AutoHideOnFullscreen;
             ReloadNotes();
             ReloadHomework();
             RefreshTeacherCombo();
@@ -388,6 +389,85 @@ public partial class MainWindow : Window
         RefreshTeacherCombo();
     }
 
+    // ---------- 导入前清除确认 ----------
+    /// <summary>列出当前已有的某类数据；没有则返回空串（不显示在确认框里）。</summary>
+    private static string LineClasses()
+    {
+        var sf = Store.LoadSchedule();
+        return sf == null || sf.Classes.Count == 0 ? "" : $"班级课表（{sf.Classes.Count} 个班）";
+    }
+
+    private static string LineTeachers()
+    {
+        var ts = Store.LoadTeacherSchedule();
+        return ts == null || ts.Classes.Count == 0
+            ? ""
+            : $"教师个人课表（{ts.Classes.Count} 位教师，导入后会按新课表重新整理）";
+    }
+
+    private static string LineOverridesAll()
+    {
+        int n = Store.LoadOverrides().Count;
+        return n == 0 ? "" : $"全部调课 / 代课记录（{n} 条）";
+    }
+
+    private static string LineOverridesTemp()
+    {
+        int n = Store.LoadOverrides().Count(o => o.Source == "temp");
+        return n == 0 ? "" : $"上次导入的临时调课 / 代课记录（{n} 条；手动录入的 {Store.LoadOverrides().Count - n} 条保留）";
+    }
+
+    /// <summary>导入前弹出确认框，列出将被清除的原有数据；用户确认后才继续导入。</summary>
+    private static bool ConfirmBeforeImport(string importName, params string?[] clearLines)
+    {
+        var lines = clearLines.Where(x => !string.IsNullOrEmpty(x)).Select(x => "· " + x).ToList();
+        string msg = lines.Count == 0
+            ? $"将导入『{importName}』。\n\n当前没有需要清除的同类原有数据，确定导入吗？"
+            : $"将导入『{importName}』。\n\n确定后将清除以下原有数据，并更新为本次导入的内容：\n\n"
+              + string.Join("\n", lines)
+              + "\n\n确定继续吗？（此操作对原有数据不可撤销）";
+
+        return System.Windows.MessageBox.Show(msg, "导入前确认：清除原有数据",
+                   MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+    }
+
+    // ---------- 清除所有原有数据 ----------
+    private void BtnClearAllData_Click(object sender, RoutedEventArgs e)
+    {
+        string summary =
+            $"· 班级课表（{Store.LoadSchedule()?.Classes.Count ?? 0} 个班）\n" +
+            $"· 教师个人课表（{Store.LoadTeacherSchedule()?.Classes.Count ?? 0} 位教师）\n" +
+            $"· 调课 / 代课记录（{Store.LoadOverrides().Count} 条）\n" +
+            $"· 通知公告（{Store.LoadNotifications().Count} 条）";
+
+        if (System.Windows.MessageBox.Show(
+                $"确定清除全部原有数据吗？\n\n{summary}\n\n清除后需要重新导入课表才能显示内容。此操作不可撤销。",
+                "清除所有原有数据", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation) != MessageBoxResult.OK)
+            return;
+
+        Store.ClearAllData();
+
+        ClassNames.Clear();
+        Notifications.Clear();
+        _allTeachers = new List<string>();
+        SetTeacherItems(_allTeachers.ToList(), "", false);
+
+        var s = Store.LoadSettings();
+        s.SelectedClass = "";
+        s.SelectedTeacher = "";
+        s.ScheduleKind = "Class";
+        s.LastImportPath = "";
+        s.DisplayDateMode = "Today";
+        s.FixedDisplayDate = "";
+        Store.SaveSettings(s);
+
+        ReloadNotes();
+        UpdateModeIndicator();
+        AppEvents.RaiseScheduleChanged();
+        AppEvents.RaiseNotificationChanged();
+        TxtStatus.Text = "已清除全部原有数据（班级课表、教师课表、调代课记录、通知公告）。请重新导入课表。";
+    }
+
     // ---------- 导入课表 ----------
     private void BtnImport_Click(object sender, RoutedEventArgs e)
     {
@@ -399,10 +479,19 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
-            var sf = ScheduleImporter.Import(dlg.FileName);
+            var sf = ScheduleImporter.Import(dlg.FileName);   // 先解析成功，再清除旧数据，避免解析失败丢数据
+
+            if (!ConfirmBeforeImport("全校总课程表", LineClasses(), LineTeachers(), LineOverridesAll()))
+            {
+                TxtStatus.Text = "已取消导入，原有数据未做任何改动。";
+                return;
+            }
+            Store.DeleteOverrides();            // 全校新课表替换旧的调代课记录
+            Store.DeleteTeacherSchedule();      // 教师课表随后按新课表重新整理
+
             ApplyImportedSchedule(sf, dlg.FileName, out int tc);
 
-            TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级；已整理 {tc} 位教师的个人课表（顶栏「教师」下拉可输入姓名查询）。";
+            TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级；已整理 {tc} 位教师的个人课表（顶栏「教师」下拉可输入姓名查询）。原有数据已更新。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -423,6 +512,14 @@ public partial class MainWindow : Window
         try
         {
             var (sf, tempOverrides) = ScheduleImporter.ImportTempSchedule(dlg.FileName);
+
+            if (!ConfirmBeforeImport("全校班级临时总课表", LineClasses(), LineTeachers(), LineOverridesTemp()))
+            {
+                TxtStatus.Text = "已取消导入，原有数据未做任何改动。";
+                return;
+            }
+            Store.DeleteTeacherSchedule();
+
             ApplyImportedSchedule(sf, dlg.FileName, out int tcTemp);
 
             // 合并调/代覆盖：移除旧的导入来源，保留手动记录，再写入本次导入结果
@@ -454,6 +551,15 @@ public partial class MainWindow : Window
         try
         {
             var sf = ScheduleImporter.ImportSingleClass(dlg.FileName);
+
+            if (!ConfirmBeforeImport("单个班级课表", LineClasses(), LineTeachers(), LineOverridesAll()))
+            {
+                TxtStatus.Text = "已取消导入，原有数据未做任何改动。";
+                return;
+            }
+            Store.DeleteOverrides();
+            Store.DeleteTeacherSchedule();
+
             ApplyImportedSchedule(sf, dlg.FileName, out int tcSingle);
 
             if (ClassNames.Count > 0)
@@ -486,6 +592,13 @@ public partial class MainWindow : Window
         try
         {
             var sf = ScheduleImporter.ImportTeacherSchedule(dlg.FileName);
+
+            string names = string.Join("、", sf.Classes.Select(c => c.ClassName));
+            if (!ConfirmBeforeImport("单个教师课表", $"同名教师的原有课表记录：{names}（其他教师的记录保留）"))
+            {
+                TxtStatus.Text = "已取消导入，原有数据未做任何改动。";
+                return;
+            }
             MergeTeacherSchedule(sf);
             if (sf.Classes.Count > 0)
             {
@@ -564,6 +677,17 @@ public partial class MainWindow : Window
     }
 
     // ---------- 桌面最大化窗口自动隐藏 ----------
+    private void ChkFullHide_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        s.AutoHideOnFullscreen = ChkFullHide.IsChecked == true;
+        Store.SaveSettings(s);
+        CheckMaxWindow(force: true);
+        TxtStatus.Text = s.AutoHideOnFullscreen
+            ? "已开启：全屏播放课件 / 放映文档时自动隐藏通知栏与悬浮课表（退出全屏后自动恢复）。"
+            : "已关闭全屏自动隐藏。";
+    }
+
     private void ChkMaxHide_Click(object sender, RoutedEventArgs e)
     {
         var s = Store.LoadSettings();
@@ -579,8 +703,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            bool enabled = Store.LoadSettings().AutoHideOnMaxWindow;
-            bool active = enabled && WinDetect.IsMaximizedWindowPresent();
+            var settings = Store.LoadSettings();
+            bool enabledFull = settings.AutoHideOnFullscreen;
+            bool enabledMax = settings.AutoHideOnMaxWindow;
+            // 全屏（课件放映 / 全屏视频）优先，其次最大化窗口
+            bool active = WinDetect.ShouldAutoHide(enabledFull, enabledMax);
             if (!force && active == _maxActive) return;
             _maxActive = active;
 

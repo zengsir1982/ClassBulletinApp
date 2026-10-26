@@ -132,49 +132,95 @@ public static class FloatingHelper
 }
 
 /// <summary>
-/// 自动靠边隐藏：窗口停靠在屏幕边缘，只有把鼠标/触摸移到屏幕边沿（露出的细条）才滑出，
-/// 离开后平滑缩回成一条细边。采用事件驱动（MouseEnter/Leave + TouchEnter/Leave）。
-/// enforceHide 谓词决定当前是否应强制隐藏：AutoHide 常开，或“上课时间自动隐藏”且正在上课。
+/// 自动靠边隐藏：隐藏时不再把窗口移出屏幕，而是<b>缩小成一条悬浮小条</b>（可拖动、位置可记忆），
+/// 鼠标移到小条上时滑出还原为完整面板，离开后缩回小条。
+/// enforceHide 谓词决定当前是否允许隐藏：AutoHide 常开，或“上课时间自动隐藏”且正在上课。
 /// </summary>
 public class AutoHider : IDisposable
 {
     private readonly Window _w;
     private readonly PanelLayout _l;
     private readonly Func<bool> _enforceHide;
+    private readonly Action<bool>? _onCompactChanged;
     private readonly DispatcherTimer _t;
     private Rect _shown, _hidden;
-    private double _curLeft, _curTop;
-    private bool _pointerOver;
+    private double _curLeft, _curTop, _curW, _curH;
     private bool _lastEnforce;
-    private const double Sliver = 20;
-    private const double Ease = 0.3;
+    private bool _compact;
+    private const double Ease = 0.32;
 
-    /// <summary>拖动等操作期间置为 true 可临时停止自动隐藏，避免操作时窗口缩回。</summary>
+    // 悬停延时展开：鼠标刚碰到小条时先不展开，避免“想拖动却立刻滑出大面板”
+    private readonly DispatcherTimer _hover;
+    private const int HoverDelayMs = 350;
+    private bool _hovering;
+    private bool _expanding;
+    private bool _suppressUntilLeave;
+
+    /// <summary>拖动等操作期间置为 true 可临时停止自动隐藏动画，避免操作时窗口缩回。</summary>
     public bool Suspended { get; set; }
 
-    public AutoHider(Window w, PanelLayout l, Func<bool> enforceHide)
+    /// <summary>当前是否处于“缩小小条”状态。</summary>
+    public bool IsCompact => _compact;
+
+    /// <summary>小条当前矩形（屏幕坐标），供窗口做拖动定位与保存。</summary>
+    public Rect DockRect => _hidden;
+
+    public AutoHider(Window w, PanelLayout l, Func<bool> enforceHide, Action<bool>? onCompactChanged = null)
     {
-        _w = w;        _l = l;
+        _w = w;
+        _l = l;
         _enforceHide = enforceHide;
+        _onCompactChanged = onCompactChanged;
         ComputeRects();
         _lastEnforce = _enforceHide();
-        _curLeft = _lastEnforce ? _hidden.X : _shown.X;
-        _curTop = _lastEnforce ? _hidden.Y : _shown.Y;
-        _w.Left = _curLeft;
-        _w.Top = _curTop;
+        SetCur(_lastEnforce, snap: true);
+        ApplyRect();
+        SetCompact(_lastEnforce, fire: false);
+        // 构造时就已处于隐藏态时，同步一次界面（否则窗口已缩小却仍显示完整面板内容）
+        if (_compact) _onCompactChanged?.Invoke(true);
 
         _w.MouseEnter += OnEnter;
         _w.MouseLeave += OnLeave;
         _w.TouchEnter += OnEnter;
         _w.TouchLeave += OnLeave;
 
+        _hover = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(HoverDelayMs) };
+        _hover.Tick += (_, _) => { _hover.Stop(); if (_hovering && !_suppressUntilLeave) _expanding = true; };
+
         _t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
         _t.Tick += Tick;
         _t.Start();
     }
 
-    private void OnEnter(object? sender, EventArgs e) => _pointerOver = true;
-    private void OnLeave(object? sender, EventArgs e) => _pointerOver = false;
+    private void OnEnter(object? sender, EventArgs e)
+    {
+        _hovering = true;
+        _hover.Stop();
+        _hover.Start();
+    }
+
+    private void OnLeave(object? sender, EventArgs e)
+    {
+        _hovering = false;
+        _suppressUntilLeave = false;
+        _expanding = false;
+        _hover.Stop();
+    }
+
+    /// <summary>拖动小条前调用：取消正在计时的悬停展开。</summary>
+    public void CancelHover()
+    {
+        _hover.Stop();
+        _expanding = false;
+    }
+
+    /// <summary>拖动结束后调用：保持小条状态，等鼠标移出再移入才会重新展开。</summary>
+    public void SuppressExpand()
+    {
+        _hover.Stop();
+        _expanding = false;
+        _suppressUntilLeave = true;
+    }
 
     private void ComputeRects()
     {
@@ -184,58 +230,140 @@ public class AutoHider : IDisposable
         _w.Width = wW;
         _w.Height = wH;
 
+        // 展开态位置（与 ApplyLayout 一致）
         switch (_l.Anchor)
         {
             case "Left":
-                _shown = new Rect(sa.Left, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Left - (wW - Sliver), _shown.Y, wW, wH);
-                break;
+                _shown = new Rect(sa.Left, sa.Top + (sa.Height - wH) / 2, wW, wH); break;
             case "Right":
-                _shown = new Rect(sa.Right - wW, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Right - Sliver, _shown.Y, wW, wH);
-                break;
+                _shown = new Rect(sa.Right - wW, sa.Top + (sa.Height - wH) / 2, wW, wH); break;
             case "Top":
-                _shown = new Rect(sa.Left, sa.Top, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Top - (wH - Sliver), sa.Width, wH);
-                break;
+                _shown = new Rect(sa.Left, sa.Top, sa.Width, wH); break;
             case "Bottom":
-                _shown = new Rect(sa.Left, sa.Bottom - wH, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Bottom - Sliver, sa.Width, wH);
-                break;
+                _shown = new Rect(sa.Left, sa.Bottom - wH, sa.Width, wH); break;
             default:
-                _shown = new Rect(sa.Left + (sa.Width - wW) / 2, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = _shown;
-                break;
+                _shown = new Rect(sa.Left + (sa.Width - wW) / 2, sa.Top + (sa.Height - wH) / 2, wW, wH); break;
         }
+
+        // 缩小态：位置优先用用户拖动后记住的坐标，否则按锚点贴边
+        double dw = _l.DockWidth > 0 ? _l.DockWidth : 96;
+        double dh = _l.DockHeight > 0 ? _l.DockHeight : 36;
+        double dx, dy;
+        if (!double.IsNaN(_l.DockLeft) && !double.IsNaN(_l.DockTop))
+        {
+            dx = _l.DockLeft; dy = _l.DockTop;
+        }
+        else
+        {
+            switch (_l.Anchor)
+            {
+                case "Left": dx = sa.Left + 2; dy = sa.Top + (sa.Height - dh) / 2; break;
+                case "Right": dx = sa.Right - dw - 2; dy = sa.Top + (sa.Height - dh) / 2; break;
+                case "Top": dx = sa.Left + (sa.Width - dw) / 2; dy = sa.Top + 2; break;
+                case "Bottom": dx = sa.Left + (sa.Width - dw) / 2; dy = sa.Bottom - dh - 2; break;
+                default: dx = sa.Left + (sa.Width - dw) / 2; dy = sa.Top + (sa.Height - dh) / 2; break;
+            }
+        }
+        _hidden = new Rect(ClampX(dx, dw), ClampY(dy, dh), dw, dh);
+    }
+
+    private static double ClampX(double x, double w)
+    {
+        var sa = SystemParameters.WorkArea;
+        return Math.Min(Math.Max(x, sa.Left), sa.Right - w);
+    }
+
+    private static double ClampY(double y, double h)
+    {
+        var sa = SystemParameters.WorkArea;
+        return Math.Min(Math.Max(y, sa.Top), sa.Bottom - h);
+    }
+
+    /// <summary>拖动小条后更新停留位置（立即生效，不做动画）。</summary>
+    public void SetDockPosition(double left, double top)
+    {
+        double w = _hidden.Width, h = _hidden.Height;
+        double x = ClampX(left, w), y = ClampY(top, h);
+        _hidden = new Rect(x, y, w, h);
+        _l.DockLeft = x;
+        _l.DockTop = y;
+        _curLeft = x; _curTop = y; _curW = w; _curH = h;
+        ApplyRect();
+    }
+
+    /// <summary>忘记自定义位置，恢复到按锚点的默认贴边位置。</summary>
+    public void ResetDockPosition()
+    {
+        _l.DockLeft = double.NaN;
+        _l.DockTop = double.NaN;
+        ComputeRects();
+        if (_compact) SetCur(true, snap: true);
+        ApplyRect();
+    }
+
+    private void SetCur(bool hidden, bool snap)
+    {
+        double tL = hidden ? _hidden.X : _shown.X;
+        double tT = hidden ? _hidden.Y : _shown.Y;
+        double tW = hidden ? _hidden.Width : _shown.Width;
+        double tH = hidden ? _hidden.Height : _shown.Height;
+        if (snap)
+        {
+            _curLeft = tL; _curTop = tT; _curW = tW; _curH = tH;
+        }
+    }
+
+    private void ApplyRect()
+    {
+        _w.Left = _curLeft;
+        _w.Top = _curTop;
+        _w.Width = _curW;
+        _w.Height = _curH;
+    }
+
+    private void SetCompact(bool value, bool fire)
+    {
+        if (_compact == value) return;
+        _compact = value;
+        if (fire) _onCompactChanged?.Invoke(value);
     }
 
     private void Tick(object? sender, EventArgs e)
     {
-        // 拖动等操作期间暂停自动隐藏，避免操作过程中窗口缩回导致拖不动
+        // 拖动等操作期间暂停动画，避免操作过程中窗口缩回导致拖不动
         if (Suspended) return;
 
         bool enforce = _enforceHide();
         if (enforce != _lastEnforce)
         {
             _lastEnforce = enforce;
-            _curLeft = enforce ? _hidden.X : _shown.X;
-            _curTop = enforce ? _hidden.Y : _shown.Y;
+            if (enforce) { _curLeft = _shown.X; _curTop = _shown.Y; _curW = _shown.Width; _curH = _shown.Height; }
         }
 
-        bool targetShown = enforce ? _pointerOver : true;
-        double tLeft = targetShown ? _shown.X : _hidden.X;
-        double tTop = targetShown ? _shown.Y : _hidden.Y;
-        _curLeft += (tLeft - _curLeft) * Ease;
-        _curTop += (tTop - _curTop) * Ease;
-        if (Math.Abs(tLeft - _curLeft) < 0.5) _curLeft = tLeft;
-        if (Math.Abs(tTop - _curTop) < 0.5) _curTop = tTop;
-        _w.Left = _curLeft;
-        _w.Top = _curTop;
+        // 悬停延时到了才展开：刚放上去时保持小条，便于拖动它挪位置
+        bool targetShown = enforce ? _expanding : true;
+        SetCompact(!targetShown, fire: true);
+
+        double tL = targetShown ? _shown.X : _hidden.X;
+        double tT = targetShown ? _shown.Y : _hidden.Y;
+        double tW = targetShown ? _shown.Width : _hidden.Width;
+        double tH = targetShown ? _shown.Height : _hidden.Height;
+
+        _curLeft += (tL - _curLeft) * Ease;
+        _curTop += (tT - _curTop) * Ease;
+        _curW += (tW - _curW) * Ease;
+        _curH += (tH - _curH) * Ease;
+        if (Math.Abs(tL - _curLeft) < 0.5) _curLeft = tL;
+        if (Math.Abs(tT - _curTop) < 0.5) _curTop = tT;
+        if (Math.Abs(tW - _curW) < 0.5) _curW = tW;
+        if (Math.Abs(tH - _curH) < 0.5) _curH = tH;
+        ApplyRect();
     }
 
     public void Dispose()
     {
         _t.Stop();
+        _hover.Stop();
         _w.MouseEnter -= OnEnter;
         _w.MouseLeave -= OnLeave;
         _w.TouchEnter -= OnEnter;

@@ -4,7 +4,9 @@
         Title="通知悬浮窗" WindowStyle="None" ResizeMode="NoResize"
         ShowInTaskbar="False" AllowsTransparency="True"
         Background="Transparent" Loaded="Window_Loaded">
-    <Border x:Name="Bar" Background="#1F2A37" ClipToBounds="True"
+    <Grid>
+        <!-- 完整通知条 -->
+        <Border x:Name="Bar" Background="#1F2A37" ClipToBounds="True"
             MouseLeftButtonDown="Bar_MouseLeftButtonDown"
             ToolTip="双击可编辑通知 / 公告">
         <Grid>
@@ -21,7 +23,20 @@
             <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
                     VerticalAlignment="Center" Margin="6,0,8,0" Padding="8,3" FontSize="12"
                     Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
+                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到悬浮条上会展开）；点「置顶显示」则常驻最前"/>
         </Grid>
     </Border>
+
+        <!-- 自动隐藏时缩小成的通知悬浮条：可拖动并记住位置 -->
+        <Border x:Name="DockBar" Visibility="Collapsed"
+                Background="#1F2A37" BorderBrush="#99FFFFFF" BorderThickness="1" CornerRadius="14"
+                Cursor="SizeAll"
+                MouseLeftButtonDown="DockBar_MouseLeftButtonDown"
+                MouseMove="DockBar_MouseMove"
+                MouseLeftButtonUp="DockBar_MouseLeftButtonUp"
+                ToolTip="这是自动隐藏后的通知悬浮条：拖动可改变位置并自动记住；鼠标移上来会展开完整通知条。">
+            <TextBlock x:Name="TxtDock" Text="通知" Foreground="White" FontSize="13" FontWeight="Bold"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+    </Grid>
 </Window>

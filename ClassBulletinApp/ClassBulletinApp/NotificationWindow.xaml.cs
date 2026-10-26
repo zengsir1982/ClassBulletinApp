@@ -49,8 +49,71 @@ public partial class NotificationWindow : Window
         BtnHide.Content = _layout.AutoHide ? "置顶显示" : "自动隐藏";
         _hider?.Dispose();
         _hider = (_layout.AutoHide || _layout.AutoHideDuringClass)
-            ? new AutoHider(this, _layout, () => _layout.AutoHide || (_layout.AutoHideDuringClass && WeekHelper.IsClassTimeNow(_schedule, _className)))
+            ? new AutoHider(this, _layout,
+                () => _layout.AutoHide || (_layout.AutoHideDuringClass && WeekHelper.IsClassTimeNow(_schedule, _className)),
+                OnCompactChanged)
             : null;
+        if (_hider == null) SetCompactUi(false);
+    }
+
+    // ---------- 自动隐藏：完整通知条 ⇄ 通知悬浮条 ----------
+    private void OnCompactChanged(bool compact) => SetCompactUi(compact);
+
+    private void SetCompactUi(bool compact)
+    {
+        if (Bar == null || DockBar == null) return;
+        Bar.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        DockBar.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        // 展开后重新测量并启动跑马灯（折叠时 MarqueeHost 宽度为 0，无需滚动）
+        if (!compact) Dispatcher.BeginInvoke(new Action(StartMarquee));
+    }
+
+    private bool InDockMode => _hider != null && _hider.IsCompact && DockBar != null &&
+                               DockBar.Visibility == Visibility.Visible;
+
+    private bool _dockDragging;
+    private System.Windows.Point _dockStartScreen, _dockStartWin;
+
+    private void DockBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!InDockMode) return;
+        _dockDragging = true;
+        _dockStartScreen = PointToScreen(e.GetPosition(this));
+        _dockStartWin = new System.Windows.Point(Left, Top);
+        System.Windows.Input.Mouse.Capture(DockBar);
+        if (_hider != null) { _hider.CancelHover(); _hider.Suspended = true; }
+        e.Handled = true;
+    }
+
+    private void DockBar_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_dockDragging || _hider == null) return;
+        var cur = PointToScreen(e.GetPosition(this));
+        _hider.SetDockPosition(
+            _dockStartWin.X + (cur.X - _dockStartScreen.X),
+            _dockStartWin.Y + (cur.Y - _dockStartScreen.Y));
+        e.Handled = true;
+    }
+
+    private void DockBar_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!_dockDragging) return;
+        _dockDragging = false;
+        if (System.Windows.Input.Mouse.Captured == DockBar) System.Windows.Input.Mouse.Capture(null);
+        SaveDockPosition();
+        _hider?.SuppressExpand();
+        if (_hider != null) _hider.Suspended = false;
+        e.Handled = true;
+    }
+
+    private void SaveDockPosition()
+    {
+        if (_hider == null) return;
+        var r = _hider.DockRect;
+        var s = Store.LoadSettings();
+        s.NotificationLayout.DockLeft = r.X;
+        s.NotificationLayout.DockTop = r.Y;
+        Store.SaveSettings(s);
     }
 
     private void OnLayoutChanged()
@@ -62,6 +125,7 @@ public partial class NotificationWindow : Window
     // ---------- 双击编辑通知（穿透态下通知条本身仍保持可交互） ----------
     private void Bar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        if (InDockMode) return;   // 小条状态的点击用于拖动位置
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
         if (e.ClickCount == 2)
         {
@@ -86,6 +150,8 @@ public partial class NotificationWindow : Window
     private void StartMarquee()
     {
         if (!IsLoaded) return;
+        // 缩小成悬浮条时通知区不可见（宽度为 0），不要反复重排入协程
+        if (Bar != null && Bar.Visibility != Visibility.Visible) return;
         var l = Store.LoadSettings().NotificationLayout;
         var notifs = Store.LoadNotifications()
             .OrderByDescending(n => n.Pinned)

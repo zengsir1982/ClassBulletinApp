@@ -15,8 +15,10 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </Window.Resources>
-    <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
-            Margin="0" Padding="0">
+    <Grid>
+        <!-- 完整面板：正常显示 / 鼠标移到小条上滑出时可见 -->
+        <Border x:Name="MainCard" Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
+                Margin="0" Padding="0">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -109,5 +111,18 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
-    </Border>
+        </Border>
+
+        <!-- 自动隐藏时缩小成的悬浮小条：可拖动，位置会被记住 -->
+        <Border x:Name="DockBar" Visibility="Collapsed"
+                Background="#2D6CDF" BorderBrush="#99FFFFFF" BorderThickness="1" CornerRadius="14"
+                Cursor="SizeAll"
+                MouseLeftButtonDown="DockBar_MouseLeftButtonDown"
+                MouseMove="DockBar_MouseMove"
+                MouseLeftButtonUp="DockBar_MouseLeftButtonUp"
+                ToolTip="这是自动隐藏后的课表悬浮条：拖动可改变位置并自动记住；鼠标移上来会展开完整课表。">
+            <TextBlock x:Name="TxtDock" Text="课表" Foreground="White" FontSize="13" FontWeight="Bold"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+    </Grid>
 </Window>

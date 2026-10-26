@@ -39,6 +39,22 @@ public class PanelLayout
     /// <summary>通知字幕字号。</summary>
     public double FontSize { get; set; } = 28;
 
+    // ---------- 自动隐藏态：缩小为可拖动的小悬浮条 ----------
+    /// <summary>隐藏时缩小成的小条宽度（像素）。</summary>
+    public double DockWidth { get; set; } = 112;
+
+    /// <summary>隐藏时缩小成的小条高度（像素）。</summary>
+    public double DockHeight { get; set; } = 36;
+
+    /// <summary>
+    /// 小条停留位置左上角 X（屏幕坐标）。double.NaN 表示从未拖动过，按锚点默认贴边显示。
+    /// 用户拖动小条后写入并保存，下次自动隐藏时会停在同一位置。
+    /// </summary>
+    public double DockLeft { get; set; } = double.NaN;
+
+    /// <summary>小条停留位置左上角 Y（屏幕坐标）。double.NaN 同上。</summary>
+    public double DockTop { get; set; } = double.NaN;
+
     /// <summary>通知字幕滚动速度（像素/秒）。</summary>
     public double MarqueeSpeed { get; set; } = 120;
 }
