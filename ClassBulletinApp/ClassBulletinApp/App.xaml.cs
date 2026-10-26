@@ -54,9 +54,27 @@ public partial class App : System.Windows.Application
         try
         {
             var path = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.crash.log");
+            TrimIfTooLarge(path);
             File.AppendAllText(path,
                 $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {kind}\n{ex}\n\n");
         }
         catch { }
+    }
+
+    /// <summary>日志超过 1MB 时只保留末尾 256KB，避免反复写日志把临时目录撑大。</summary>
+    private static void TrimIfTooLarge(string path)
+    {
+        const long maxBytes = 1024 * 1024;
+        const long keepBytes = 256 * 1024;
+        var fi = new FileInfo(path);
+        if (!fi.Exists || fi.Length <= maxBytes) return;
+
+        var tail = new char[keepBytes];
+        using (var sr = new StreamReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)))
+        {
+            sr.BaseStream.Seek(-keepBytes, SeekOrigin.End);
+            sr.Read(tail, 0, tail.Length);
+        }
+        File.WriteAllText(path, new string(tail));
     }
 }

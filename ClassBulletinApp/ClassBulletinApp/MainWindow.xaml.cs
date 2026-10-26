@@ -32,6 +32,9 @@ public partial class MainWindow : Window
     private bool _maxActive;
     private DispatcherTimer? _hwApplyTimer;
 
+    /// <summary>界面控件是否已就绪。为 false 时忽略作业公示参数变更事件（避免 XAML 加载期空引用）。</summary>
+    private bool _hwReady;
+
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
     public ObservableCollection<HomeworkItem> HomeworkItems { get; } = new();
@@ -51,6 +54,7 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        _hwReady = true;   // 控件已就绪，此后才响应作业公示参数变更
         var settings = Store.LoadSettings();
         try
         {
@@ -712,15 +716,19 @@ public partial class MainWindow : Window
 
     private void HwLayout_Changed(object sender, RoutedEventArgs e)
     {
+        // XAML 加载期间（ComboBox 的 SelectedIndex、Slider 因 Minimum 而 coerce 初值）就会触发本事件，
+        // 此时 SlHwX / TxtHwX 等字段尚未赋值，必须等 Loaded 之后再响应。
+        if (!_hwReady) return;
         UpdateHwLabels();
         ScheduleHwRepaint();
     }
 
     private void UpdateHwLabels()
     {
-        TxtHwX.Text = $"{SlHwX.Value:0} 像素";
-        TxtHwY.Text = $"{SlHwY.Value:0} 像素";
-        TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
+        if (SlHwX == null || SlHwY == null || SlHwWidth == null) return;
+        if (TxtHwX != null) TxtHwX.Text = $"{SlHwX.Value:0} 像素";
+        if (TxtHwY != null) TxtHwY.Text = $"{SlHwY.Value:0} 像素";
+        if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
     }
 
     /// <summary>已经应用为桌面背景时，调整参数后自动重绘（防抖 0.5 秒），方便直观调整位置。</summary>
