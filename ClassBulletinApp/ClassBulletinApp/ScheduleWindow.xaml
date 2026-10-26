@@ -22,33 +22,44 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- 头部：班级 / 日期 / 单双周·星期（三行）；双击切换显示日期 -->
-            <Border Grid.Row="0" Background="#2D6CDF" CornerRadius="14,14,0,0" Padding="18,12"
-                    MouseLeftButtonDown="Header_MouseLeftButtonDown"
-                    ToolTip="双击此处可切换显示日期 / 回到今天">
+            <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期 -->
+            <Border Grid.Row="0" Background="#2D6CDF" CornerRadius="14,14,0,0" Padding="18,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock x:Name="TxtClass" FontSize="26" FontWeight="Bold" Foreground="White"/>
-                        <TextBlock x:Name="TxtDate" FontSize="15" Foreground="#E3ECFB" Margin="0,5,0,0"/>
-                        <TextBlock x:Name="TxtWeek" FontSize="15" Foreground="#E3ECFB" Margin="0,2,0,0"/>
+                        <!-- 班级/教师区：双击切换 -->
+                        <StackPanel x:Name="ClassHeader" Background="Transparent" Cursor="Hand"
+                                   MouseLeftButtonDown="ClassHeader_MouseLeftButtonDown"
+                                   ToolTip="双击此处可切换显示其他班级课表">
+                            <TextBlock x:Name="TxtClass" FontSize="26" FontWeight="Bold" Foreground="White"/>
+                        </StackPanel>
+                        <!-- 日期区：双击切换显示其他日期（调休上课） -->
+                        <StackPanel x:Name="DateHeader" Background="Transparent" Cursor="Hand" Margin="0,5,0,0"
+                                   MouseLeftButtonDown="DateHeader_MouseLeftButtonDown"
+                                   ToolTip="双击此处可切换显示其他日期（调休上课）">
+                            <TextBlock x:Name="TxtDate" FontSize="15" Foreground="#E3ECFB"/>
+                            <TextBlock x:Name="TxtWeek" FontSize="15" Foreground="#E3ECFB" Margin="0,2,0,0"/>
+                        </StackPanel>
                     </StackPanel>
-                    <Button x:Name="BtnHide" Grid.Column="1" Content="隐藏" Click="BtnHide_Click"
+                    <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
                             VerticalAlignment="Top" Padding="8,3" FontSize="12"
                             Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                            ToolTip="快速切换自动隐藏（靠边隐藏，鼠标移到屏幕边沿滑出）"/>
+                            ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
                 </Grid>
             </Border>
 
             <!-- 课表滚动区 -->
             <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="拖动课卡可调课；右键或长按课卡可调课/代课；双击标题区可切换日期"
+                    <TextBlock Text="拖动课卡可调课；右键或长按课卡可调课/代课；双击班级可换班、双击日期可换日（调休上课）"
                                FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"
                                x:Name="TxtHint"/>
+                    <TextBlock x:Name="TxtTeacherHint" Visibility="Collapsed"
+                               Text="双击教师名可切换教师、双击日期可换日（调休上课）"
+                               FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"/>
                     <ItemsControl x:Name="TodayPanel">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -85,6 +96,7 @@
                                                                 <Run Text="{Binding WeekTag}" FontSize="13" Foreground="#9CA3AF" FontWeight="Normal"/>
                                                             </TextBlock>
                                                             <TextBlock FontSize="14" Foreground="#4B5563">
+                                                                <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
                                                                 <Run Text="{Binding Teacher}"/>
                                                                 <Run Text="{Binding LocationText}" Foreground="#2E8B57"/>
                                                             </TextBlock>

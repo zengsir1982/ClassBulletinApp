@@ -73,17 +73,12 @@ public partial class WeekView : System.Windows.Controls.UserControl
     private void BtnThisWeek_Click(object sender, RoutedEventArgs e) { _monday = StartOfWeek(DateTime.Now); Rebuild(); }
     private void BtnNextWeek_Click(object sender, RoutedEventArgs e) { _monday = _monday.AddDays(7); Rebuild(); }
 
-    private void CbEditType_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        _editType = CbEditType.SelectedIndex == 1 ? "代" : "调";
-    }
-
     private void ApplyModeHint()
     {
         if (!IsLoaded || TxtHint == null) return;
         TxtHint.Text = Mode == WeekViewMode.Manage
             ? "操作：拖动课卡可调课（目标有课则互换，为空则移动并清空原格）；右键某格 = 安排调课/代课；单击已安排的格子 = 二次确认后清除该节调课/代课。橙色=调课，蓝色=代课。"
-            : "操作：先选择上方「调课/代课」类型，再拖动某节课到另一格（目标有课则互换，为空则移动并清空原格）；右键某格可清除该格调课。";
+            : "操作：拖动某节课到另一格（目标有课则互换，为空则移动并清空原格）；右键某格可清除该格调课。";
     }
 
     // ---------- 构建 ----------
@@ -121,9 +116,9 @@ public partial class WeekView : System.Windows.Controls.UserControl
         WeekGrid.RowDefinitions.Clear();
         WeekGrid.ColumnDefinitions.Clear();
 
-        WeekGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+        WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         for (int p = 0; p < data.MaxPeriod; p++)
-            WeekGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(92) });
+            WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         WeekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
         for (int d = 0; d < 7; d++)

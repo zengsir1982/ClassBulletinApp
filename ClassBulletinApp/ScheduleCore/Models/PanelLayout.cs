@@ -15,8 +15,11 @@ public class PanelLayout
     /// <summary>窗口逻辑高度（像素）。</summary>
     public double Height { get; set; } = 720;
 
-    /// <summary>整体不透明度 0.2~1.0。</summary>
+    /// <summary>整体不透明度 0.2~1.0（用于“自动隐藏”/普通置顶显示的基础透明度）。</summary>
     public double Opacity { get; set; } = 1.0;
+
+    /// <summary>“置顶显示”时的透明度（同时开启鼠标穿透，方便操作底层窗口）。建议 0.4~0.7。</summary>
+    public double OverlayOpacity { get; set; } = 0.55;
 
     /// <summary>是否置顶显示。</summary>
     public bool TopMost { get; set; } = true;

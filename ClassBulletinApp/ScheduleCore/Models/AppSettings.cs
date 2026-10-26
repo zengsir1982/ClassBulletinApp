@@ -36,10 +36,20 @@ public class AppSettings
     /// <summary>启动后是否自动弹出通知悬浮窗。</summary>
     public bool AutoShowNotification { get; set; } = true;
 
+    /// <summary>启动后是否自动弹出教师个人课表悬浮窗。</summary>
+    public bool AutoShowTeacher { get; set; }
+
     /// <summary>
-    /// 有文档 / 演示程序（Word、PPT、WPS、PDF 等）在前台运行时，自动隐藏课表与通知悬浮窗，避免遮挡教学。
+    /// 桌面有窗口最大化时，自动隐藏课表与通知悬浮窗，避免遮挡正在使用的程序（不影响操作）。
+    /// 仅在“最大化窗口存在”时隐藏；窗口恢复/关闭后自动重新显示。
     /// </summary>
-    public bool AutoHideOnDocOpen { get; set; }
+    public bool AutoHideOnMaxWindow { get; set; }
+
+    /// <summary>当前选中的教师（用于教师个人课表悬浮窗）。</summary>
+    public string SelectedTeacher { get; set; } = "";
+
+    /// <summary>应用作业公示栏壁纸前系统原有壁纸路径，用于「清除」时恢复。</summary>
+    public string SavedWallpaper { get; set; } = "";
 
     /// <summary>课表悬浮窗布局（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
     public PanelLayout ScheduleLayout { get; set; } = new()

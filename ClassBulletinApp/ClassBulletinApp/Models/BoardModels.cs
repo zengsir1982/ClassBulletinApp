@@ -18,6 +18,8 @@ public class LessonView
     public int Period { get; set; }
     public string Subject { get; set; } = "";
     public string Teacher { get; set; } = "";
+    /// <summary>教师字段前缀：班级课表显示“教师：”，教师个人课表显示“班级：”。</summary>
+    public string TeacherPrefix { get; set; } = "教师：";
     public string LocationText { get; set; } = "";
     public string WeekTag { get; set; } = "";
     public string SubjectColor { get; set; } = "#222222";

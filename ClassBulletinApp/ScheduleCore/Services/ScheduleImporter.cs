@@ -10,6 +10,9 @@ namespace ScheduleCore.Services;
 
 public static class ScheduleImporter
 {
+    static readonly Regex PeriodRe = new(@"第(\d+)节");
+    static readonly Regex TimeRe = new(@"(\d{1,2}:\d{2})-(\d{1,2}:\d{2})");
+
     /// <summary>导入全校总课程表（基础课表）。科目中的 (调)/(代) 标记会被剥离，仅保留干净科目名。</summary>
     public static ScheduleFile Import(string path)
     {
@@ -43,6 +46,110 @@ public static class ScheduleImporter
             });
         }
         return (sf, overrides);
+    }
+
+    /// <summary>
+    /// 导入单个班级课表（如「八年级X班-班级课程表.xlsx」）。
+    /// 文件布局约定：第1行为学校标题，第2行A列为班级名，随后一行含「星期」为表头，
+    /// 其下每节一行（A列="第N节\n时间"，B列起为周一..周五的「科目\n教师[ \n地点]」）。
+    /// 解析后仅含该一个班级，便于单班独立使用本软件。
+    /// </summary>
+    public static ScheduleFile ImportSingleClass(string path)
+    {
+        string readPath = ResolveReadablePath(path);
+        try
+        {
+            return ImportSingleClassCore(readPath, path, false);
+        }
+        finally
+        {
+            if (readPath != path && File.Exists(readPath))
+            {
+                try { File.Delete(readPath); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 导入单个教师个人课表（如「某某老师-教师课程表.xlsx」）。
+    /// 布局与单班课表一致，但第2行A列为教师名，单元格第二行为“所教班级”（而非教师）。
+    /// 解析后以教师名为班级键，所教班级存入 Lesson.Teacher 字段（UI 中显示为“班级：”）。
+    /// </summary>
+    public static ScheduleFile ImportTeacherSchedule(string path)
+    {
+        string readPath = ResolveReadablePath(path);
+        try
+        {
+            return ImportSingleClassCore(readPath, path, true);
+        }
+        finally
+        {
+            if (readPath != path && File.Exists(readPath))
+            {
+                try { File.Delete(readPath); } catch { }
+            }
+        }
+    }
+
+    static ScheduleFile ImportSingleClassCore(string path, string originalPath, bool isTeacher)
+    {
+        var result = new ScheduleFile { SourceFile = originalPath, ImportedAt = DateTime.Now };
+
+        using var wb = new XLWorkbook(path);
+        var ws = wb.Worksheets.FirstOrDefault(w => w.Name.Contains("课程表")) ?? wb.Worksheet(1);
+
+        int lastRow = ws.LastCellUsed()?.Address.RowNumber ?? 4;
+        int lastCol = ws.LastCellUsed()?.Address.ColumnNumber ?? 6;
+
+        // 名称：优先第2行A列，否则第1行A列，否则表名
+        string className = ws.Cell(2, 1).GetString().Trim();
+        if (string.IsNullOrEmpty(className)) className = ws.Cell(1, 1).GetString().Trim();
+        if (string.IsNullOrEmpty(className)) className = ws.Name;
+        if (isTeacher)
+        {
+            // 教师课表文件第2行形如「某某老师-教师课程表」，清理为纯教师名
+            className = className.Replace("教师课程表", "").Replace("-", " ").Trim();
+        }
+
+        // 找到含「星期」的表头行（通常第3行）
+        int dayRow = -1;
+        for (int r = 1; r <= Math.Min(5, lastRow); r++)
+        {
+            bool has = false;
+            for (int c = 1; c <= lastCol; c++)
+                if (ws.Cell(r, c).GetString().Contains("星期")) { has = true; break; }
+            if (has) { dayRow = r; break; }
+        }
+        if (dayRow < 0) dayRow = 3;
+
+        // 收集星期列（按下标顺序对应 周一..周日）
+        var dayCols = new List<int>();
+        for (int c = 1; c <= lastCol; c++)
+            if (ws.Cell(dayRow, c).GetString().Contains("星期")) dayCols.Add(c);
+        if (dayCols.Count == 0) dayCols.Add(2);
+
+        var cs = new ClassSchedule { ClassName = className };
+        for (int r = dayRow + 1; r <= lastRow; r++)
+        {
+            var label = ws.Cell(r, 1).GetString();
+            var m = PeriodRe.Match(label);
+            if (!m.Success) continue;   // 跳过 大课间 / 午休 等非节次行
+            int period = int.Parse(m.Groups[1].Value);
+            var time = TimeRe.Match(label).Value;
+
+            for (int di = 0; di < dayCols.Count; di++)
+            {
+                if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
+                int col = dayCols[di];
+                var raw = ws.Cell(r, col).GetString();
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                var pc = ParseCellDetail(raw, period, time);
+                if (pc.Lessons.Count > 0) cs.Data[di][period] = pc.Lessons;
+            }
+        }
+
+        result.Classes.Add(cs);
+        return result;
     }
 
     /// <summary>
@@ -117,8 +224,6 @@ public static class ScheduleImporter
 
         // 每个 day block（12 列）解析时段（第X节 + 时间区间）
         var blocks = new List<List<(int col, int period, string time)>>();
-        var periodRe = new Regex(@"第(\d+)节");
-        var timeRe = new Regex(@"(\d{1,2}:\d{2})-(\d{1,2}:\d{2})");
         foreach (var start in dayCols)
         {
             var slots = new List<(int, int, string)>();
@@ -126,11 +231,11 @@ public static class ScheduleImporter
             {
                 int c = start + off;
                 var label = ws.Cell(3, c).GetString();
-                var m = periodRe.Match(label);
+                var m = PeriodRe.Match(label);
                 if (m.Success)
                 {
                     var tm = "";
-                    var tm2 = timeRe.Match(label);
+                    var tm2 = TimeRe.Match(label);
                     if (tm2.Success) tm = tm2.Value;
                     slots.Add((c, int.Parse(m.Groups[1].Value), tm));
                 }

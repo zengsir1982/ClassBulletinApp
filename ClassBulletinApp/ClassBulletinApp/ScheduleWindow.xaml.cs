@@ -12,6 +12,9 @@ namespace ClassBulletinApp;
 
 public partial class ScheduleWindow : Window
 {
+    /// <summary>显示类别：Class=班级课表，Teacher=教师个人课表。</summary>
+    public string Kind { get; set; } = "Class";
+
     private string _semesterStart = "";
     private string? _selectedClass;
     private PanelLayout? _layout;
@@ -42,7 +45,11 @@ public partial class ScheduleWindow : Window
     {
         var s = Store.LoadSettings();
         _semesterStart = s.SemesterStartMonday;
-        _selectedClass = s.SelectedClass;
+        _selectedClass = Kind == "Teacher" ? s.SelectedTeacher : s.SelectedClass;
+        Title = Kind == "Teacher" ? "教师课表悬浮窗" : "课表悬浮窗";
+        ClassHeader.ToolTip = Kind == "Teacher"
+            ? "双击此处可切换显示其他教师课表"
+            : "双击此处可切换显示其他班级课表";
         ApplyCurrentLayout();
 
         AppEvents.ScheduleChanged += Refresh;
@@ -55,10 +62,19 @@ public partial class ScheduleWindow : Window
     {
         var l = Store.LoadSettings().ScheduleLayout;
         _layout = l;
-        _clickThrough = l.ClickThrough;
-        FloatingHelper.ApplyLayout(this, l);
-        TxtHint.Visibility = l.ClickThrough ? Visibility.Collapsed : Visibility.Visible;
-        BtnHide.Content = l.AutoHide ? "显示" : "隐藏";
+        // 置顶显示(AutoHide=false) 即开启鼠标穿透，并按预设透明度显示；自动隐藏态则为普通透明度
+        bool topShow = !l.AutoHide;
+        _clickThrough = topShow;
+        FloatingHelper.ApplyLayout(this, l, topShow, topShow ? l.OverlayOpacity : l.Opacity);
+        if (topShow)
+            FloatingHelper.SetClickThrough(this, true, BtnHide, ClassHeader, DateHeader);
+        else
+            FloatingHelper.SetClickThrough(this, false);
+
+        TxtHint.Visibility = (!topShow && Kind == "Class") ? Visibility.Visible : Visibility.Collapsed;
+        TxtTeacherHint.Visibility = (!topShow && Kind == "Teacher") ? Visibility.Visible : Visibility.Collapsed;
+        BtnHide.Content = l.AutoHide ? "置顶显示" : "自动隐藏";
+
         _hider?.Dispose();
         _hider = (l.AutoHide || l.AutoHideDuringClass)
             ? new AutoHider(this, l, () => l.AutoHide || (l.AutoHideDuringClass && IsClassTimeNow()))
@@ -68,7 +84,7 @@ public partial class ScheduleWindow : Window
     private void OnLayoutChanged()
     {
         _semesterStart = Store.LoadSettings().SemesterStartMonday;
-        _selectedClass = Store.LoadSettings().SelectedClass;
+        _selectedClass = Kind == "Teacher" ? Store.LoadSettings().SelectedTeacher : Store.LoadSettings().SelectedClass;
         ApplyCurrentLayout();
         Refresh();
     }
@@ -78,30 +94,61 @@ public partial class ScheduleWindow : Window
     private void Refresh()
     {
         var s = Store.LoadSettings();
-        _selectedClass = s.SelectedClass;
+        _selectedClass = Kind == "Teacher" ? s.SelectedTeacher : s.SelectedClass;
         _semesterStart = s.SemesterStartMonday;
-        _schedule = Store.LoadSchedule();
+        _schedule = Kind == "Teacher" ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
         var displayDate = BoardBuilder.ResolveDisplayDate(s);
         var res = BoardBuilder.Build(_selectedClass, _semesterStart, _schedule, displayDate);
 
-        TxtClass.Text = string.IsNullOrEmpty(res.ClassName) ? "未选择班级" : res.ClassName;
+        TxtClass.Text = string.IsNullOrEmpty(res.ClassName) ? (Kind == "Teacher" ? "未选择教师" : "未选择班级") : res.ClassName;
         TxtDate.Text = res.DateText;
         TxtWeek.Text = res.WeekLine;
 
+        string prefix = Kind == "Teacher" ? "班级：" : "教师：";
         var rows = (System.Collections.ObjectModel.ObservableCollection<PeriodRow>)TodayPanel.ItemsSource;
         rows.Clear();
-        foreach (var r in res.Rows) rows.Add(r);
+        foreach (var r in res.Rows)
+        {
+            foreach (var lv in r.Lessons) lv.TeacherPrefix = prefix;
+            rows.Add(r);
+        }
     }
 
-    // ---------- 标题区双击：切换显示日期 / 回到今天 ----------
-    private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    // ---------- 日期区双击：切换显示日期 / 回到今天 ----------
+    private void DateHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_clickThrough) return;
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
         if (e.ClickCount == 2)
         {
             OpenDateSwitch();
             e.Handled = true;
+        }
+    }
+
+    // ---------- 班级/教师区双击：切换显示 ----------
+    private void ClassHeader_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
+        if (e.ClickCount == 2)
+        {
+            OpenClassSwitch();
+            e.Handled = true;
+        }
+    }
+
+    private void OpenClassSwitch()
+    {
+        if (Kind == "Teacher")
+        {
+            var s = Store.LoadSettings();
+            var w = new TeacherSwitchWindow(s.SelectedTeacher) { Owner = this, Topmost = true };
+            if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
+        }
+        else
+        {
+            var s = Store.LoadSettings();
+            var w = new ClassSwitchWindow(s.SelectedClass) { Owner = this, Topmost = true };
+            if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
         }
     }
 
@@ -113,21 +160,22 @@ public partial class ScheduleWindow : Window
         w.ShowDialog();
     }
 
-    // ---------- 隐藏按钮：快速切换自动靠边隐藏 ----------
+    // ---------- 隐藏按钮：快速切换自动靠边隐藏 / 置顶显示 ----------
     private void BtnHide_Click(object sender, RoutedEventArgs e)
     {
         var s = Store.LoadSettings();
         bool turnOn = !s.ScheduleLayout.AutoHide;
         s.ScheduleLayout.AutoHide = turnOn;
-        if (turnOn) s.ScheduleLayout.ClickThrough = false;   // 自动隐藏与鼠标穿透互斥
+        // 置顶显示 ⇔ 鼠标穿透 + 预设透明度；自动隐藏 ⇔ 普通显示、可交互
         Store.SaveSettings(s);
         ApplyCurrentLayout();
         AppEvents.RaiseLayoutChanged();
     }
 
-    // ---------- 长按 / 右键 弹出调课编辑（替代双击，便于触屏） ----------
+    // ---------- 长按 / 右键 弹出调课编辑（仅班级课表可编辑） ----------
     private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (_kind_NonEditable) return;
         if (_clickThrough) return;
         var row = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (row != null) { OpenEditor(row); e.Handled = true; }
@@ -135,6 +183,7 @@ public partial class ScheduleWindow : Window
 
     private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (_kind_NonEditable) return;
         if (_clickThrough) return;
         _pressRow = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (_pressRow != null)
@@ -158,6 +207,7 @@ public partial class ScheduleWindow : Window
 
     private void Window_PreviewTouchDown(object sender, TouchEventArgs e)
     {
+        if (_kind_NonEditable) return;
         if (_clickThrough) return;
         _pressRow = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (_pressRow != null)
@@ -212,9 +262,10 @@ public partial class ScheduleWindow : Window
             AppEvents.RaiseScheduleChanged();
     }
 
-    // ---------- 拖动调课 ----------
+    // ---------- 拖动调课（仅班级课表） ----------
     private void Card_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (_kind_NonEditable) return;
         if (_clickThrough) return;
         if (sender is FrameworkElement fe && fe.DataContext is PeriodRow row && row.Period > 0)
         {
@@ -227,12 +278,13 @@ public partial class ScheduleWindow : Window
 
     private void Card_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        if (_kind_NonEditable) return;
         if (_clickThrough || _dragRow == null || e.LeftButton != MouseButtonState.Pressed) return;
         if (sender is not FrameworkElement fe) return;
         var p = e.GetPosition(fe);
         if (Math.Abs(p.X - _dragStart.X) > 6 || Math.Abs(p.Y - _dragStart.Y) > 6)
         {
-            CancelPress();                 // 拖拽时取消长按，避免误弹编辑框
+            CancelPress();
             var src = _dragRow;
             _dragRow = null;
             System.Windows.DragDrop.DoDragDrop(fe, new System.Windows.DataObject("DayPeriod", src),
@@ -313,6 +365,8 @@ public partial class ScheduleWindow : Window
             });
         }
     }
+
+    private bool _kind_NonEditable => Kind != "Class";
 
     private bool IsWithinButton(DependencyObject? dep)
     {

@@ -13,9 +13,11 @@ public static class Store
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClassBulletinApp");
 
     static string SchedulePath => Path.Combine(AppDir, "schedule.json");
+    static string TeacherSchedulePath => Path.Combine(AppDir, "teacher_schedule.json");
     static string NotificationsPath => Path.Combine(AppDir, "notifications.json");
     static string SettingsPath => Path.Combine(AppDir, "settings.json");
     static string OverridesPath => Path.Combine(AppDir, "overrides.json");
+    static string HomeworkPath => Path.Combine(AppDir, "homework.json");
 
     static JsonSerializerOptions Opt => new()
     {
@@ -35,6 +37,30 @@ public static class Store
     {
         if (!File.Exists(SchedulePath)) return null;
         return JsonSerializer.Deserialize<ScheduleFile>(File.ReadAllText(SchedulePath), Opt);
+    }
+
+    public static void SaveTeacherSchedule(ScheduleFile sf)
+    {
+        Ensure();
+        File.WriteAllText(TeacherSchedulePath, JsonSerializer.Serialize(sf, Opt));
+    }
+
+    public static ScheduleFile? LoadTeacherSchedule()
+    {
+        if (!File.Exists(TeacherSchedulePath)) return null;
+        return JsonSerializer.Deserialize<ScheduleFile>(File.ReadAllText(TeacherSchedulePath), Opt);
+    }
+
+    public static void SaveHomework(HomeworkBoard board)
+    {
+        Ensure();
+        File.WriteAllText(HomeworkPath, JsonSerializer.Serialize(board, Opt));
+    }
+
+    public static HomeworkBoard? LoadHomework()
+    {
+        if (!File.Exists(HomeworkPath)) return null;
+        return JsonSerializer.Deserialize<HomeworkBoard>(File.ReadAllText(HomeworkPath), Opt);
     }
 
     public static void SaveNotifications(List<Notification> list)

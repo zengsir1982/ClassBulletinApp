@@ -40,3 +40,54 @@ if (sample.Data.TryGetValue(0, out var d0))
 Console.WriteLine("  标记剥离检查: 若上方无 [警告] 则科目名已干净。");
 
 Console.WriteLine("\nDONE");
+
+// ===== 单班导入校验（可选：第二个参数传 "single"） =====
+if (args.Length > 1 && args[1] == "single")
+{
+    Console.WriteLine("\n=== 单班导入校验 ===");
+    var singlePath = @"F:\study\班级公布栏\八年级X班-班级课程表.xlsx";
+    var ssf = ScheduleImporter.ImportSingleClass(singlePath);
+    Console.WriteLine($"班级数: {ssf.Classes.Count}");
+    foreach (var c in ssf.Classes)
+    {
+        Console.WriteLine($"=== {c.ClassName} ===");
+        for (int d = 0; d < 5; d++)
+        {
+            if (c.Data.TryGetValue(d, out var day))
+            {
+                string[] names = { "周一", "周二", "周三", "周四", "周五" };
+                Console.WriteLine($" {names[d]}:");
+                foreach (var p in day.Keys.OrderBy(k => k))
+                    foreach (var l in day[p])
+                        Console.WriteLine($"   第{p}节 {l.TimeRange} {l.Subject} / {l.Teacher} {l.Location}");
+            }
+        }
+    }
+    Console.WriteLine("SINGLE DONE");
+}
+
+// ===== 教师个人课表导入校验（第三个参数传 "teacher"） =====
+if (args.Length > 1 && args[1] == "teacher")
+{
+    Console.WriteLine("\n=== 教师课表导入校验 ===");
+    var teacherPath = @"F:/study/班级公布栏/某某老师-教师课程表.xlsx";
+    var ts = ScheduleImporter.ImportTeacherSchedule(teacherPath);
+    Console.WriteLine($"教师数: {ts.Classes.Count}");
+    foreach (var c in ts.Classes)
+    {
+        Console.WriteLine($"=== 教师: {c.ClassName} ===");
+        for (int d = 0; d < 5; d++)
+        {
+            if (c.Data.TryGetValue(d, out var day))
+            {
+                string[] names = { "周一", "周二", "周三", "周四", "周五" };
+                Console.WriteLine($" {names[d]}:");
+                foreach (var p in day.Keys.OrderBy(k => k))
+                    foreach (var l in day[p])
+                        // 教师课表：Teacher 字段实为所教班级
+                        Console.WriteLine($"   第{p}节 {l.TimeRange} {l.Subject} / 班级={l.Teacher} {l.Location}");
+            }
+        }
+    }
+    Console.WriteLine("TEACHER DONE");
+}

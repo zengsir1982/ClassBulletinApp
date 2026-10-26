@@ -34,12 +34,18 @@ public partial class NotificationWindow : Window
     {
         var s = Store.LoadSettings();
         _layout = s.NotificationLayout;
-        _clickThrough = _layout.ClickThrough;
+        // 置顶显示(AutoHide=false) 即开启鼠标穿透 + 预设透明度；自动隐藏态为普通显示
+        bool topShow = !_layout.AutoHide;
+        _clickThrough = topShow;
         _schedule = Store.LoadSchedule();
         _className = s.SelectedClass;
-        FloatingHelper.ApplyLayout(this, _layout);
+        FloatingHelper.ApplyLayout(this, _layout, topShow, topShow ? _layout.OverlayOpacity : _layout.Opacity);
+        if (topShow)
+            FloatingHelper.SetClickThrough(this, true, BtnHide);
+        else
+            FloatingHelper.SetClickThrough(this, false);
         TxtMarquee.FontSize = Math.Max(12, _layout.FontSize);
-        BtnHide.Content = _layout.AutoHide ? "显示" : "隐藏";
+        BtnHide.Content = _layout.AutoHide ? "置顶显示" : "自动隐藏";
         _hider?.Dispose();
         _hider = (_layout.AutoHide || _layout.AutoHideDuringClass)
             ? new AutoHider(this, _layout, () => _layout.AutoHide || (_layout.AutoHideDuringClass && WeekHelper.IsClassTimeNow(_schedule, _className)))
@@ -52,10 +58,9 @@ public partial class NotificationWindow : Window
         StartMarquee();
     }
 
-    // ---------- 双击编辑通知 ----------
+    // ---------- 双击编辑通知（穿透态下通知条本身仍保持可交互） ----------
     private void Bar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (_clickThrough) return;
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
         if (e.ClickCount == 2)
         {

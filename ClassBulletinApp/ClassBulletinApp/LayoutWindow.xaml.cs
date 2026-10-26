@@ -27,8 +27,8 @@ public partial class LayoutWindow : Window
         SlSchWidth.Value = sl.Width;
         SlSchHeight.Value = sl.Height;
         SlSchOpacity.Value = sl.Opacity;
+        SlSchOverlay.Value = sl.OverlayOpacity;
         ChkSchTop.IsChecked = sl.TopMost;
-        ChkSchClick.IsChecked = sl.ClickThrough;
         ChkSchHide.IsChecked = sl.AutoHide;
         ChkSchClassHide.IsChecked = sl.AutoHideDuringClass;
 
@@ -38,8 +38,8 @@ public partial class LayoutWindow : Window
         SlNotFont.Value = nl.FontSize;
         SlNotSpeed.Value = nl.MarqueeSpeed;
         SlNotOpacity.Value = nl.Opacity;
+        SlNotOverlay.Value = nl.OverlayOpacity;
         ChkNotTop.IsChecked = nl.TopMost;
-        ChkNotClick.IsChecked = nl.ClickThrough;
         ChkNotHide.IsChecked = nl.AutoHide;
         ChkNotClassHide.IsChecked = nl.AutoHideDuringClass;
     }
@@ -49,10 +49,12 @@ public partial class LayoutWindow : Window
         SlSchWidth.ValueChanged += (_, _) => TxtSchWidth.Text = $"{SlSchWidth.Value:0} 像素";
         SlSchHeight.ValueChanged += (_, _) => TxtSchHeight.Text = $"{SlSchHeight.Value:0} 像素";
         SlSchOpacity.ValueChanged += (_, _) => TxtSchOpacity.Text = $"{SlSchOpacity.Value:0%}";
+        SlSchOverlay.ValueChanged += (_, _) => TxtSchOverlay.Text = $"{SlSchOverlay.Value:0%}";
         SlNotHeight.ValueChanged += (_, _) => TxtNotHeight.Text = $"{SlNotHeight.Value:0} 像素";
         SlNotFont.ValueChanged += (_, _) => TxtNotFont.Text = $"{SlNotFont.Value:0} 号";
         SlNotSpeed.ValueChanged += (_, _) => TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
         SlNotOpacity.ValueChanged += (_, _) => TxtNotOpacity.Text = $"{SlNotOpacity.Value:0%}";
+        SlNotOverlay.ValueChanged += (_, _) => TxtNotOverlay.Text = $"{SlNotOverlay.Value:0%}";
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
@@ -62,11 +64,11 @@ public partial class LayoutWindow : Window
         sl.Width = SlSchWidth.Value;
         sl.Height = SlSchHeight.Value;
         sl.Opacity = SlSchOpacity.Value;
+        sl.OverlayOpacity = SlSchOverlay.Value;
         sl.TopMost = ChkSchTop.IsChecked == true;
-        sl.ClickThrough = ChkSchClick.IsChecked == true;
-        // 鼠标穿透与靠边隐藏互斥：穿透开启时强制关闭两类靠边隐藏
-        sl.AutoHide = ChkSchHide.IsChecked == true && !sl.ClickThrough;
-        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true && !sl.ClickThrough;
+        // 「置顶显示」即开启鼠标穿透，无需单独勾选；这里仅保留靠边隐藏选项
+        sl.AutoHide = ChkSchHide.IsChecked == true;
+        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true;
 
         var nl = _s.NotificationLayout;
         nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
@@ -74,10 +76,10 @@ public partial class LayoutWindow : Window
         nl.FontSize = SlNotFont.Value;
         nl.MarqueeSpeed = SlNotSpeed.Value;
         nl.Opacity = SlNotOpacity.Value;
+        nl.OverlayOpacity = SlNotOverlay.Value;
         nl.TopMost = ChkNotTop.IsChecked == true;
-        nl.ClickThrough = ChkNotClick.IsChecked == true;
-        nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
-        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true && !nl.ClickThrough;
+        nl.AutoHide = ChkNotHide.IsChecked == true;
+        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true;
 
         Store.SaveSettings(_s);
         AppEvents.RaiseLayoutChanged();
