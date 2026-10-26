@@ -36,6 +36,11 @@ public class AppSettings
     /// <summary>启动后是否自动弹出通知悬浮窗。</summary>
     public bool AutoShowNotification { get; set; } = true;
 
+    /// <summary>
+    /// 有文档 / 演示程序（Word、PPT、WPS、PDF 等）在前台运行时，自动隐藏课表与通知悬浮窗，避免遮挡教学。
+    /// </summary>
+    public bool AutoHideOnDocOpen { get; set; }
+
     /// <summary>课表悬浮窗布局（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
     public PanelLayout ScheduleLayout { get; set; } = new()
     {

@@ -14,6 +14,7 @@ public partial class NotificationWindow : Window
     private PanelLayout? _layout;
     private ScheduleFile? _schedule;
     private string? _className;
+    private bool _clickThrough;
 
     public NotificationWindow()
     {
@@ -25,7 +26,7 @@ public partial class NotificationWindow : Window
         ApplyCurrentLayout();
         AppEvents.NotificationChanged += StartMarquee;
         AppEvents.LayoutChanged += OnLayoutChanged;
-        Bar.SizeChanged += (_, _) => StartMarquee();
+        MarqueeHost.SizeChanged += (_, _) => StartMarquee();
         StartMarquee();
     }
 
@@ -33,10 +34,12 @@ public partial class NotificationWindow : Window
     {
         var s = Store.LoadSettings();
         _layout = s.NotificationLayout;
+        _clickThrough = _layout.ClickThrough;
         _schedule = Store.LoadSchedule();
         _className = s.SelectedClass;
         FloatingHelper.ApplyLayout(this, _layout);
         TxtMarquee.FontSize = Math.Max(12, _layout.FontSize);
+        BtnHide.Content = _layout.AutoHide ? "显示" : "隐藏";
         _hider?.Dispose();
         _hider = (_layout.AutoHide || _layout.AutoHideDuringClass)
             ? new AutoHider(this, _layout, () => _layout.AutoHide || (_layout.AutoHideDuringClass && WeekHelper.IsClassTimeNow(_schedule, _className)))
@@ -49,6 +52,31 @@ public partial class NotificationWindow : Window
         StartMarquee();
     }
 
+    // ---------- 双击编辑通知 ----------
+    private void Bar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_clickThrough) return;
+        if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
+        if (e.ClickCount == 2)
+        {
+            var w = new NotificationEditWindow { Owner = this, Topmost = true };
+            w.ShowDialog();
+            e.Handled = true;
+        }
+    }
+
+    // ---------- 隐藏按钮：快速切换自动隐藏 ----------
+    private void BtnHide_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        bool turnOn = !s.NotificationLayout.AutoHide;
+        s.NotificationLayout.AutoHide = turnOn;
+        if (turnOn) s.NotificationLayout.ClickThrough = false;   // 自动隐藏与鼠标穿透互斥
+        Store.SaveSettings(s);
+        ApplyCurrentLayout();
+        AppEvents.RaiseLayoutChanged();
+    }
+
     private void StartMarquee()
     {
         if (!IsLoaded) return;
@@ -58,14 +86,14 @@ public partial class NotificationWindow : Window
             .ThenByDescending(n => n.CreatedAt)
             .ToList();
         string text = notifs.Count == 0
-            ? "暂无通知"
+            ? "暂无通知（双击通知条可编辑）"
             : string.Join("　　　◆　　　", notifs.Select(n =>
                 (string.IsNullOrEmpty(n.Title) ? "" : n.Title + "：") + n.Content));
 
         TxtMarquee.Text = text;
         TxtMarquee.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         double textW = TxtMarquee.DesiredSize.Width;
-        double hostW = Bar.ActualWidth;
+        double hostW = MarqueeHost.ActualWidth;
         if (hostW <= 0) { Dispatcher.BeginInvoke(new Action(StartMarquee)); return; }
 
         var tt = new TranslateTransform();
@@ -84,6 +112,16 @@ public partial class NotificationWindow : Window
             RepeatBehavior = RepeatBehavior.Forever
         };
         tt.BeginAnimation(TranslateTransform.XProperty, anim);
+    }
+
+    private bool IsWithinButton(DependencyObject? dep)
+    {
+        while (dep != null)
+        {
+            if (ReferenceEquals(dep, BtnHide)) return true;
+            dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
+        }
+        return false;
     }
 
     protected override void OnClosed(EventArgs e)

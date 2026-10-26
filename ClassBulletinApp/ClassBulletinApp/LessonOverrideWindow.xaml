@@ -15,6 +15,12 @@
                 <TextBlock x:Name="TxtTitle" FontSize="18" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,6"/>
                 <TextBlock Text="填写后将临时替换该节课（优先于总课表），可随时清除恢复。" FontSize="13" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
 
+                <Label Content="调课类型" FontSize="14" Padding="0,0,0,4"/>
+                <ComboBox x:Name="CbType" FontSize="15" Padding="9" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,8">
+                    <ComboBoxItem Content="调课"/>
+                    <ComboBoxItem Content="代课"/>
+                </ComboBox>
+
                 <Label Content="从本课表选择科目（可选，自动带出教师）" FontSize="14" Padding="0,0,0,4"/>
                 <ComboBox x:Name="CbSubjects" FontSize="15" Padding="9" Background="White" BorderBrush="#D1D5DB"
                           SelectionChanged="CbSubjects_SelectionChanged"/>

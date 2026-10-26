@@ -1,13 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
@@ -15,37 +12,32 @@ namespace ClassBulletinApp;
 
 public partial class MainWindow : Window
 {
-    private ScheduleFile? _schedule;
-    private string? _selectedClass;
     private bool _isFull;
     private bool _locked;
     private bool _exiting;
-    private string _semesterStart = "";
-    private readonly DispatcherTimer _timer;
-
-    // 日视图拖拽调课
-    private PeriodRow? _dayDragSrc;
-    private System.Windows.Point _dayDragStart;
 
     private ScheduleWindow? _schWin;
     private NotificationWindow? _notifWin;
     private bool _schOn, _notOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
+    // 文档前台自动隐藏
+    private readonly DispatcherTimer _docTimer;
+    private bool _docActive;
+
     public ObservableCollection<string> ClassNames { get; } = new();
-    public ObservableCollection<PeriodRow> TodayRows { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
 
     public MainWindow()
     {
         InitializeComponent();
         CbClass.ItemsSource = ClassNames;
-        TodayPanel.ItemsSource = TodayRows;
         NotificationsPanel.ItemsSource = Notifications;
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-        _timer.Tick += (_, _) => RefreshToday();
-        _timer.Start();
+        // 前台文档/演示程序监视（2 秒轮询，开销极小）
+        _docTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _docTimer.Tick += (_, _) => CheckDocForeground();
+        _docTimer.Start();
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -53,11 +45,10 @@ public partial class MainWindow : Window
         var settings = Store.LoadSettings();
         try
         {
-            _semesterStart = settings.SemesterStartMonday;
-            _schedule = Store.LoadSchedule();
-            if (_schedule != null)
+            var schedule = Store.LoadSchedule();
+            if (schedule != null)
             {
-                foreach (var c in _schedule.Classes) ClassNames.Add(c.ClassName);
+                foreach (var c in schedule.Classes) ClassNames.Add(c.ClassName);
                 if (!string.IsNullOrEmpty(settings.SelectedClass) && ClassNames.Contains(settings.SelectedClass))
                     CbClass.SelectedItem = settings.SelectedClass;
                 else if (ClassNames.Count > 0)
@@ -66,14 +57,10 @@ public partial class MainWindow : Window
             }
             else
             {
-                TxtStatus.Text = "尚未导入课表，请点击右上角「导入课表」选择全校总课程表 Excel 文件。";
+                TxtStatus.Text = "尚未导入课表，请到「数据管理」导入全校总课程表 Excel 文件。";
             }
 
-            // 初始化显示日选择器（Fixed 模式回显日期，否则清空表示“今天”）
-            var dispSettings = Store.LoadSettings();
-            DpDisplayDate.SelectedDate = dispSettings.DisplayDateMode == "Fixed"
-                && DateTime.TryParse(dispSettings.FixedDisplayDate, out var fd) ? fd : (DateTime?)null;
-
+            ChkDocHide.IsChecked = settings.AutoHideOnDocOpen;
             ReloadNotes();
         }
         catch (Exception ex)
@@ -101,9 +88,6 @@ public partial class MainWindow : Window
             if (settings.LaunchLocked) ToggleLock();
         }
         catch { }
-
-        try { RefreshToday(); }
-        catch (Exception ex) { TxtStatus.Text = "刷新课表出错：" + ex.Message; }
     }
 
     // ---------- 悬浮窗管理 ----------
@@ -218,32 +202,14 @@ public partial class MainWindow : Window
     // ---------- 班级选择 ----------
     private void CbClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _selectedClass = CbClass.SelectedItem as string;
-        if (_selectedClass != null)
+        var cls = CbClass.SelectedItem as string;
+        if (cls != null)
         {
             var s = Store.LoadSettings();
-            s.SelectedClass = _selectedClass;
+            s.SelectedClass = cls;
             Store.SaveSettings(s);
         }
         AppEvents.RaiseScheduleChanged();
-        RefreshToday();
-    }
-
-    // ---------- 生成当日课表（编辑区） ----------
-    private void RefreshToday()
-    {
-        var s = Store.LoadSettings();
-        _selectedClass = s.SelectedClass;
-        _semesterStart = s.SemesterStartMonday;
-        var displayDate = BoardBuilder.ResolveDisplayDate(s);
-        var res = BoardBuilder.Build(_selectedClass, _semesterStart, _schedule, displayDate);
-
-        TxtClassName.Text = string.IsNullOrEmpty(res.ClassName) ? "未选择班级" : res.ClassName;
-        TxtDate.Text = res.DateText;
-        TxtWeek.Text = res.WeekLine;
-
-        TodayRows.Clear();
-        foreach (var r in res.Rows) TodayRows.Add(r);
     }
 
     // ---------- 导入课表 ----------
@@ -259,7 +225,6 @@ public partial class MainWindow : Window
         {
             var sf = ScheduleImporter.Import(dlg.FileName);
             Store.SaveSchedule(sf);
-            _schedule = sf;
             ClassNames.Clear();
             foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
             if (ClassNames.Count > 0) CbClass.SelectedIndex = 0;
@@ -270,7 +235,6 @@ public partial class MainWindow : Window
 
             TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级。";
             AppEvents.RaiseScheduleChanged();
-            RefreshToday();
         }
         catch (Exception ex)
         {
@@ -291,7 +255,6 @@ public partial class MainWindow : Window
         {
             var (sf, tempOverrides) = ScheduleImporter.ImportTempSchedule(dlg.FileName);
             Store.SaveSchedule(sf);
-            _schedule = sf;
             ClassNames.Clear();
             foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
             if (ClassNames.Count > 0) CbClass.SelectedIndex = 0;
@@ -310,7 +273,6 @@ public partial class MainWindow : Window
             int dai = tempOverrides.Count(o => o.Type == "代");
             TxtStatus.Text = $"已导入临时课表，共 {ClassNames.Count} 个班级；调课 {tiao} 条、代课 {dai} 条。";
             AppEvents.RaiseScheduleChanged();
-            RefreshToday();
         }
         catch (Exception ex)
         {
@@ -353,38 +315,7 @@ public partial class MainWindow : Window
     {
         var w = new SettingsWindow { Owner = this };
         if (w.ShowDialog() == true)
-        {
-            _semesterStart = Store.LoadSettings().SemesterStartMonday;
-            RefreshToday();
-        }
-    }
-
-    // ---------- 双击课卡编辑调课（含确认 / 取消） ----------
-    private void TodayPanel_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-    {
-        var dep = (DependencyObject)e.OriginalSource;
-        while (dep != null)
-        {
-            if (dep is System.Windows.Controls.Border b && b.DataContext is PeriodRow row && row.Period > 0)
-            {
-                OpenOverrideEditor(row.DayIdx, row.Period);
-                break;
-            }
-            dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
-        }
-    }
-
-    private void OpenOverrideEditor(int dayIdx, int period)
-    {
-        if (string.IsNullOrEmpty(_selectedClass)) return;
-        var row = TodayRows.FirstOrDefault(r => r.DayIdx == dayIdx && r.Period == period);
-        var current = (row != null && row.Lessons.Count > 0) ? row.Lessons[0] : new LessonView();
-        var w = new LessonOverrideWindow(_selectedClass, dayIdx, period, current, _schedule) { Owner = this, Topmost = true };
-        if (w.ShowDialog() == true)
-        {
-            AppEvents.RaiseScheduleChanged();
-            RefreshToday();
-        }
+            AppEvents.RaiseScheduleChanged();   // 开学周等变化后刷新周视图
     }
 
     // ---------- 清除全部临时调课 ----------
@@ -400,33 +331,9 @@ public partial class MainWindow : Window
             $"确定要清除全部 {list.Count} 条临时调课 / 代课记录吗？此操作不可撤销。",
             "清除全部临时调课", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (result != MessageBoxResult.OK) return;
-        Store.SaveOverrides(new List<LessonOverride>());
+        Store.SaveOverrides(new System.Collections.Generic.List<LessonOverride>());
         AppEvents.RaiseScheduleChanged();
-        RefreshToday();
         TxtStatus.Text = "已清除全部临时调课记录。";
-    }
-
-    // ---------- 显示日（调休上课） ----------
-    private void DpDisplayDate_SelectedDateChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DpDisplayDate.SelectedDate == null) return; // “今天”按钮负责切回今天，这里不处理清空
-        var s = Store.LoadSettings();
-        s.DisplayDateMode = "Fixed";
-        s.FixedDisplayDate = DpDisplayDate.SelectedDate.Value.ToString("yyyy-MM-dd");
-        Store.SaveSettings(s);
-        AppEvents.RaiseScheduleChanged();
-        RefreshToday();
-    }
-
-    private void BtnToday_Click(object sender, RoutedEventArgs e)
-    {
-        var s = Store.LoadSettings();
-        s.DisplayDateMode = "Today";
-        s.FixedDisplayDate = "";
-        Store.SaveSettings(s);
-        DpDisplayDate.SelectedDate = null;
-        AppEvents.RaiseScheduleChanged();
-        RefreshToday();
     }
 
     private void BtnWeek_Click(object sender, RoutedEventArgs e)
@@ -435,130 +342,40 @@ public partial class MainWindow : Window
         w.Show();
     }
 
-    // ---------- 日视图：拖动调课 ----------
-    private void TodayCard_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    // ---------- 文档 / 演示程序前台自动隐藏 ----------
+    private void ChkDocHide_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is System.Windows.FrameworkElement fe && fe.DataContext is PeriodRow row && row.Period > 0)
-        {
-            var lesson = row.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
-            if (lesson == null) { _dayDragSrc = null; return; }
-            _dayDragSrc = row;
-            _dayDragStart = e.GetPosition((System.Windows.IInputElement)sender);
-        }
+        var s = Store.LoadSettings();
+        s.AutoHideOnDocOpen = ChkDocHide.IsChecked == true;
+        Store.SaveSettings(s);
+        CheckDocForeground(force: true);
+        TxtStatus.Text = s.AutoHideOnDocOpen
+            ? "已开启：有文档/演示程序在前台时自动隐藏悬浮窗。"
+            : "已关闭文档前台自动隐藏。";
     }
 
-    private void TodayCard_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    private void CheckDocForeground(bool force = false)
     {
-        if (_dayDragSrc != null && e.LeftButton == System.Windows.Input.MouseButtonState.Pressed)
+        try
         {
-            var p = e.GetPosition((System.Windows.IInputElement)sender);
-            if (Math.Abs(p.X - _dayDragStart.X) > 4 || Math.Abs(p.Y - _dayDragStart.Y) > 4)
+            bool enabled = Store.LoadSettings().AutoHideOnDocOpen;
+            bool active = enabled && DocDetect.IsDocumentForeground();
+            if (!force && active == _docActive) return;
+            _docActive = active;
+
+            if (active)
             {
-                var src = _dayDragSrc;
-                _dayDragSrc = null;
-                System.Windows.DragDrop.DoDragDrop((System.Windows.DependencyObject)sender,
-                    new System.Windows.DataObject("DayPeriod", src), System.Windows.DragDropEffects.Move);
+                // 临时隐藏，但不改变用户的“开关意图”
+                _schWin?.Hide();
+                _notifWin?.Hide();
+            }
+            else
+            {
+                if (_schOn) _schWin?.Show();
+                if (_notOn) _notifWin?.Show();
             }
         }
-    }
-
-    private void TodayCard_PreviewMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        => _dayDragSrc = null;
-
-    private void TodayCard_DragOver(object sender, System.Windows.DragEventArgs e)
-    {
-        if (e.Data.GetDataPresent("DayPeriod")) { e.Effects = System.Windows.DragDropEffects.Move; e.Handled = true; }
-    }
-
-    private void TodayCard_Drop(object sender, System.Windows.DragEventArgs e)
-    {
-        if (e.Data.GetData("DayPeriod") is PeriodRow src
-            && sender is System.Windows.FrameworkElement fe
-            && fe.DataContext is PeriodRow tgt
-            && src != tgt)
-        {
-            ApplyDayDrag(src, tgt);
-            e.Handled = true;
-        }
-    }
-
-    private void TodayCard_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (sender is System.Windows.FrameworkElement fe && fe.DataContext is PeriodRow row && row.Period > 0)
-        {
-            OpenOverrideEditor(row.DayIdx, row.Period);
-            e.Handled = true;
-        }
-    }
-
-    private void ApplyDayDrag(PeriodRow src, PeriodRow tgt)
-    {
-        if (src.Period == tgt.Period || string.IsNullOrEmpty(_selectedClass)) return;
-        var srcLesson = src.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
-        if (srcLesson == null) return;
-        var tgtLesson = tgt.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
-
-        string RawLoc(string? lt)
-        {
-            if (string.IsNullOrEmpty(lt)) return "";
-            return lt!.StartsWith(" · ") ? lt.Substring(3).Trim() : lt.Trim();
-        }
-
-        var list = Store.LoadOverrides();
-        string TypeOf(LessonView lv) => lv.IsOverridden && !string.IsNullOrEmpty(lv.OverrideType) ? lv.OverrideType : "调";
-
-        if (tgtLesson == null)
-        {
-            // 移动：目标 = 源内容；源 = 空（调空）
-            UpsertOverride(list, src.DayIdx, tgt.Period, srcLesson.Subject, srcLesson.Teacher, RawLoc(srcLesson.LocationText), TypeOf(srcLesson));
-            UpsertOverride(list, src.DayIdx, src.Period, "", "", "", "调", isEmpty: true);
-        }
-        else
-        {
-            // 互换
-            UpsertOverride(list, src.DayIdx, tgt.Period, srcLesson.Subject, srcLesson.Teacher, RawLoc(srcLesson.LocationText), TypeOf(srcLesson));
-            UpsertOverride(list, src.DayIdx, src.Period, tgtLesson.Subject, tgtLesson.Teacher, RawLoc(tgtLesson.LocationText), TypeOf(tgtLesson));
-        }
-        Store.SaveOverrides(list);
-        AppEvents.RaiseScheduleChanged();
-        RefreshToday();
-        TxtStatus.Text = $"已调课：第{src.Period}节 ⇄ 第{tgt.Period}节";
-    }
-
-    private void UpsertOverride(List<LessonOverride> list, int dayIdx, int period,
-        string subject, string teacher, string location, string type, bool isEmpty = false)
-    {
-        if (string.IsNullOrEmpty(_selectedClass)) return;
-        string key = $"{_selectedClass}|{dayIdx}|{period}";
-        list.RemoveAll(o => o.Key == key);
-        if (isEmpty)
-        {
-            list.Add(new LessonOverride
-            {
-                ClassName = _selectedClass,
-                DayIdx = dayIdx,
-                Period = period,
-                IsEmpty = true,
-                Type = "调",
-                Source = "manual",
-                UpdatedAt = DateTime.Now
-            });
-        }
-        else if (!string.IsNullOrWhiteSpace(subject))
-        {
-            list.Add(new LessonOverride
-            {
-                ClassName = _selectedClass,
-                DayIdx = dayIdx,
-                Period = period,
-                Subject = subject,
-                Teacher = teacher,
-                Location = location,
-                Type = type,
-                Source = "manual",
-                UpdatedAt = DateTime.Now
-            });
-        }
+        catch { }
     }
 
     // ---------- 通知 / 公告 ----------

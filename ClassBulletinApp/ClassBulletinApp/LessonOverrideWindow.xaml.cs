@@ -26,6 +26,10 @@ public partial class LessonOverrideWindow : Window
         TxtLocation.Text = current.LocationText.Trim(' ', '·');
         TxtNote.Text = current.OverrideNote;
 
+        // 调课类型：优先用已有覆盖的类型，否则默认“调课”
+        string curType = (current.IsOverridden && !string.IsNullOrEmpty(current.OverrideType)) ? current.OverrideType : "调";
+        CbType.SelectedIndex = curType == "代" ? 1 : 0;
+
         BuildSubjectList(schedule);
     }
 
@@ -87,6 +91,7 @@ public partial class LessonOverrideWindow : Window
         ov.Teacher = TxtTeacher.Text.Trim();
         ov.Location = TxtLocation.Text.Trim();
         ov.Note = TxtNote.Text.Trim();
+        ov.Type = CbType.SelectedIndex == 1 ? "代" : "调";
         ov.UpdatedAt = System.DateTime.Now;
         Store.SaveOverrides(list);
         DialogResult = true;
