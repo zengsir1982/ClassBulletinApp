@@ -1,0 +1,27 @@
+# ===== 构建产物 =====
+**/bin/
+**/obj/
+publish/
+*.user
+*.suo
+*.vspscc
+.vs/
+
+# ===== 第三方 / 安装包（非本工程源码） =====
+ClassIsland-master/
+ClassIsland-master.zip
+ClassIsland_app_windows_x64_selfContained_folder.zip
+innosetup-7.1.0-x64.exe
+installer/Output/
+
+# ===== 大体积安装包 / 压缩包 =====
+*.zip
+*.exe
+
+# ===== 本地项目数据（含记忆/缓存，勿提交） =====
+.workbuddy/
+
+# ===== OS / 编辑器 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
