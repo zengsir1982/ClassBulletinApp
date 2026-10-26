@@ -27,7 +27,12 @@ public static class BoardBuilder
     /// 支持调休：选某工作日即显示该天课；周末/无基础课数据的日子会显示该日已有的调课 override，否则提示休息。
     /// override 命中且 IsEmpty 时，该节课显示为空白（被调空）。
     /// </summary>
-    public static TodayResult Build(string? selectedClass, string semesterStart, ScheduleFile? schedule, DateTime displayDate)
+    /// <param name="overrides">
+    /// 调课/代课记录。不传时读取 Store；
+    /// 显示教师个人课表时由调用方传入「换算到该教师名下」的覆盖集合，以体现临时课表的最新安排。
+    /// </param>
+    public static TodayResult Build(string? selectedClass, string semesterStart, ScheduleFile? schedule,
+        DateTime displayDate, List<LessonOverride>? overrides = null)
     {
         var res = new TodayResult
         {
@@ -42,7 +47,7 @@ public static class BoardBuilder
         if (cs == null) return res;
 
         int dayIdx = ((int)displayDate.DayOfWeek + 6) % 7;
-        var ovDict = Store.LoadOverrides().ToDictionary(o => o.Key, o => o);
+        var ovDict = (overrides ?? Store.LoadOverrides()).ToDictionary(o => o.Key, o => o);
         int parity = WeekHelper.GetParity(displayDate, semesterStart);
 
         if (!cs.Data.TryGetValue(dayIdx, out var dayMap))
@@ -86,9 +91,55 @@ public static class BoardBuilder
             return res;
         }
 
-        foreach (var period in dayMap.Keys.OrderBy(k => k))
+        // 节次集合 = 原课表已有的节次 ∪ 临时课表新增给该对象的节次
+        // （教师个人课表尤其需要：别的班临时安排给他的课，原课表里本没有这一节）
+        var periods = dayMap.Keys.ToList();
+        foreach (var ov in ovDict.Values
+                     .Where(o => o.ClassName == selectedClass && o.DayIdx == dayIdx && !o.IsEmpty))
         {
-            var lessons = dayMap[period];
+            if (!periods.Contains(ov.Period)) periods.Add(ov.Period);
+        }
+
+        LessonView MakeOverrideView(LessonOverride ov, int period)
+        {
+            string t = string.IsNullOrEmpty(ov.Type) ? "调" : ov.Type;
+            bool sub = t == "代";
+            return new LessonView
+            {
+                DayIdx = dayIdx,
+                Period = period,
+                Subject = ov.Subject,
+                Teacher = ov.Teacher,
+                LocationText = string.IsNullOrEmpty(ov.Location) ? "" : " · " + ov.Location,
+                WeekTag = "",
+                SubjectColor = "#222222",
+                IsOverridden = true,
+                OverrideType = t,
+                OverrideBadgeText = sub ? "代课" : "已调课",
+                OverrideBadgeColor = sub ? "#2D9CDB" : "#E67E22",
+                OverrideNote = ov.Note
+            };
+        }
+
+        foreach (var period in periods.OrderBy(k => k))
+        {
+            dayMap.TryGetValue(period, out var lessons);
+            string key = $"{selectedClass}|{dayIdx}|{period}";
+
+            // 原课表没有这一节：若临时课表新增了课，整行都由覆盖记录构成
+            if (lessons == null || lessons.Count == 0)
+            {
+                if (!ovDict.TryGetValue(key, out var nov) || nov.IsEmpty) continue;
+                res.Rows.Add(new PeriodRow
+                {
+                    DayIdx = dayIdx,
+                    Period = period,
+                    PeriodText = $"第{period}节",
+                    Lessons = { MakeOverrideView(nov, period) }
+                });
+                continue;
+            }
+
             var first = lessons.First();
             var row = new PeriodRow
             {
@@ -100,7 +151,6 @@ public static class BoardBuilder
             if (!string.IsNullOrEmpty(first.TimeRange) && IsCurrent(first.TimeRange, displayDate))
                 row.CardBg = "#FFF3CD";
 
-            string key = $"{selectedClass}|{dayIdx}|{period}";
             if (ovDict.TryGetValue(key, out var ov))
             {
                 if (ov.IsEmpty)
@@ -109,23 +159,7 @@ public static class BoardBuilder
                     res.Rows.Add(row);
                     continue;
                 }
-                string type = string.IsNullOrEmpty(ov.Type) ? "调" : ov.Type;
-                bool isSub = type == "代";
-                row.Lessons.Add(new LessonView
-                {
-                    DayIdx = dayIdx,
-                    Period = period,
-                    Subject = ov.Subject,
-                    Teacher = ov.Teacher,
-                    LocationText = string.IsNullOrEmpty(ov.Location) ? "" : " · " + ov.Location,
-                    WeekTag = "",
-                    SubjectColor = "#222222",
-                    IsOverridden = true,
-                    OverrideType = type,
-                    OverrideBadgeText = isSub ? "代课" : "已调课",
-                    OverrideBadgeColor = isSub ? "#2D9CDB" : "#E67E22",
-                    OverrideNote = ov.Note
-                });
+                row.Lessons.Add(MakeOverrideView(ov, period));
             }
             else
             {

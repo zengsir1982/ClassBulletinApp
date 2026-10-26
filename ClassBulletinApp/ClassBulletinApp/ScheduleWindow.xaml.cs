@@ -123,7 +123,14 @@ public partial class ScheduleWindow : Window
         s.SemesterStartMonday = _semesterStart;
 
         var displayDate = BoardBuilder.ResolveDisplayDate(s);
-        var res = BoardBuilder.Build(_selectedName, _semesterStart, _schedule, displayDate);
+
+        // 教师个人课表：把班级层面的调课/代课记录（含临时课表导入的）换算到这位教师身上，
+        // 使悬浮课表优先显示临时课表的最新安排
+        List<LessonOverride>? viewOverrides = null;
+        if (_isTeacherMode)
+            viewOverrides = TeacherOverrideApplier.BuildTeacherOverrides(_schedule, _selectedName, Store.LoadOverrides());
+
+        var res = BoardBuilder.Build(_selectedName, _semesterStart, _schedule, displayDate, viewOverrides);
 
         TxtClass.Text = string.IsNullOrEmpty(res.ClassName)
             ? (_isTeacherMode ? "未选择教师" : "未选择班级")

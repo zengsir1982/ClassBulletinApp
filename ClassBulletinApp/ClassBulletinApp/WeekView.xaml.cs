@@ -94,9 +94,13 @@ public partial class WeekView : System.Windows.Controls.UserControl
         ApplyModeHint();   // 依赖 _isTeacher 提供正确的操作提示
 
         // 教师个人课表与班级课表分别取自各自的存储
+        var rawOverrides = Store.LoadOverrides();
         var schedule = _isTeacher ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
-        // 教师课表是整理结果，不套用班级的调课/代课记录
-        var overrides = _isTeacher ? new List<LessonOverride>() : Store.LoadOverrides();
+        // 教师模式：把班级层面的调课/代课记录（含临时课表导入的）换算到这位教师身上，
+        // 使周视图优先反映临时课表的最新安排
+        var overrides = _isTeacher
+            ? TeacherOverrideApplier.BuildTeacherOverrides(schedule, _selectedName, rawOverrides)
+            : rawOverrides;
 
         string targetLabel = _isTeacher ? "教师" : "班级";
         if (schedule == null || schedule.Classes.Count == 0)
