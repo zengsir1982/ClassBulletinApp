@@ -32,6 +32,8 @@ public partial class LayoutWindow : Window
         ChkSchClick.IsChecked = sl.ClickThrough;
         ChkSchHide.IsChecked = sl.AutoHide;
         ChkSchClassHide.IsChecked = sl.AutoHideDuringClass;
+        SlSchPeek.Value = Math.Clamp(sl.EdgePeek, SlSchPeek.Minimum, SlSchPeek.Maximum);
+        SlSchEdge.Value = Math.Clamp(sl.EdgeTrigger, SlSchEdge.Minimum, SlSchEdge.Maximum);
 
         var nl = _s.NotificationLayout;
         CbNotAnchor.SelectedIndex = nl.Anchor == "Bottom" ? 1 : 0;
@@ -44,6 +46,8 @@ public partial class LayoutWindow : Window
         ChkNotClick.IsChecked = nl.ClickThrough;
         ChkNotHide.IsChecked = nl.AutoHide;
         ChkNotClassHide.IsChecked = nl.AutoHideDuringClass;
+        SlNotPeek.Value = Math.Clamp(nl.EdgePeek, SlNotPeek.Minimum, SlNotPeek.Maximum);
+        SlNotEdge.Value = Math.Clamp(nl.EdgeTrigger, SlNotEdge.Minimum, SlNotEdge.Maximum);
     }
 
     private void WireLabels()
@@ -57,6 +61,14 @@ public partial class LayoutWindow : Window
         SlNotSpeed.ValueChanged += (_, _) => TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
         SlNotOpacity.ValueChanged += (_, _) => TxtNotOpacity.Text = $"{SlNotOpacity.Value:0%}";
         SlNotOverlay.ValueChanged += (_, _) => TxtNotOverlay.Text = $"{SlNotOverlay.Value:0%}";
+        SlSchPeek.ValueChanged += (_, _) => TxtSchPeek.Text = SlSchPeek.Value <= 0
+            ? "0 像素 · 完全移出屏幕（推荐）"
+            : $"{SlSchPeek.Value:0} 像素（保留一条可点的细边）";
+        SlSchEdge.ValueChanged += (_, _) => TxtSchEdge.Text = $"{SlSchEdge.Value:0} 像素";
+        SlNotPeek.ValueChanged += (_, _) => TxtNotPeek.Text = SlNotPeek.Value <= 0
+            ? "0 像素 · 完全移出屏幕（推荐）"
+            : $"{SlNotPeek.Value:0} 像素（保留一条可点的细边）";
+        SlNotEdge.ValueChanged += (_, _) => TxtNotEdge.Text = $"{SlNotEdge.Value:0} 像素";
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
@@ -72,6 +84,8 @@ public partial class LayoutWindow : Window
         // 鼠标穿透与靠边隐藏互斥：穿透开启时强制关闭两类靠边隐藏
         sl.AutoHide = ChkSchHide.IsChecked == true && !sl.ClickThrough;
         sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true && !sl.ClickThrough;
+        sl.EdgePeek = SlSchPeek.Value;
+        sl.EdgeTrigger = SlSchEdge.Value;
 
         var nl = _s.NotificationLayout;
         nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
@@ -84,6 +98,8 @@ public partial class LayoutWindow : Window
         nl.ClickThrough = ChkNotClick.IsChecked == true;
         nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
         nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true && !nl.ClickThrough;
+        nl.EdgePeek = SlNotPeek.Value;
+        nl.EdgeTrigger = SlNotEdge.Value;
 
         Store.SaveSettings(_s);
         AppEvents.RaiseLayoutChanged();

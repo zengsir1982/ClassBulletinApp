@@ -60,8 +60,38 @@ public partial class ScheduleWindow : Window
 
         AppEvents.ScheduleChanged += Refresh;
         AppEvents.LayoutChanged += OnLayoutChanged;
+        AppEvents.BackdropChanged += UpdateBackdropButton;
         Refresh();
+        UpdateBackdropButton();
         _timer.Start();
+    }
+
+    /// <summary>同步底部「桌面背面」按钮状态。</summary>
+    private void UpdateBackdropButton()
+    {
+        try
+        {
+            if (BtnWp == null) return;
+            var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
+            bool on = b.ShowSchedule;
+            BtnWp.Content = on ? "桌面背面：开" : "桌面背面：关";
+            BtnWp.Background = on
+                ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
+                : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
+            BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
+            TxtWpState.Text = on
+                ? "当天课表已在桌面背面显示（不遮挡操作）" + (b.ShowHomework ? "，含作业公示" : "")
+                : "点右侧按钮可把当天课表画到桌面壁纸上";
+        }
+        catch { }
+    }
+
+    private void BtnWp_Click(object sender, RoutedEventArgs e)
+    {
+        BackdropService.ToggleSchedule(out string msg);
+        UpdateBackdropButton();
+        AppEvents.RaiseBackdropChanged();
+        TxtWpState.Text = msg;
     }
 
     private void ApplyCurrentLayout()
@@ -74,7 +104,7 @@ public partial class ScheduleWindow : Window
         _clickThrough = l.ClickThrough && !l.AutoHide;
         FloatingHelper.ApplyLayout(this, l, _clickThrough, topShow ? l.OverlayOpacity : l.Opacity);
         if (_clickThrough)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, ClassHeader, DateHeader, TodayPanel);
+            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, ClassHeader, DateHeader, TodayPanel);
         else
             FloatingHelper.SetClickThrough(this, false);
 
@@ -542,7 +572,7 @@ public partial class ScheduleWindow : Window
     {
         while (dep != null)
         {
-            if (ReferenceEquals(dep, BtnHide)) return true;
+            if (ReferenceEquals(dep, BtnHide) || ReferenceEquals(dep, BtnWp)) return true;
             dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
         }
         return false;
@@ -554,6 +584,7 @@ public partial class ScheduleWindow : Window
         _hider?.Dispose();
         AppEvents.ScheduleChanged -= Refresh;
         AppEvents.LayoutChanged -= OnLayoutChanged;
+        AppEvents.BackdropChanged -= UpdateBackdropButton;
         _timer.Stop();
         base.OnClosed(e);
     }

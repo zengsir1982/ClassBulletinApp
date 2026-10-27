@@ -32,6 +32,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _winTimer;
     private bool _maxActive;
     private DispatcherTimer? _hwApplyTimer;
+    private DispatcherTimer? _wpSaveTimer;
+    private System.Windows.Forms.ToolStripMenuItem? _miWp;
 
     /// <summary>界面控件是否已就绪。为 false 时忽略作业公示参数变更事件（避免 XAML 加载期空引用）。</summary>
     private bool _hwReady;
@@ -80,6 +82,7 @@ public partial class MainWindow : Window
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
             ReloadHomework();
+            ReloadBackdropUi();
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -95,6 +98,14 @@ public partial class MainWindow : Window
         // 上下课提醒后台服务
         try { ReminderService.Start(); }
         catch (Exception ex) { TxtStatus.Text += " [提醒服务启动失败：" + ex.Message + "]"; }
+
+        // 桌面背面：课表 / 作业变化、跨天时自动重绘（仅在已应用时）
+        try
+        {
+            BackdropService.Start();
+            AppEvents.BackdropChanged += UpdateTrayBackdropText;
+        }
+        catch { }
 
         // 托盘初始化失败不应拖垮主窗口
         try { SetupTray(); }
@@ -212,14 +223,76 @@ public partial class MainWindow : Window
         ChkRemindEnabled.IsChecked = r.Enabled;
         TxtRemindBeforeClass.Text = Math.Max(0, r.BeforeClassMinutes).ToString();
         TxtRemindBeforeEnd.Text = Math.Max(0, r.BeforeEndMinutes).ToString();
+        TxtRemindSeconds.Text = Math.Clamp(r.DisplaySeconds, 3, 60).ToString();
         ChkRemindAfterSchool.IsChecked = r.AfterSchoolRemind;
         ChkRemindSound.IsChecked = r.PlaySound;
+
+        // 语音：列出系统已安装语音，首项「系统默认」会自动优先选择中文语音
+        ChkRemindVoice.IsChecked = r.VoiceEnabled;
+        var voices = new List<string> { "（系统默认 · 自动选中文语音）" };
+        voices.AddRange(VoiceSpeaker.GetInstalledVoices().Where(v => !voices.Contains(v)));
+        CbRemindVoice.ItemsSource = voices;
+        int idx = string.IsNullOrWhiteSpace(r.VoiceName) ? 0 : voices.IndexOf(r.VoiceName);
+        CbRemindVoice.SelectedIndex = idx < 0 ? 0 : idx;
+        SlVoiceRate.Value = Math.Clamp(r.VoiceRate, -10, 10);
+        SlVoiceVolume.Value = Math.Clamp(r.VoiceVolume, 0, 100);
+        UpdateVoiceLabels();
+        UpdateVoiceEnabledUi();
+
         _remindReady = true;
     }
 
-    private void RemindSetting_Changed(object sender, RoutedEventArgs e) => SaveReminderUi();
+    private void UpdateVoiceLabels()
+    {
+        if (TxtVoiceRate != null) TxtVoiceRate.Text = SlVoiceRate.Value switch
+        {
+            0 => "正常",
+            > 0 => $"偏快 +{SlVoiceRate.Value:0}",
+            _ => $"偏慢 {SlVoiceRate.Value:0}"
+        };
+        if (TxtVoiceVolume != null) TxtVoiceVolume.Text = $"{SlVoiceVolume.Value:0}%";
+    }
+
+    private void UpdateVoiceEnabledUi()
+    {
+        bool on = ChkRemindVoice.IsChecked == true;
+        var vis = on ? Visibility.Visible : Visibility.Collapsed;
+        if (CbRemindVoice != null) CbRemindVoice.IsEnabled = on;
+        if (BtnVoiceTest != null) BtnVoiceTest.IsEnabled = on;
+        if (SlVoiceRate != null) SlVoiceRate.IsEnabled = on;
+        if (SlVoiceVolume != null) SlVoiceVolume.IsEnabled = on;
+        if (TxtVoiceRate != null) TxtVoiceRate.Visibility = vis;
+        if (TxtVoiceVolume != null) TxtVoiceVolume.Visibility = vis;
+    }
+
+    private void RemindSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateVoiceEnabledUi();
+        SaveReminderUi();
+    }
 
     private void RemindSetting_TextChanged(object sender, TextChangedEventArgs e) => SaveReminderUi();
+
+    private void RemindVoice_Selected(object sender, SelectionChangedEventArgs e) => SaveReminderUi();
+
+    private void RemindVoice_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (TxtVoiceRate == null || TxtVoiceVolume == null) return;
+        UpdateVoiceLabels();
+        SaveReminderUi();
+    }
+
+    private void BtnVoiceTest_Click(object sender, RoutedEventArgs e)
+    {
+        VoiceSpeaker.Speak("第3节 语文 即将上课，请回座位准备", SelectedVoiceName(), (int)SlVoiceRate.Value, (int)SlVoiceVolume.Value);
+        TxtStatus.Text = "已试听语音播报（若没听到声音，请检查系统音量或安装中文语音包）。";
+    }
+
+    private string SelectedVoiceName()
+    {
+        string v = CbRemindVoice.SelectedItem as string ?? "";
+        return v.StartsWith("（") ? "" : v;
+    }
 
     private void SaveReminderUi()
     {
@@ -231,8 +304,13 @@ public partial class MainWindow : Window
             s.Reminder.Enabled = ChkRemindEnabled.IsChecked == true;
             s.Reminder.BeforeClassMinutes = ParseRemindMinutes(TxtRemindBeforeClass.Text);
             s.Reminder.BeforeEndMinutes = ParseRemindMinutes(TxtRemindBeforeEnd.Text);
+            s.Reminder.DisplaySeconds = ParseRemindSeconds(TxtRemindSeconds.Text);
             s.Reminder.AfterSchoolRemind = ChkRemindAfterSchool.IsChecked == true;
             s.Reminder.PlaySound = ChkRemindSound.IsChecked == true;
+            s.Reminder.VoiceEnabled = ChkRemindVoice.IsChecked == true;
+            s.Reminder.VoiceName = SelectedVoiceName();
+            s.Reminder.VoiceRate = (int)SlVoiceRate.Value;
+            s.Reminder.VoiceVolume = (int)SlVoiceVolume.Value;
             Store.SaveSettings(s);
         }
         catch { }
@@ -240,6 +318,9 @@ public partial class MainWindow : Window
 
     private static int ParseRemindMinutes(string? text)
         => int.TryParse(text?.Trim(), out var v) && v >= 0 && v <= 30 ? v : 0;
+
+    private static int ParseRemindSeconds(string? text)
+        => int.TryParse(text?.Trim(), out var v) && v >= 3 && v <= 60 ? v : 8;
 
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
     {
@@ -270,10 +351,52 @@ public partial class MainWindow : Window
         var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
+        _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背面", null, (_, _) => ToggleBackdropSchedule());
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
-        menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[] { miPanel, miSch, miNot, miExit });
+        menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
+        {
+            miPanel, miSch, miNot,
+            new System.Windows.Forms.ToolStripSeparator(),
+            _miWp,
+            new System.Windows.Forms.ToolStripSeparator(),
+            miExit
+        });
+        menu.Opening += (_, _) => UpdateTrayBackdropText();
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowMainWindow();
+        UpdateTrayBackdropText();
+    }
+
+    /// <summary>同步托盘菜单中「当天课表 → 桌面背面」的勾选状态。</summary>
+    private void UpdateTrayBackdropText()
+    {
+        try
+        {
+            if (_miWp == null) return;
+            var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
+            _miWp.Checked = b.ShowSchedule;
+            _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背面（开）" : "当天课表 → 桌面背面（关）";
+            _miWp.ToolTipText = b.ShowSchedule
+                ? "点击关闭：从桌面背面移除当天课表"
+                : "点击开启：把当天课表画到桌面壁纸上（位于所有窗口之下）";
+        }
+        catch { }
+    }
+
+    private void ToggleBackdropSchedule()
+    {
+        try
+        {
+            BackdropService.ToggleSchedule(out string msg);
+            TxtStatus.Text = msg;
+            ReloadBackdropUi();
+            UpdateTrayBackdropText();
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换桌面背面失败：" + ex.Message;
+        }
     }
 
     private void ShowMainWindow()
@@ -749,38 +872,87 @@ public partial class MainWindow : Window
         {
             TxtHwTitle.Text = board.Title;
             foreach (var it in board.Items) HomeworkItems.Add(it);
-            ApplyHwLayoutToUi(board.Layout);
         }
         else
         {
             TxtHwTitle.Text = "各科作业公示";
-            ApplyHwLayoutToUi(null);
         }
         if (HomeworkItems.Count == 0)
             HomeworkItems.Add(new HomeworkItem());
     }
 
+    // ---------- 桌面背面（当天课表 + 作业公示 合成壁纸） ----------
+    /// <summary>把设置中的桌面背面参数同步到「桌面背面」标签页控件。</summary>
+    private void ReloadBackdropUi()
+    {
+        var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
+        bool ready = _hwReady;
+        _hwReady = false;
+        try
+        {
+            ChkWpSchedule.IsChecked = b.ShowSchedule;
+            ChkWpHomework.IsChecked = b.ShowHomework;
+            ChkWpOrigin.IsChecked = b.UseOriginWallpaper;
+
+            var sl = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
+            FillAnchorCombo(CbWpSchAnchor, sl.Anchor, 3);
+            SlWpSchWidth.Value = Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, SlWpSchWidth.Minimum, SlWpSchWidth.Maximum);
+            SlWpSchX.Value = Math.Clamp(sl.OffsetX, SlWpSchX.Minimum, SlWpSchX.Maximum);
+            SlWpSchY.Value = Math.Clamp(sl.OffsetY, SlWpSchY.Minimum, SlWpSchY.Maximum);
+
+            ApplyHwLayoutToUi(b.HomeworkLayout ?? Store.LoadHomework()?.Layout);
+        }
+        finally { _hwReady = ready; }
+        UpdateWpLabels();
+    }
+
+    private static void FillAnchorCombo(System.Windows.Controls.ComboBox cb, string? anchor, int fallback)
+    {
+        int idx = Array.IndexOf(HwAnchors, (anchor ?? "").Trim());
+        // 兼容旧值
+        if (idx < 0)
+        {
+            idx = (anchor ?? "").Trim() switch
+            {
+                "Left" => 3, "Right" => 5, "Top" => 1, "Bottom" => 7, "Center" => 4, _ => fallback
+            };
+        }
+        cb.SelectedIndex = Math.Clamp(idx, 0, HwAnchors.Length - 1);
+    }
+
+    private static string ComboAnchor(System.Windows.Controls.ComboBox cb, string fallback)
+        => cb.SelectedIndex >= 0 && cb.SelectedIndex < HwAnchors.Length ? HwAnchors[cb.SelectedIndex] : fallback;
+
     private void ApplyHwLayoutToUi(HomeworkWallpaperLayout? lay)
     {
-        string anchor = string.IsNullOrEmpty(lay?.Anchor) ? "MiddleRight" : lay!.Anchor;
-        int idx = Array.IndexOf(HwAnchors, anchor);
-        if (idx < 0) idx = 5;
-        CbHwAnchor.SelectedIndex = idx;
-        SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
-        SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
-        double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
-        SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
+        bool ready = _hwReady;
+        _hwReady = false;
+        try
+        {
+            FillAnchorCombo(CbHwAnchor, lay?.Anchor, 5);
+            SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
+            SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
+            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
+            SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
+        }
+        finally { _hwReady = ready; }
         UpdateHwLabels();
     }
 
     private HomeworkWallpaperLayout CurrentHwLayout() => new()
     {
-        Anchor = CbHwAnchor.SelectedIndex >= 0 && CbHwAnchor.SelectedIndex < HwAnchors.Length
-            ? HwAnchors[CbHwAnchor.SelectedIndex]
-            : "MiddleRight",
+        Anchor = ComboAnchor(CbHwAnchor, "MiddleRight"),
         OffsetX = SlHwX.Value,
         OffsetY = SlHwY.Value,
         WidthRatio = SlHwWidth.Value
+    };
+
+    private HomeworkWallpaperLayout CurrentWpScheduleLayout() => new()
+    {
+        Anchor = ComboAnchor(CbWpSchAnchor, "MiddleLeft"),
+        OffsetX = SlWpSchX.Value,
+        OffsetY = SlWpSchY.Value,
+        WidthRatio = SlWpSchWidth.Value
     };
 
     private HomeworkBoard BuildHomeworkBoard() => new()
@@ -800,7 +972,24 @@ public partial class MainWindow : Window
         // 此时 SlHwX / TxtHwX 等字段尚未赋值，必须等 Loaded 之后再响应。
         if (!_hwReady) return;
         UpdateHwLabels();
-        ScheduleHwRepaint();
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+    }
+
+    private void WpLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        UpdateWpLabels();
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+    }
+
+    private void WpSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        SaveWpSettings();
+        ScheduleWpRepaint();
+        TxtStatus.Text = "桌面背面内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背面」即可生效。");
     }
 
     private void UpdateHwLabels()
@@ -811,21 +1000,101 @@ public partial class MainWindow : Window
         if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
     }
 
-    /// <summary>已经应用为桌面背景时，调整参数后自动重绘（防抖 0.5 秒），方便直观调整位置。</summary>
-    private void ScheduleHwRepaint()
+    private void UpdateWpLabels()
     {
-        string outPath = Path.Combine(Store.AppDir, "homework_wallpaper.png");
-        var cur = WallpaperHelper.GetCurrentWallpaper();
-        if (!string.Equals(cur, outPath, StringComparison.OrdinalIgnoreCase)) return;
+        if (SlWpSchX == null || SlWpSchY == null || SlWpSchWidth == null) return;
+        if (TxtWpSchX != null) TxtWpSchX.Text = $"{SlWpSchX.Value:0} 像素";
+        if (TxtWpSchY != null) TxtWpSchY.Text = $"{SlWpSchY.Value:0} 像素";
+        if (TxtWpSchWidth != null) TxtWpSchWidth.Text = $"{SlWpSchWidth.Value:0%}";
+    }
+
+    /// <summary>把桌面背面参数写入设置（拖动滑块时防抖 400ms，避免频繁写文件）。</summary>
+    private void ScheduleWpSave()
+    {
+        _wpSaveTimer?.Stop();
+        _wpSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _wpSaveTimer.Tick += (_, _) =>
+        {
+            _wpSaveTimer?.Stop();
+            SaveWpSettings();
+        };
+        _wpSaveTimer.Start();
+    }
+
+    private void SaveWpSettings()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
+            s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
+            s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
+            s.Backdrop.ScheduleLayout = CurrentWpScheduleLayout();
+            s.Backdrop.HomeworkLayout = CurrentHwLayout();
+            Store.SaveSettings(s);
+
+            // 作业内容文件里也写一份布局，保证老入口 / 其他窗口读到的位置一致
+            var board = Store.LoadHomework();
+            if (board != null)
+            {
+                board.Layout = s.Backdrop.HomeworkLayout;
+                Store.SaveHomework(board);
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>已经应用到桌面时，调整参数后自动重绘（防抖 0.6 秒），方便直观调整位置。</summary>
+    private void ScheduleWpRepaint()
+    {
+        if (!BackdropService.IsApplied()) return;
 
         _hwApplyTimer?.Stop();
-        _hwApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _hwApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _hwApplyTimer.Tick += (_, _) =>
         {
             _hwApplyTimer?.Stop();
-            ApplyHomeworkWallpaper(silent: true);
+            BackdropService.Apply(silent: true);
         };
         _hwApplyTimer.Start();
+    }
+
+    private void BtnApplyWp_Click(object sender, RoutedEventArgs e)
+    {
+        SaveWpSettings();
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true)
+        {
+            TxtStatus.Text = "请至少勾选「当天课表」或「作业公示」其中一项。";
+            return;
+        }
+        BackdropService.Apply(silent: false, out string msg);
+        TxtStatus.Text = msg;
+        UpdateTrayBackdropText();
+        AppEvents.RaiseBackdropChanged();
+    }
+
+    private void BtnClearWp_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 先落盘关闭开关，再恢复壁纸：避免「清除了壁纸但开关还亮着」的不一致
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowSchedule = false;
+            s.Backdrop.ShowHomework = false;
+            Store.SaveSettings(s);
+
+            BackdropService.Clear();
+            ReloadBackdropUi();
+            UpdateTrayBackdropText();
+            AppEvents.RaiseBackdropChanged();
+            TxtStatus.Text = "已清除桌面背面，恢复系统原壁纸。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "清除桌面背面失败：" + ex.Message;
+        }
     }
 
     private void ApplyHomeworkWallpaper(bool silent)
@@ -835,29 +1104,21 @@ public partial class MainWindow : Window
             var board = BuildHomeworkBoard();
             Store.SaveHomework(board);
 
-            var screen = System.Windows.Forms.Screen.PrimaryScreen;
-            if (screen == null)
-            {
-                if (!silent) TxtStatus.Text = "无法获取主屏幕分辨率，应用壁纸失败。";
-                return;
-            }
-            string outPath = Path.Combine(Store.AppDir, "homework_wallpaper.png");
-            HomeworkRenderer.RenderToPng(board, screen.Bounds.Width, screen.Bounds.Height, outPath);
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowHomework = true;      // 「保存并应用」隐含要显示作业
+            s.Backdrop.HomeworkLayout = board.Layout;
+            Store.SaveSettings(s);
 
-            // 首次应用前记录系统原壁纸，便于「清除」恢复
-            var cur = WallpaperHelper.GetCurrentWallpaper();
-            if (!string.Equals(cur, outPath, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(cur))
-            {
-                var st = Store.LoadSettings();
-                if (string.IsNullOrEmpty(st.SavedWallpaper)) { st.SavedWallpaper = cur; Store.SaveSettings(st); }
-            }
-            WallpaperHelper.SetWallpaper(outPath);
+            bool ok = BackdropService.Apply(silent, out string msg);
             if (!silent)
-                TxtStatus.Text = $"作业公示已保存并应用为桌面背景（共 {board.Items.Count} 科）。调整位置/偏移/宽度会自动更新。";
+                TxtStatus.Text = ok ? $"{msg}（共 {board.Items.Count} 科作业）" : msg;
+            UpdateTrayBackdropText();
+            AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
         {
-            if (!silent) TxtStatus.Text = "应用作业公示壁纸失败：" + ex.Message;
+            if (!silent) TxtStatus.Text = "应用作业公示失败：" + ex.Message;
         }
     }
 
@@ -881,19 +1142,7 @@ public partial class MainWindow : Window
 
     private void BtnSaveHw_Click(object sender, RoutedEventArgs e) => ApplyHomeworkWallpaper(silent: false);
 
-    private void BtnClearHw_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var st = Store.LoadSettings();
-            WallpaperHelper.SetWallpaper(string.IsNullOrEmpty(st.SavedWallpaper) ? "" : st.SavedWallpaper);
-            TxtStatus.Text = "已清除作业公示桌面背景，恢复原壁纸。";
-        }
-        catch (Exception ex)
-        {
-            TxtStatus.Text = "清除桌面背景失败：" + ex.Message;
-        }
-    }
+    private void BtnClearHw_Click(object sender, RoutedEventArgs e) => BtnClearWp_Click(sender, e);
 
     // ---------- 快捷键 ----------
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

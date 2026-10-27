@@ -22,7 +22,9 @@ public static class WeekBuilder
                 foreach (var p in dm.Keys) maxPeriod = Math.Max(maxPeriod, p);
         data.MaxPeriod = maxPeriod;
 
-        var ovDict = overrides.ToDictionary(o => o.Key, o => o);
+        // 用索引器而不是 ToDictionary：历史数据里可能出现重复键，重复时后者覆盖前者
+        var ovDict = new Dictionary<string, LessonOverride>();
+        foreach (var o in overrides) ovDict[o.Key] = o;
         var selClass = schedule.Classes.FirstOrDefault(c => c.ClassName == selectedClass);
 
         for (int dayIdx = 0; dayIdx < 7; dayIdx++)

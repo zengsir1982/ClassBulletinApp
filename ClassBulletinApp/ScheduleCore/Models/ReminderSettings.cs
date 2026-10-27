@@ -21,6 +21,21 @@ public class ReminderSettings
     /// <summary>提醒时是否播放提示音。</summary>
     public bool PlaySound { get; set; }
 
+    /// <summary>
+    /// 是否启用语音播报（调用系统语音合成 SAPI 朗读提醒内容）。
+    /// 与提示音相互独立，可同时开启。
+    /// </summary>
+    public bool VoiceEnabled { get; set; }
+
+    /// <summary>语音名称（系统已安装的 TTS 语音，留空 = 系统默认语音）。</summary>
+    public string VoiceName { get; set; } = "";
+
+    /// <summary>语音语速 -10（最慢）.. 10（最快），0 为正常。</summary>
+    public int VoiceRate { get; set; }
+
+    /// <summary>语音音量 0..100。</summary>
+    public int VoiceVolume { get; set; } = 100;
+
     /// <summary>提醒窗口显示时长（秒）。</summary>
     public int DisplaySeconds { get; set; } = 8;
 }

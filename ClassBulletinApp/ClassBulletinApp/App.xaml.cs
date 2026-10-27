@@ -16,7 +16,37 @@ public partial class App : System.Windows.Application
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 
+        // 诊断 / 预览：--render-backdrop <输出png> [宽] [高]
+        // 按当前配置生成一张桌面背面图后退出，不修改系统壁纸（供预览与自动化测试使用）。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--render-backdrop", StringComparison.OrdinalIgnoreCase))
+        {
+            int w = e.Args.Length >= 3 && int.TryParse(e.Args[2], out var ww) ? ww : 1920;
+            int h = e.Args.Length >= 4 && int.TryParse(e.Args[3], out var hh) ? hh : 1080;
+            bool ok = BackdropService.RenderPreview(e.Args[1], w, h, out string msg);
+            try
+            {
+                File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.render.log"),
+                    (ok ? "OK " : "FAIL ") + msg);
+            }
+            catch { }
+            Shutdown(ok ? 0 : 1);
+            return;
+        }
+
         base.OnStartup(e);
+
+        // 启动主控制面板（原来的 StartupUri 改为手动创建，便于支持上面的诊断模式）
+        try
+        {
+            var win = new MainWindow();
+            MainWindow = win;
+            win.Show();
+        }
+        catch (Exception ex)
+        {
+            LogCrash("MainWindow startup", ex);
+            Shutdown(1);
+        }
     }
 
     private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

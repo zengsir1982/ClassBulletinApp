@@ -47,7 +47,9 @@ public static class BoardBuilder
         if (cs == null) return res;
 
         int dayIdx = ((int)displayDate.DayOfWeek + 6) % 7;
-        var ovDict = (overrides ?? Store.LoadOverrides()).ToDictionary(o => o.Key, o => o);
+        // 用索引器而不是 ToDictionary：历史数据里可能出现重复键，重复时后者覆盖前者
+        var ovDict = new Dictionary<string, LessonOverride>();
+        foreach (var o in overrides ?? Store.LoadOverrides()) ovDict[o.Key] = o;
         int parity = WeekHelper.GetParity(displayDate, semesterStart);
 
         if (!cs.Data.TryGetValue(dayIdx, out var dayMap))

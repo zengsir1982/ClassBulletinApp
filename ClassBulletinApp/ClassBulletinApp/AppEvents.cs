@@ -14,7 +14,11 @@ public static class AppEvents
     /// <summary>通知 / 公告数据发生变化。</summary>
     public static event Action? NotificationChanged;
 
+    /// <summary>「桌面背面」（当天课表 / 作业公示壁纸）开关或内容发生变化。</summary>
+    public static event Action? BackdropChanged;
+
     public static void RaiseScheduleChanged() => ScheduleChanged?.Invoke();
     public static void RaiseLayoutChanged() => LayoutChanged?.Invoke();
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
+    public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
 }

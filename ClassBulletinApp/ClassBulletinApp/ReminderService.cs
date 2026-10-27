@@ -75,14 +75,14 @@ public static class ReminderService
             var t = now.TimeOfDay;
             int shown = Math.Max(3, r.DisplaySeconds);
 
-            void Fire(string kind, int period, string title, string detail)
+            void Fire(string kind, int period, string title, string detail, string spoken)
             {
                 string key = $"{dateKey}|{kind}|{period}";
                 lock (Fired)
                 {
                     if (!Fired.Add(key)) return;
                 }
-                Show(title, detail, shown, r.PlaySound);
+                Show(title, detail, shown, r, spoken);
             }
 
             foreach (var sl in slots)
@@ -90,25 +90,30 @@ public static class ReminderService
                 if (r.BeforeClassMinutes > 0 &&
                     t >= sl.Start - TimeSpan.FromMinutes(r.BeforeClassMinutes) && t < sl.Start)
                     Fire("prep", sl.Period, $"即将上课 · 第{sl.Period}节",
-                        $"{sl.Subject}　{sl.Start:hh\\:mm} 开始");
+                        $"{sl.Subject}　{sl.Start:hh\\:mm} 开始",
+                        $"第{sl.Period}节 {sl.Subject} 即将上课，请回座位准备");
 
                 if (t >= sl.Start && t < sl.Start + TimeSpan.FromMinutes(1))
-                    Fire("on", sl.Period, $"上课 · 第{sl.Period}节", sl.Subject);
+                    Fire("on", sl.Period, $"上课 · 第{sl.Period}节", sl.Subject,
+                        $"上课时间到，第{sl.Period}节 {sl.Subject}");
 
                 if (r.BeforeEndMinutes > 0 &&
                     t >= sl.End - TimeSpan.FromMinutes(r.BeforeEndMinutes) && t < sl.End)
                     Fire("offpre", sl.Period, $"即将下课 · 第{sl.Period}节",
-                        $"{sl.Subject}　{sl.End:hh\\:mm} 下课");
+                        $"{sl.Subject}　{sl.End:hh\\:mm} 下课",
+                        $"第{sl.Period}节 {sl.Subject} 即将下课");
 
                 if (t >= sl.End && t < sl.End + TimeSpan.FromMinutes(1))
-                    Fire("off", sl.Period, "课间休息", $"第{sl.Period}节 {sl.Subject} 已下课");
+                    Fire("off", sl.Period, "课间休息", $"第{sl.Period}节 {sl.Subject} 已下课",
+                        $"第{sl.Period}节下课，课间休息");
             }
 
             if (r.AfterSchoolRemind)
             {
                 var last = slots.Last();
                 if (t >= last.End && t < last.End + TimeSpan.FromMinutes(10))
-                    Fire("after", last.Period, "放学了", "今天课程全部结束");
+                    Fire("after", last.Period, "放学了", "今天课程全部结束",
+                        "今天的课程全部结束，放学了");
             }
         }
         catch
@@ -117,11 +122,13 @@ public static class ReminderService
         }
     }
 
-    private static void Show(string title, string detail, int seconds, bool sound)
+    private static void Show(string title, string detail, int seconds, ReminderSettings r, string spoken)
     {
         try
         {
-            if (sound) System.Media.SystemSounds.Exclamation.Play();
+            if (r.PlaySound) System.Media.SystemSounds.Exclamation.Play();
+            if (r.VoiceEnabled)
+                VoiceSpeaker.Speak(spoken, r.VoiceName, r.VoiceRate, r.VoiceVolume);
             if (_popup == null) _popup = new ReminderPopup();
             _popup.ShowReminder(title, detail, seconds);
         }

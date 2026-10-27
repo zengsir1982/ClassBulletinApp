@@ -33,6 +33,18 @@ public class PanelLayout
     /// <summary>上课时间自动隐藏：上课期间自动缩到屏幕边沿，只有把鼠标/触摸移到屏幕边沿才滑出（不影响上课用屏）。与 ClickThrough 互斥。</summary>
     public bool AutoHideDuringClass { get; set; } = false;
 
+    /// <summary>
+    /// 自动隐藏缩回后仍露在屏幕边沿的像素数。
+    /// 0 = 完全移出屏幕（默认，最干净），大于 0 时保留一条可点击的细边。
+    /// </summary>
+    public double EdgePeek { get; set; }
+
+    /// <summary>
+    /// 屏幕边沿感应宽度（像素）：鼠标 / 触摸进入屏幕对应边沿这一范围内即滑出。
+    /// 与 EdgePeek 相互独立，EdgePeek = 0 时也能被感应到。
+    /// </summary>
+    public double EdgeTrigger { get; set; } = 6;
+
     /// <summary>是否横跨整个屏幕宽度（用于顶部/底部通知条）。</summary>
     public bool FullWidth { get; set; } = false;
 

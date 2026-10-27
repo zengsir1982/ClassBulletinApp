@@ -15,19 +15,24 @@
   - 显示大小（宽 / 高，通知还可设条高与字号）；
   - 整体透明度（0.2~1.0）；
   - 置顶显示；
-  - **鼠标穿透**（点击落到底层窗口，纯展示）或 **自动靠边隐藏**（鼠标靠近屏幕边缘时滑出，离开后缩回）——二者互斥；
+  - **鼠标穿透**（点击落到底层窗口，纯展示）或 **自动靠边隐藏**（窗口完全移出屏幕，鼠标移到 / 手指触到屏幕边沿才滑出）——二者互斥；
   - 通知默认在**顶部单行字幕（跑马灯）**滚动显示，可调速。
-- **教室部署自动化**：全屏展示、防误触锁定、开机自启、启动即全屏/锁定；程序常驻**系统托盘**（双击图标或右键菜单打开控制面板 / 开关悬浮窗 / 退出），一台机器一台班、多班多台各自配置。
+- **上下课提醒（独立「提醒设置」标签页）**：课前 / 上课 / 下课 / 放学自动弹窗，可设提前分钟数、弹窗秒数、提示音；**语音播报**（Windows SAPI，设为「系统默认」时自动优先中文语音）可单独开关，并可选具体语音、语速、音量，支持「试听」。
+- **桌面背面（当天课表 + 作业公示）**：把当天课表与作业公示绘制成一张桌面壁纸，位于所有窗口之下，不遮挡也不影响操作；两块内容可**同屏显示**，位置（九宫格锚点 + 像素偏移）与宽度**各自独立调整**，底图可沿用系统原壁纸；课表 / 作业内容变化或跨天会自动重绘。
+- **快捷开关桌面背面**：悬浮课表最下方按钮、任务栏图标右键菜单都能一键开关「当天课表 → 桌面背面」。
+- **教室部署自动化**：全屏展示、防误触锁定、开机自启、启动即全屏/锁定；程序常驻**系统托盘**（双击图标或右键菜单打开控制面板 / 开关悬浮窗 / 开关桌面背面 / 退出），一台机器一台班、多班多台各自配置。
 
 ## 工程结构
 - `ScheduleCore/`：核心库（与界面无关）
-  - `Models/`：Lesson / ClassSchedule / ScheduleFile / Notification / AppSettings / **LessonOverride（调课覆盖）** / **PanelLayout（悬浮窗布局）**
-  - `Services/`：ScheduleImporter（解析 xlsx）、Store（JSON 持久化到 AppData）、WeekHelper（单双周，支持学期起始日）
+  - `Models/`：Lesson / ClassSchedule / ScheduleFile / Notification / AppSettings / **LessonOverride（调课覆盖）** / **PanelLayout（悬浮窗布局）** / **ReminderSettings（上下课提醒 + 语音）** / **BackdropSettings（桌面背面）**
+  - `Services/`：ScheduleImporter（解析 xlsx）、Store（JSON 持久化到 AppData）、WeekHelper（单双周，支持学期起始日）、TeacherExtractor / TeacherOverrideApplier（教师个人课表）
 - `ClassBulletinApp/`：WPF 主程序
-  - `MainWindow`：控制面板（选班 + 今日课表编辑 + 通知管理 + 悬浮窗开关 + 布局/设置入口 + 托盘）
-  - `ScheduleWindow`：**课表悬浮窗**（按布局定位 / 缩放 / 透明 / 置顶 / 穿透 / 靠边，可双击调课）
+  - `MainWindow`：控制面板（标签页：周课程表 / 数据管理 / 显示设置 / 提醒设置 / 桌面背面 / 通知公告 / 作业公示 + 托盘）
+  - `ScheduleWindow`：**课表悬浮窗**（按布局定位 / 缩放 / 透明 / 置顶 / 穿透 / 靠边，可双击调课，底部一键切换桌面背面）
   - `NotificationWindow`：**通知悬浮窗**（顶部字幕跑马灯）
-  - `LayoutWindow`：**布局与显示设置**（课表 / 通知各自的位置、大小、透明度、置顶、穿透、靠边、字幕速度）
+  - `LayoutWindow`：**布局与显示设置**（课表 / 通知各自的位置、大小、透明度、置顶、穿透、靠边、露出像素、边沿感应宽度、字幕速度）
+  - `ReminderService` / `ReminderPopup` / `VoiceSpeaker`：上下课提醒（轮询今日课表）+ 置顶弹窗 + 语音播报
+  - `BackdropService` / `BackdropRenderer`：桌面背面（课表 + 作业合成壁纸、原壁纸底图、自动重绘、应用 / 清除）
   - `LessonOverrideWindow`：临时调课编辑对话框（保存 / 取消 / 清除）
   - `SettingsWindow`：单双周校正 + 开机自启 + 启动全屏/锁定
   - `FloatingHelper`：鼠标穿透（P/Invoke）、按锚点贴边定位、自动靠边隐藏

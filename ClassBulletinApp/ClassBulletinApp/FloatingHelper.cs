@@ -132,9 +132,11 @@ public static class FloatingHelper
 }
 
 /// <summary>
-/// 自动靠边隐藏：窗口停靠在屏幕边缘，只有把鼠标/触摸移到屏幕边沿（露出的细条）才滑出，
-/// 离开后平滑缩回成一条细边。采用事件驱动（MouseEnter/Leave + TouchEnter/Leave）。
-/// enforceHide 谓词决定当前是否应强制隐藏：AutoHide 常开，或“上课时间自动隐藏”且正在上课。
+/// 自动靠边隐藏：窗口默认完全缩到屏幕外（Layout.EdgePeek &gt; 0 时保留一条细边），
+/// 只有把鼠标 / 触摸移到屏幕对应边沿（Layout.EdgeTrigger 像素范围内）才平滑滑出，
+/// 指针离开窗口且离开边沿后自动缩回。
+/// 判定完全基于全局光标位置轮询（GetCursorPos），因此窗口即使整体移出屏幕也能被唤醒。
+/// enforceHide 谓词决定当前是否应强制隐藏：AutoHide 常开，或「上课时间自动隐藏」且正在上课。
 /// </summary>
 public class AutoHider : IDisposable
 {
@@ -144,37 +146,36 @@ public class AutoHider : IDisposable
     private readonly DispatcherTimer _t;
     private Rect _shown, _hidden;
     private double _curLeft, _curTop;
-    private bool _pointerOver;
+    private bool _expanded;
     private bool _lastEnforce;
-    private const double Sliver = 20;
-    private const double Ease = 0.3;
+    private const double Ease = 0.35;
+    private const int MaxPeek = 48;   // 露出条最多 48 像素，避免隐藏后仍占屏幕
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X; public int Y; }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT p);
 
     /// <summary>拖动等操作期间置为 true 可临时停止自动隐藏，避免操作时窗口缩回。</summary>
     public bool Suspended { get; set; }
 
     public AutoHider(Window w, PanelLayout l, Func<bool> enforceHide)
     {
-        _w = w;        _l = l;
+        _w = w; _l = l;
         _enforceHide = enforceHide;
         ComputeRects();
         _lastEnforce = _enforceHide();
-        _curLeft = _lastEnforce ? _hidden.X : _shown.X;
-        _curTop = _lastEnforce ? _hidden.Y : _shown.Y;
+        _expanded = !_lastEnforce;
+        _curLeft = _expanded ? _shown.X : _hidden.X;
+        _curTop = _expanded ? _shown.Y : _hidden.Y;
         _w.Left = _curLeft;
         _w.Top = _curTop;
-
-        _w.MouseEnter += OnEnter;
-        _w.MouseLeave += OnLeave;
-        _w.TouchEnter += OnEnter;
-        _w.TouchLeave += OnLeave;
 
         _t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(30) };
         _t.Tick += Tick;
         _t.Start();
     }
-
-    private void OnEnter(object? sender, EventArgs e) => _pointerOver = true;
-    private void OnLeave(object? sender, EventArgs e) => _pointerOver = false;
 
     private void ComputeRects()
     {
@@ -184,29 +185,72 @@ public class AutoHider : IDisposable
         _w.Width = wW;
         _w.Height = wH;
 
+        double peek = Math.Clamp(_l.EdgePeek, 0, MaxPeek);
+
         switch (_l.Anchor)
         {
             case "Left":
                 _shown = new Rect(sa.Left, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Left - (wW - Sliver), _shown.Y, wW, wH);
+                _hidden = new Rect(sa.Left - (wW - peek), _shown.Y, wW, wH);
                 break;
             case "Right":
                 _shown = new Rect(sa.Right - wW, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Right - Sliver, _shown.Y, wW, wH);
+                _hidden = new Rect(sa.Right - peek, _shown.Y, wW, wH);
                 break;
             case "Top":
                 _shown = new Rect(sa.Left, sa.Top, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Top - (wH - Sliver), sa.Width, wH);
+                _hidden = new Rect(sa.Left, sa.Top - (wH - peek), sa.Width, wH);
                 break;
             case "Bottom":
                 _shown = new Rect(sa.Left, sa.Bottom - wH, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Bottom - Sliver, sa.Width, wH);
+                _hidden = new Rect(sa.Left, sa.Bottom - peek, sa.Width, wH);
                 break;
             default:
                 _shown = new Rect(sa.Left + (sa.Width - wW) / 2, sa.Top + (sa.Height - wH) / 2, wW, wH);
                 _hidden = _shown;
                 break;
         }
+    }
+
+    /// <summary>全局光标是否落在屏幕对应边沿的感应区内（物理像素比较，含触摸指针）。</summary>
+    private bool CursorNearEdge()
+    {
+        try
+        {
+            if (!GetCursorPos(out var p)) return false;
+            var scr = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(p.X, p.Y));
+            var b = scr.Bounds;
+            double trig = Math.Max(2, _l.EdgeTrigger);
+            return _l.Anchor switch
+            {
+                "Left" => p.X <= b.Left + trig,
+                "Right" => p.X >= b.Right - 1 - trig,
+                "Top" => p.Y <= b.Top + trig,
+                "Bottom" => p.Y >= b.Bottom - 1 - trig,
+                _ => false   // 居中锚点没有边沿可贴
+            };
+        }
+        catch { return false; }
+    }
+
+    /// <summary>全局光标是否在当前窗口矩形内（窗口整体移出时自然为 false）。</summary>
+    private bool CursorInWindow()
+    {
+        try
+        {
+            if (!GetCursorPos(out var p)) return false;
+            var src = PresentationSource.FromVisual(_w);
+            System.Windows.Point pt = new(p.X, p.Y);
+            if (src?.CompositionTarget != null)
+                pt = src.CompositionTarget.TransformFromDevice.Transform(pt);
+
+            double w = _w.ActualWidth > 0 ? _w.ActualWidth : _w.Width;
+            double h = _w.ActualHeight > 0 ? _w.ActualHeight : _w.Height;
+            // 内缩 2px，避免在窗口边界上来回抖动
+            var r = new Rect(_w.Left + 2, _w.Top + 2, Math.Max(0, w - 4), Math.Max(0, h - 4));
+            return r.Contains(pt);
+        }
+        catch { return false; }
     }
 
     private void Tick(object? sender, EventArgs e)
@@ -218,13 +262,33 @@ public class AutoHider : IDisposable
         if (enforce != _lastEnforce)
         {
             _lastEnforce = enforce;
-            _curLeft = enforce ? _hidden.X : _shown.X;
-            _curTop = enforce ? _hidden.Y : _shown.Y;
+            _expanded = !enforce;
+            if (enforce) { _curLeft = _hidden.X; _curTop = _hidden.Y; }
+            else { _curLeft = _shown.X; _curTop = _shown.Y; }
         }
 
-        bool targetShown = enforce ? _pointerOver : true;
-        double tLeft = targetShown ? _shown.X : _hidden.X;
-        double tTop = targetShown ? _shown.Y : _hidden.Y;
+        if (enforce)
+        {
+            bool edge = CursorNearEdge();
+            bool over = CursorInWindow();
+            // 带滞回的状态机：隐藏态只能被「屏幕边沿感应」唤醒，
+            // 展开态则只要指针还在窗口内或边沿区内就保持，避免细边处来回抖动。
+            if (_expanded)
+            {
+                if (!edge && !over) _expanded = false;
+            }
+            else if (edge || over)
+            {
+                _expanded = true;
+            }
+        }
+        else
+        {
+            _expanded = true;
+        }
+
+        double tLeft = _expanded ? _shown.X : _hidden.X;
+        double tTop = _expanded ? _shown.Y : _hidden.Y;
         _curLeft += (tLeft - _curLeft) * Ease;
         _curTop += (tTop - _curTop) * Ease;
         if (Math.Abs(tLeft - _curLeft) < 0.5) _curLeft = tLeft;
@@ -233,12 +297,5 @@ public class AutoHider : IDisposable
         _w.Top = _curTop;
     }
 
-    public void Dispose()
-    {
-        _t.Stop();
-        _w.MouseEnter -= OnEnter;
-        _w.MouseLeave -= OnLeave;
-        _w.TouchEnter -= OnEnter;
-        _w.TouchLeave -= OnLeave;
-    }
+    public void Dispose() => _t.Stop();
 }
