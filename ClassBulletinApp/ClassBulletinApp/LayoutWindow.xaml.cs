@@ -106,6 +106,7 @@ public partial class LayoutWindow : Window
         var sl = _s.ScheduleLayout;
         sl.Anchor = CbSchAnchor.SelectedIndex switch { 0 => "Left", 1 => "Right", 2 => "Top", 3 => "Bottom", _ => "Center" };
         sl.Width = SlSchWidth.Value;
+        sl.FullWidth = false;   // 宽度已完全由滑块（Width）决定
         sl.Height = SlSchHeight.Value;
         sl.Opacity = SlSchOpacity.Value;
         sl.OverlayOpacity = SlSchOverlay.Value;
@@ -120,6 +121,7 @@ public partial class LayoutWindow : Window
         nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
         nl.Height = SlNotHeight.Value;
         nl.Width = SlNotWidth.Value;
+        nl.FullWidth = false;   // 宽度已完全由滑块（Width）决定，清除历史遗留的整屏宽强制开关
         nl.HAnchor = CbNotHAnchor.SelectedIndex switch { 0 => "Left", 2 => "Right", _ => "Center" };
         nl.FontSize = SlNotFont.Value;
         nl.MarqueeSpeed = SlNotSpeed.Value;

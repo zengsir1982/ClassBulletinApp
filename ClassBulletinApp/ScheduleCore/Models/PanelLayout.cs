@@ -9,7 +9,7 @@ public class PanelLayout
     /// <summary>屏幕锚点位置。</summary>
     public string Anchor { get; set; } = "Right";
 
-    /// <summary>窗口逻辑宽度（像素）。<=0 时由 FullWidth 或自动决定。</summary>
+    /// <summary>窗口逻辑宽度（像素）。&gt;0 时即为窗口宽度；&lt;=0 时回退整屏宽（宽度滑块 = 唯一决定因素）。</summary>
     public double Width { get; set; } = 400;
 
     /// <summary>窗口逻辑高度（像素）。</summary>
@@ -45,7 +45,10 @@ public class PanelLayout
     /// </summary>
     public double EdgeTrigger { get; set; } = 6;
 
-    /// <summary>是否横跨整个屏幕宽度（用于顶部/底部通知条）。</summary>
+    /// <summary>
+    /// 历史字段（保留以兼容旧存档）。宽度现已完全由 Width 决定（Width&lt;=0 即整屏宽），
+    /// 本字段不再参与宽度计算——否则旧存档里的 true 会强制整屏宽、让宽度滑块失效。
+    /// </summary>
     public bool FullWidth { get; set; } = false;
 
     /// <summary>

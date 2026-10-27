@@ -102,7 +102,9 @@ public static class FloatingHelper
     public static void ApplyLayout(Window w, PanelLayout l, bool? clickThrough = null, double? opacity = null)
     {
         var sa = SystemParameters.WorkArea;
-        double wW = l.FullWidth ? sa.Width : (l.Width > 0 ? l.Width : sa.Width);
+        // 宽度完全由布局里的 Width 决定：>0 用该宽度，<=0 才回退整屏宽（宽度滑块 = 唯一决定因素，
+        // 不再让历史遗留的 FullWidth 开关强制盖过滑块，否则用户永远调不动宽度）。
+        double wW = l.Width > 0 ? l.Width : sa.Width;
         double wH = l.Height > 0 ? l.Height : sa.Height;
 
         double left, top;
@@ -113,10 +115,10 @@ public static class FloatingHelper
             case "Right":
                 left = sa.Right - wW; top = sa.Top + (sa.Height - wH) / 2; break;
             case "Top":
-                top = sa.Top; wW = l.FullWidth ? sa.Width : (l.Width > 0 ? l.Width : sa.Width);
+                top = sa.Top; wW = l.Width > 0 ? l.Width : sa.Width;
                 left = HLeft(l, sa, wW); break;
             case "Bottom":
-                top = sa.Bottom - wH; wW = l.FullWidth ? sa.Width : (l.Width > 0 ? l.Width : sa.Width);
+                top = sa.Bottom - wH; wW = l.Width > 0 ? l.Width : sa.Width;
                 left = HLeft(l, sa, wW); break;
             default: // Center
                 left = sa.Left + (sa.Width - wW) / 2;
@@ -193,7 +195,7 @@ public class AutoHider : IDisposable
     private void ComputeRects()
     {
         var sa = SystemParameters.WorkArea;
-        double wW = _l.FullWidth ? sa.Width : (_l.Width > 0 ? _l.Width : sa.Width);
+        double wW = _l.Width > 0 ? _l.Width : sa.Width;
         double wH = _l.Height > 0 ? _l.Height : sa.Height;
         _w.Width = wW;
         _w.Height = wH;
