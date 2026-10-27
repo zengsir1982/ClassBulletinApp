@@ -113,9 +113,11 @@ public static class FloatingHelper
             case "Right":
                 left = sa.Right - wW; top = sa.Top + (sa.Height - wH) / 2; break;
             case "Top":
-                left = sa.Left; top = sa.Top; wW = sa.Width; break;
+                top = sa.Top; wW = l.FullWidth ? sa.Width : (l.Width > 0 ? l.Width : sa.Width);
+                left = HLeft(l, sa, wW); break;
             case "Bottom":
-                left = sa.Left; top = sa.Bottom - wH; wW = sa.Width; break;
+                top = sa.Bottom - wH; wW = l.FullWidth ? sa.Width : (l.Width > 0 ? l.Width : sa.Width);
+                left = HLeft(l, sa, wW); break;
             default: // Center
                 left = sa.Left + (sa.Width - wW) / 2;
                 top = sa.Top + (sa.Height - wH) / 2; break;
@@ -128,6 +130,17 @@ public static class FloatingHelper
         w.Opacity = Math.Clamp(opacity ?? l.Opacity, 0.2, 1.0);
         w.Topmost = l.TopMost;
         // 鼠标穿透与可交互元素由各窗口在 ApplyLayout 后单独调用 SetClickThrough 设置
+    }
+
+    /// <summary>顶部 / 底部通知条的水平左坐标（按 HAnchor 居左 / 居中 / 居右）。</summary>
+    internal static double HLeft(PanelLayout l, Rect sa, double wW)
+    {
+        return l.HAnchor switch
+        {
+            "Left" => sa.Left,
+            "Right" => sa.Right - wW,
+            _ => sa.Left + (sa.Width - wW) / 2
+        };
     }
 }
 
@@ -186,6 +199,7 @@ public class AutoHider : IDisposable
         _w.Height = wH;
 
         double peek = Math.Clamp(_l.EdgePeek, 0, MaxPeek);
+        double hLeft = FloatingHelper.HLeft(_l, sa, wW);
 
         switch (_l.Anchor)
         {
@@ -198,12 +212,12 @@ public class AutoHider : IDisposable
                 _hidden = new Rect(sa.Right - peek, _shown.Y, wW, wH);
                 break;
             case "Top":
-                _shown = new Rect(sa.Left, sa.Top, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Top - (wH - peek), sa.Width, wH);
+                _shown = new Rect(hLeft, sa.Top, wW, wH);
+                _hidden = new Rect(hLeft, sa.Top - (wH - peek), wW, wH);
                 break;
             case "Bottom":
-                _shown = new Rect(sa.Left, sa.Bottom - wH, sa.Width, wH);
-                _hidden = new Rect(sa.Left, sa.Bottom - peek, sa.Width, wH);
+                _shown = new Rect(hLeft, sa.Bottom - wH, wW, wH);
+                _hidden = new Rect(hLeft, sa.Bottom - peek, wW, wH);
                 break;
             default:
                 _shown = new Rect(sa.Left + (sa.Width - wW) / 2, sa.Top + (sa.Height - wH) / 2, wW, wH);

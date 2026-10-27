@@ -69,6 +69,17 @@
                         <Slider x:Name="SlNotHeight" Minimum="30" Maximum="140" TickFrequency="2" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotHeight" FontSize="12" Foreground="#6B7280"/>
 
+                        <TextBlock Text="宽度（像素，0 = 整屏宽）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <Slider x:Name="SlNotWidth" Minimum="0" Maximum="2560" TickFrequency="20" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
+                        <TextBlock x:Name="TxtNotWidth" FontSize="12" Foreground="#6B7280"/>
+
+                        <TextBlock Text="水平位置（顶部 / 底部条：居左 / 居中 / 居右）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <ComboBox x:Name="CbNotHAnchor" Width="160" HorizontalAlignment="Left" FontSize="14" SelectedIndex="1">
+                            <ComboBoxItem Content="居左"/>
+                            <ComboBoxItem Content="居中"/>
+                            <ComboBoxItem Content="居右"/>
+                        </ComboBox>
+
                         <TextBlock Text="字幕字号" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
                         <Slider x:Name="SlNotFont" Minimum="14" Maximum="64" TickFrequency="2" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotFont" FontSize="12" Foreground="#6B7280"/>

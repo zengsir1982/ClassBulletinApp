@@ -4,14 +4,8 @@
         Title="设置" Height="360" Width="470"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <StackPanel Margin="24">
-        <TextBlock Text="设置" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,16"/>
+        <TextBlock Text="启动选项" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,16"/>
 
-        <TextBlock Text="开学第一周星期一" FontSize="14" Foreground="#1F2A37"/>
-        <DatePicker x:Name="DpSemesterStart" Margin="0,6,0,0" FontSize="15" SelectedDateFormat="Long"/>
-        <TextBlock Text="用于计算「第几周」教学周，与学校开学时间对齐。留空则按系统日历周自动估算。"
-                   FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,18"/>
-
-        <CheckBox x:Name="ChkAutoStart" Content="开机自动启动（写入当前用户启动项）" FontSize="15" Margin="0,0,0,12"/>
         <CheckBox x:Name="ChkFullscreen" Content="启动时直接进入全屏展示" FontSize="15" Margin="0,0,0,12"/>
         <CheckBox x:Name="ChkLocked" Content="启动即进入防误触锁定（按 Ctrl+L 解锁）" FontSize="15" Margin="0,0,0,24"/>
 

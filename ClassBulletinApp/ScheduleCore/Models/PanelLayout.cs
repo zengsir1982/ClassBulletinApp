@@ -48,6 +48,12 @@ public class PanelLayout
     /// <summary>是否横跨整个屏幕宽度（用于顶部/底部通知条）。</summary>
     public bool FullWidth { get; set; } = false;
 
+    /// <summary>
+    /// 顶部 / 底部通知条的水平位置（仅对 Top / Bottom 锚点有效）：
+    /// Left 居左 / Center 居中（默认）/ Right 居右。宽度为 Width，Width&lt;=0 时回退整屏宽。
+    /// </summary>
+    public string HAnchor { get; set; } = "Center";
+
     /// <summary>通知字幕字号。</summary>
     public double FontSize { get; set; } = 28;
 

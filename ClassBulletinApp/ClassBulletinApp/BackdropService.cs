@@ -94,7 +94,7 @@ public static class BackdropService
             var screen = System.Windows.Forms.Screen.PrimaryScreen;
             if (screen == null)
             {
-                message = "无法获取主屏幕分辨率，应用桌面背面失败。";
+                message = "无法获取主屏幕分辨率，应用桌面背景失败。";
                 return false;
             }
 
@@ -127,14 +127,14 @@ public static class BackdropService
             Store.SaveSettings(s);
             WallpaperHelper.SetWallpaper(OutputPath);
             _lastSignature = ComputeSignature();
-            message = "已应用到桌面背面（" +
+            message = "已应用到桌面背景（" +
                       (b.ShowSchedule && b.ShowHomework ? "当天课表 + 作业公示" :
                        b.ShowSchedule ? "仅当天课表" : "仅作业公示") + "）。";
             return true;
         }
         catch (Exception ex)
         {
-            message = "应用桌面背面失败：" + ex.Message;
+            message = "应用桌面背景失败：" + ex.Message;
             return false;
         }
         finally
@@ -157,14 +157,14 @@ public static class BackdropService
         catch { }
     }
 
-    /// <summary>悬浮课表底部 / 托盘菜单：一键开关「当天课表显示在桌面背面」。</summary>
+    /// <summary>悬浮课表底部 / 托盘菜单：一键开关「当天课表显示在桌面背景」。</summary>
     public static bool ToggleSchedule(out string message)
     {
         var s = Store.LoadSettings();
         s.Backdrop ??= new BackdropSettings();
         bool turnOn = !s.Backdrop.ShowSchedule;
         s.Backdrop.ShowSchedule = turnOn;
-        // 只切换「当天课表」这一项：作业公示是否一起显示由「桌面背面」标签页独立控制
+        // 只切换「当天课表」这一项：作业公示是否一起显示由「显示设置」里的桌面背景区块独立控制
         Store.SaveSettings(s);
 
         bool ok = Apply(silent: false, out message);
@@ -178,7 +178,7 @@ public static class BackdropService
     }
 
     /// <summary>
-    /// 预览 / 诊断：按当前设置渲染一张桌面背面图到指定路径（不修改系统壁纸）。
+    /// 预览 / 诊断：按当前设置渲染一张桌面背景图到指定路径（不修改系统壁纸）。
     /// 用于「应用前先看效果」，也便于自动化测试。
     /// </summary>
     public static bool RenderPreview(string outPath, int width, int height, out string message)
@@ -206,7 +206,7 @@ public static class BackdropService
             BackdropRenderer.RenderToPng(today, title, subtitle,
                 b.ShowHomework ? board : null, b, width, height,
                 string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath);
-            message = "已生成桌面背面预览图：" + outPath;
+            message = "已生成桌面背景预览图：" + outPath;
             return true;
         }
         catch (Exception ex)

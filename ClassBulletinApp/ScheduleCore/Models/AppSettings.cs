@@ -78,7 +78,7 @@ public class AppSettings
         AutoHideDuringClass = false
     };
 
-    /// <summary>通知悬浮窗布局（顶部字幕条）。</summary>
+    /// <summary>通知悬浮窗布局（顶部 / 底部字幕条）。</summary>
     public PanelLayout NotificationLayout { get; set; } = new()
     {
         Anchor = "Top",
@@ -89,7 +89,8 @@ public class AppSettings
         ClickThrough = false,
         AutoHide = false,
         AutoHideDuringClass = false,
-        FullWidth = true,
+        FullWidth = false,
+        HAnchor = "Center",
         FontSize = 28,
         MarqueeSpeed = 120
     };

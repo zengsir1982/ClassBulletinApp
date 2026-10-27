@@ -66,7 +66,7 @@ public partial class ScheduleWindow : Window
         _timer.Start();
     }
 
-    /// <summary>同步底部「桌面背面」按钮状态。</summary>
+    /// <summary>同步底部「桌面背景」按钮状态。</summary>
     private void UpdateBackdropButton()
     {
         try
@@ -74,13 +74,13 @@ public partial class ScheduleWindow : Window
             if (BtnWp == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             bool on = b.ShowSchedule;
-            BtnWp.Content = on ? "桌面背面：开" : "桌面背面：关";
+            BtnWp.Content = on ? "桌面背景：开" : "桌面背景：关";
             BtnWp.Background = on
                 ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
                 : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
             BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
             TxtWpState.Text = on
-                ? "当天课表已在桌面背面显示（不遮挡操作）" + (b.ShowHomework ? "，含作业公示" : "")
+                ? "当天课表已在桌面背景显示（不遮挡操作）" + (b.ShowHomework ? "，含作业公示" : "")
                 : "点右侧按钮可把当天课表画到桌面壁纸上";
         }
         catch { }

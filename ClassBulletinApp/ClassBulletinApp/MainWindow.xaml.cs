@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private List<string> _allTeachers = new();
     private bool _teacherGuard;
     private bool _classGuard;   // 从设置反向同步班级下拉时防止 SelectionChanged 递归
+    private bool _titleLoading; // 加载标题栏设置时防止事件递归
 
     // 桌面最大化窗口自动隐藏
     private readonly DispatcherTimer _winTimer;
@@ -86,6 +87,7 @@ public partial class MainWindow : Window
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
+            LoadTitleBarSettings();
         }
         catch (Exception ex)
         {
@@ -99,7 +101,7 @@ public partial class MainWindow : Window
         try { ReminderService.Start(); }
         catch (Exception ex) { TxtStatus.Text += " [提醒服务启动失败：" + ex.Message + "]"; }
 
-        // 桌面背面：课表 / 作业变化、跨天时自动重绘（仅在已应用时）
+        // 桌面背景：课表 / 作业变化、跨天时自动重绘（仅在已应用时）
         try
         {
             BackdropService.Start();
@@ -183,6 +185,53 @@ public partial class MainWindow : Window
         TxtCurrentMode.Text = teacher
             ? $"当前显示：教师 {s.SelectedTeacher}"
             : $"当前显示：{s.SelectedClass}";
+    }
+
+    /// <summary>把开学周 / 开机自启同步到标题栏控件。</summary>
+    private void LoadTitleBarSettings()
+    {
+        var s = Store.LoadSettings();
+        _titleLoading = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(s.SemesterStartMonday) && DateTime.TryParse(s.SemesterStartMonday, out var d))
+                DpSemester.SelectedDate = d;
+            else
+                DpSemester.SelectedDate = null;
+            ChkAutoStartTitle.IsChecked = s.AutoStart;
+        }
+        finally { _titleLoading = false; }
+    }
+
+    private void DpSemester_SelectedDateChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_titleLoading) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.SemesterStartMonday = DpSemester.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
+            Store.SaveSettings(s);
+            AppEvents.RaiseScheduleChanged();   // 开学周变化后刷新周视图 / 悬浮课表的「第几周」
+            TxtStatus.Text = string.IsNullOrEmpty(s.SemesterStartMonday)
+                ? "已清除开学周，按系统日历周自动估算。"
+                : $"开学周已设为 {DpSemester.SelectedDate:yyyy-MM-dd}。";
+        }
+        catch { }
+    }
+
+    private void ChkAutoStartTitle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_titleLoading) return;
+        try
+        {
+            bool on = ChkAutoStartTitle.IsChecked == true;
+            var s = Store.LoadSettings();
+            s.AutoStart = on;
+            Store.SaveSettings(s);
+            SettingsWindow.ApplyAutoStart(on);
+            TxtStatus.Text = on ? "已开启开机自启（写入当前用户启动项）。" : "已关闭开机自启。";
+        }
+        catch { }
     }
 
     /// <summary>
@@ -351,7 +400,7 @@ public partial class MainWindow : Window
         var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
-        _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背面", null, (_, _) => ToggleBackdropSchedule());
+        _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背景", null, (_, _) => ToggleBackdropSchedule());
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
         menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
         {
@@ -367,7 +416,7 @@ public partial class MainWindow : Window
         UpdateTrayBackdropText();
     }
 
-    /// <summary>同步托盘菜单中「当天课表 → 桌面背面」的勾选状态。</summary>
+    /// <summary>同步托盘菜单中「当天课表 → 桌面背景」的勾选状态。</summary>
     private void UpdateTrayBackdropText()
     {
         try
@@ -375,9 +424,9 @@ public partial class MainWindow : Window
             if (_miWp == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             _miWp.Checked = b.ShowSchedule;
-            _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背面（开）" : "当天课表 → 桌面背面（关）";
+            _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背景（开）" : "当天课表 → 桌面背景（关）";
             _miWp.ToolTipText = b.ShowSchedule
-                ? "点击关闭：从桌面背面移除当天课表"
+                ? "点击关闭：从桌面背景移除当天课表"
                 : "点击开启：把当天课表画到桌面壁纸上（位于所有窗口之下）";
         }
         catch { }
@@ -395,7 +444,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            TxtStatus.Text = "切换桌面背面失败：" + ex.Message;
+            TxtStatus.Text = "切换桌面背景失败：" + ex.Message;
         }
     }
 
@@ -989,7 +1038,7 @@ public partial class MainWindow : Window
         if (!_hwReady) return;
         SaveWpSettings();
         ScheduleWpRepaint();
-        TxtStatus.Text = "桌面背面内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背面」即可生效。");
+        TxtStatus.Text = "桌面背景内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背景」即可生效。");
     }
 
     private void UpdateHwLabels()
@@ -1089,11 +1138,11 @@ public partial class MainWindow : Window
             ReloadBackdropUi();
             UpdateTrayBackdropText();
             AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "已清除桌面背面，恢复系统原壁纸。";
+            TxtStatus.Text = "已清除桌面背景，恢复系统原壁纸。";
         }
         catch (Exception ex)
         {
-            TxtStatus.Text = "清除桌面背面失败：" + ex.Message;
+            TxtStatus.Text = "清除桌面背景失败：" + ex.Message;
         }
     }
 

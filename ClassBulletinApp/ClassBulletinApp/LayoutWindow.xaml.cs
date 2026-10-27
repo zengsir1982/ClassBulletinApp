@@ -38,6 +38,8 @@ public partial class LayoutWindow : Window
         var nl = _s.NotificationLayout;
         CbNotAnchor.SelectedIndex = nl.Anchor == "Bottom" ? 1 : 0;
         SlNotHeight.Value = nl.Height;
+        SlNotWidth.Value = nl.Width;
+        CbNotHAnchor.SelectedIndex = nl.HAnchor switch { "Left" => 0, "Right" => 2, _ => 1 };
         SlNotFont.Value = nl.FontSize;
         SlNotSpeed.Value = nl.MarqueeSpeed;
         SlNotOpacity.Value = nl.Opacity;
@@ -57,6 +59,9 @@ public partial class LayoutWindow : Window
         SlSchOpacity.ValueChanged += (_, _) => TxtSchOpacity.Text = $"{SlSchOpacity.Value:0%}";
         SlSchOverlay.ValueChanged += (_, _) => TxtSchOverlay.Text = $"{SlSchOverlay.Value:0%}";
         SlNotHeight.ValueChanged += (_, _) => TxtNotHeight.Text = $"{SlNotHeight.Value:0} 像素";
+        SlNotWidth.ValueChanged += (_, _) => TxtNotWidth.Text = SlNotWidth.Value <= 0
+            ? "0 = 整屏宽（默认）"
+            : $"{SlNotWidth.Value:0} 像素";
         SlNotFont.ValueChanged += (_, _) => TxtNotFont.Text = $"{SlNotFont.Value:0} 号";
         SlNotSpeed.ValueChanged += (_, _) => TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
         SlNotOpacity.ValueChanged += (_, _) => TxtNotOpacity.Text = $"{SlNotOpacity.Value:0%}";
@@ -90,6 +95,8 @@ public partial class LayoutWindow : Window
         var nl = _s.NotificationLayout;
         nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
         nl.Height = SlNotHeight.Value;
+        nl.Width = SlNotWidth.Value;
+        nl.HAnchor = CbNotHAnchor.SelectedIndex switch { 0 => "Left", 2 => "Right", _ => "Center" };
         nl.FontSize = SlNotFont.Value;
         nl.MarqueeSpeed = SlNotSpeed.Value;
         nl.Opacity = SlNotOpacity.Value;

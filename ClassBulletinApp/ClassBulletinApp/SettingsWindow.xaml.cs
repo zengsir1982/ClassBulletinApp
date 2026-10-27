@@ -12,9 +12,6 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
         var s = Store.LoadSettings();
-        if (!string.IsNullOrWhiteSpace(s.SemesterStartMonday) && DateTime.TryParse(s.SemesterStartMonday, out var d))
-            DpSemesterStart.SelectedDate = d;
-        ChkAutoStart.IsChecked = s.AutoStart;
         ChkFullscreen.IsChecked = s.LaunchFullscreen;
         ChkLocked.IsChecked = s.LaunchLocked;
     }
@@ -22,12 +19,9 @@ public partial class SettingsWindow : Window
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         var s = Store.LoadSettings();
-        s.SemesterStartMonday = DpSemesterStart.SelectedDate?.ToString("yyyy-MM-dd") ?? "";
-        s.AutoStart = ChkAutoStart.IsChecked == true;
         s.LaunchFullscreen = ChkFullscreen.IsChecked == true;
         s.LaunchLocked = ChkLocked.IsChecked == true;
         Store.SaveSettings(s);
-        ApplyAutoStart(s.AutoStart);
         DialogResult = true;
         Close();
     }
