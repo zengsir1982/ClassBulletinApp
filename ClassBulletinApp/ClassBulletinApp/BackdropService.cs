@@ -293,8 +293,13 @@ public static class BackdropService
                 if (board != null)
                 {
                     sb.Append('|').Append(board.Title).Append(board.UpdatedAt.Ticks);
-                    foreach (var it in board.Items) sb.Append('#').Append(it.Subject).Append(',').Append(it.Content);
-                    foreach (var m in board.Missing) sb.Append('@').Append(m.Subject).Append(',').Append(m.Students);
+                    // 文本样式（加粗 / 颜色 / 字号档位）也纳入签名，改格式能触发重绘
+                    foreach (var it in board.Items)
+                        sb.Append('#').Append(it.Subject).Append(',').Append(it.Content)
+                          .Append('~').Append(it.Bold).Append(it.Color).Append(it.SizeLevel);
+                    foreach (var m in board.Missing)
+                        sb.Append('@').Append(m.Subject).Append(',').Append(m.Students)
+                          .Append('~').Append(m.Bold).Append(m.Color).Append(m.SizeLevel);
                 }
                 var hwLay = b.HomeworkLayout ?? board?.Layout;
                 sb.Append("|H").Append(hwLay?.Anchor).Append(hwLay?.OffsetX)

@@ -1126,7 +1126,14 @@ public partial class MainWindow : Window
         Title = (TxtHwTitle.Text ?? "").Trim(),
         Items = HomeworkItems
             .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
-            .Select(x => new HomeworkItem { Subject = (x.Subject ?? "").Trim(), Content = (x.Content ?? "").Trim() })
+            .Select(x => new HomeworkItem
+            {
+                Subject = (x.Subject ?? "").Trim(),
+                Content = (x.Content ?? "").Trim(),
+                Bold = x.Bold,
+                Color = x.Color ?? "",
+                SizeLevel = x.SizeLevel
+            })
             .ToList(),
         UpdatedAt = DateTime.Now,
         Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()

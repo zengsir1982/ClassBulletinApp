@@ -8,6 +8,39 @@ public class HomeworkItem
 {
     public string Subject { get; set; } = "";
     public string Content { get; set; } = "";
+
+    /// <summary>作业内容是否加粗。</summary>
+    public bool Bold { get; set; }
+
+    /// <summary>作业内容颜色（#RRGGBB；空表示默认墨色）。</summary>
+    public string Color { get; set; } = "";
+
+    /// <summary>作业内容字号档位：0=标准 1=小 2=大 3=特大。</summary>
+    public int SizeLevel { get; set; }
+}
+
+/// <summary>作业文本样式档位工具：悬浮窗与桌面背景渲染共用，保证两边显示一致。</summary>
+public static class HwTextStyle
+{
+    /// <summary>字号档位对应的基准字号（0=标准 1=小 2=大 3=特大），渲染时再按卡片比例缩放。</summary>
+    public static readonly double[] Sizes = { 19, 16, 23, 27 };
+
+    /// <summary>取指定档位的字号（越界自动收敛到合法范围）。</summary>
+    public static double SizeOf(int level) => Sizes[Math.Clamp(level, 0, Sizes.Length - 1)];
+
+    /// <summary>档位名称，用于下拉与提示。</summary>
+    public static readonly string[] LevelNames = { "标准", "小", "大", "特大" };
+
+    /// <summary>预设颜色（值 / 显示名），悬浮窗下拉与桌面背景渲染共用。</summary>
+    public static readonly (string Value, string Name)[] PresetColors =
+    {
+        ("", "默认墨色"),
+        ("#C0392B", "红色"),
+        ("#2D6CDF", "蓝色"),
+        ("#1E8E3E", "绿色"),
+        ("#E07B00", "橙色"),
+        ("#7B3FBF", "紫色")
+    };
 }
 
 /// <summary>
@@ -41,6 +74,15 @@ public class MissingHomeworkItem
 
     /// <summary>缺交学生姓名：每行一个或用逗号 / 顿号分隔均可。</summary>
     public string Students { get; set; } = "";
+
+    /// <summary>名单是否加粗。</summary>
+    public bool Bold { get; set; }
+
+    /// <summary>名单颜色（#RRGGBB；空表示默认墨色）。</summary>
+    public string Color { get; set; } = "";
+
+    /// <summary>名单字号档位：0=标准 1=小 2=大 3=特大。</summary>
+    public int SizeLevel { get; set; }
 }
 
 /// <summary>作业公示栏内容：标题 + 各科目作业 + 缺交作业名单 + 桌面背景摆放位置。</summary>

@@ -295,6 +295,23 @@ public static class BackdropRenderer
     }
 
     // ---------- 作业卡片 ----------
+
+    /// <summary>解析作业文本颜色（#RRGGBB）；为空或非法时返回默认色。</summary>
+    private static Color ParseHwColor(string? hex, Color fallback)
+    {
+        if (string.IsNullOrWhiteSpace(hex)) return fallback;
+        var s = hex!.Trim().TrimStart('#');
+        if (s.Length != 6) return fallback;
+        try
+        {
+            return Color.FromRgb(
+                Convert.ToByte(s.Substring(0, 2), 16),
+                Convert.ToByte(s.Substring(2, 2), 16),
+                Convert.ToByte(s.Substring(4, 2), 16));
+        }
+        catch { return fallback; }
+    }
+
     private static Border BuildHomeworkCard(HomeworkBoard board, double scale, Func<double, double> ScaleFont)
     {
         var stack = new StackPanel();
@@ -333,8 +350,9 @@ public static class BackdropRenderer
                 row.Children.Add(new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,
-                    FontSize = ScaleFont(19),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x33, 0x3B, 0x47)),
+                    FontSize = ScaleFont(HwTextStyle.SizeOf(it.SizeLevel)),
+                    FontWeight = it.Bold ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(ParseHwColor(it.Color, Color.FromRgb(0x33, 0x3B, 0x47))),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 4 * scale, 0, 0)
                 });
@@ -369,8 +387,9 @@ public static class BackdropRenderer
                 row.Children.Add(new TextBlock
                 {
                     Text = m.Students,
-                    FontSize = ScaleFont(18),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x33, 0x3B, 0x47)),
+                    FontSize = ScaleFont(HwTextStyle.SizeOf(m.SizeLevel)),
+                    FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(ParseHwColor(m.Color, Color.FromRgb(0x33, 0x3B, 0x47))),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 2 * scale, 0, 0)
                 });
