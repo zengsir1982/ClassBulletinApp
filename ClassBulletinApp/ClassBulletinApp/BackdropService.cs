@@ -303,7 +303,9 @@ public static class BackdropService
                 }
                 var hwLay = b.HomeworkLayout ?? board?.Layout;
                 sb.Append("|H").Append(hwLay?.Anchor).Append(hwLay?.OffsetX)
-                  .Append(hwLay?.OffsetY).Append(hwLay?.WidthRatio);
+                  .Append(hwLay?.OffsetY).Append(hwLay?.WidthRatio)
+                  .Append(hwLay?.UseFixedSize).Append(hwLay?.FixedWidth).Append(hwLay?.FixedHeight)
+                  .Append("|T").Append(board?.Theme);
             }
 
             return sb.ToString();

@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -17,18 +15,15 @@ using Color = System.Windows.Media.Color;
 namespace ClassBulletinApp;
 
 /// <summary>
-/// 作业公示悬浮窗：可随时点击修改各科作业与缺交作业名单（增 / 删 / 改），
-/// 改动后自动保存到 homework.json；右下角「桌面背景」开关可一键把作业公示（含缺交名单）画到桌面壁纸。
-/// 窗口拖动与边缘缩放交由系统原生处理（WM_NCHITTEST），避免手动拖拽抖动，也不拦截文本框交互。
+/// 作业公示便签：整块可拖到屏幕任意位置并固定摆放（位置持久化），支持多种便签主题，
+/// 双击便签弹出编辑对话框修改内容 / 格式 / 主题；底部可一键投射到桌面背景并调整位置。
+/// 拖动与边缘缩放交由系统原生处理（WM_NCHITTEST），不拦截任何交互。
 /// </summary>
 public partial class HomeworkWindow : Window
 {
-    private readonly System.Collections.ObjectModel.ObservableCollection<HomeworkItem> _items = new();
-    private readonly System.Collections.ObjectModel.ObservableCollection<MissingHomeworkItem> _miss = new();
-    private DispatcherTimer? _saveTimer;
-
-    /// <summary>正在执行内部保存（由本窗口触发）时为真，避免自我触发的 HomeworkChanged 把正在编辑的内容重载掉。</summary>
-    private bool _suppressReload;
+    private DispatcherTimer? _posTimer;
+    private string _themeKey = "classic";
+    private bool _loading;
 
     // ---------- WM_NCHITTEST 原生拖动 / 缩放 ----------
     private const int WM_NCHITTEST = 0x84;
@@ -42,26 +37,14 @@ public partial class HomeworkWindow : Window
     public HomeworkWindow()
     {
         InitializeComponent();
-        HwItems.ItemsSource = _items;
-        MissItems.ItemsSource = _miss;
-        _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
-        _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); SaveNow(); };
+        _posTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _posTimer.Tick += (_, _) => { _posTimer.Stop(); SavePlacement(); };
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        try
-        {
-            var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
-            if (area.HasValue)
-            {
-                Left = Math.Max(0, area.Value.Left + 24);
-                Top = Math.Max(0, area.Value.Top + 24);
-            }
-        }
-        catch { }
-
-        ReloadFromDisk();
+        RestorePlacement();
+        Reload();
         UpdateBackdropButton();
 
         AppEvents.HomeworkChanged += OnHomeworkChanged;
@@ -74,9 +57,10 @@ public partial class HomeworkWindow : Window
         src?.AddHook(WndProc);
     }
 
-    /// <summary>让系统原生处理拖动（标题栏）与边缘缩放：头部空白处返回 HTCAPTION（平滑拖动，无抖动），
-    /// 四边 / 四角返回缩放代码（原生缩放）；标题、隐藏按钮、标题编辑框视为普通客户区（可交互）。
-    /// 同时吞掉标题栏双击最大化，避免误触。</summary>
+    /// <summary>
+    /// 整块便签都是拖动区（HTCAPTION，系统平滑拖动，可摆到任意位置），按钮除外；
+    /// 四边 / 四角保留原生缩放；双击（WM_NCLBUTTONDBLCLK）打开编辑对话框。
+    /// </summary>
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WM_NCHITTEST)
@@ -101,208 +85,227 @@ public partial class HomeworkWindow : Window
             if (top) { handled = true; return (IntPtr)HTTOP; }
             if (bottom) { handled = true; return (IntPtr)HTBOTTOM; }
 
-            // 头部区域：标题（显示/编辑）与隐藏按钮作为普通客户区（可点击 / 双击编辑），
-            // 其余头部空白作为拖动区（HTCAPTION），由系统平滑拖动。
-            if (client.Y <= Header.ActualHeight && Header.IsVisible)
+            // 按钮保持可点击，其余整块作为拖动区
+            var hit = VisualTreeHelper.HitTest(this, client)?.VisualHit;
+            while (hit != null)
             {
-                var hit = VisualTreeHelper.HitTest(this, client)?.VisualHit;
-                bool interactive = false;
-                while (hit != null)
-                {
-                    if (ReferenceEquals(hit, TxtTitle) || ReferenceEquals(hit, TxtTitleEdit) || ReferenceEquals(hit, BtnHide))
-                    { interactive = true; break; }
-                    hit = VisualTreeHelper.GetParent(hit);
-                }
-                if (!interactive) { handled = true; return (IntPtr)HTCAPTION; }
+                if (hit is System.Windows.Controls.Button) { handled = true; return (IntPtr)HTCLIENT; }
+                hit = VisualTreeHelper.GetParent(hit);
             }
             handled = true;
-            return (IntPtr)HTCLIENT;
+            return (IntPtr)HTCAPTION;
         }
 
-        // 吞掉非客户区双击（避免在标题栏空白处双击意外最大化窗口）
-        if (msg == WM_NCLBUTTONDBLCLK) { handled = true; return IntPtr.Zero; }
+        // 双击便签 → 打开编辑对话框；同时吞掉系统默认的「最大化」
+        if (msg == WM_NCLBUTTONDBLCLK)
+        {
+            handled = true;
+            Dispatcher.BeginInvoke(new Action(OpenEditor));
+            return IntPtr.Zero;
+        }
 
         return IntPtr.Zero;
     }
 
-    private void ReloadFromDisk()
-    {
-        var board = Store.LoadHomework();
-        _suppressReload = true;
-        try
-        {
-            TxtTitle.Text = board?.Title ?? "各科作业公示";
-            _items.Clear();
-            if (board?.Items != null)
-                foreach (var it in board.Items) _items.Add(it);
-            if (_items.Count == 0) _items.Add(new HomeworkItem());
-
-            _miss.Clear();
-            if (board?.Missing != null)
-                foreach (var m in board.Missing) _miss.Add(m);
-        }
-        finally { _suppressReload = false; }
-        UpdateEmptyHints();
-    }
-
-    private void OnHomeworkChanged()
-    {
-        if (_suppressReload) return;
-        ReloadFromDisk();
-        UpdateBackdropButton();
-    }
-
-    // ---------- 标题编辑（双击进入 / 失焦或回车提交 / Esc 取消） ----------
-    private void TxtTitle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount != 2) return;   // 仅双击进入编辑
-        TxtTitle.Visibility = Visibility.Collapsed;
-        TxtTitleEdit.Visibility = Visibility.Visible;
-        TxtTitleEdit.Text = TxtTitle.Text;
-        TxtTitleEdit.Focus();
-        TxtTitleEdit.SelectAll();
-    }
-
-    private void TxtTitleEdit_LostFocus(object sender, RoutedEventArgs e) => CommitTitle();
-
-    private void TxtTitleEdit_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter) { CommitTitle(); e.Handled = true; }
-        else if (e.Key == Key.Escape) { CancelTitle(); e.Handled = true; }
-    }
-
-    private void CommitTitle()
-    {
-        if (TxtTitleEdit.Visibility != Visibility.Visible) return;
-        TxtTitle.Text = string.IsNullOrWhiteSpace(TxtTitleEdit.Text) ? "各科作业公示" : TxtTitleEdit.Text.Trim();
-        TxtTitleEdit.Visibility = Visibility.Collapsed;
-        TxtTitle.Visibility = Visibility.Visible;
-        DebounceSave();
-    }
-
-    private void CancelTitle()
-    {
-        TxtTitleEdit.Visibility = Visibility.Collapsed;
-        TxtTitle.Visibility = Visibility.Visible;
-    }
-
-    // ---------- 编辑 ----------
-    private void Editable_TextChanged(object sender, TextChangedEventArgs e) => DebounceSave();
-
-    private void BtnAddHw_Click(object sender, RoutedEventArgs e)
-    {
-        _items.Add(new HomeworkItem());
-        UpdateEmptyHints();
-        DebounceSave();
-    }
-
-    private void BtnDelHw_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as System.Windows.Controls.Button)?.Tag is HomeworkItem it)
-        {
-            _items.Remove(it);
-            if (_items.Count == 0) _items.Add(new HomeworkItem());
-            UpdateEmptyHints();
-            DebounceSave();
-        }
-    }
-
-    private void BtnAddMiss_Click(object sender, RoutedEventArgs e)
-    {
-        _miss.Add(new MissingHomeworkItem());
-        UpdateEmptyHints();
-        DebounceSave();
-    }
-
-    private void BtnDelMiss_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as System.Windows.Controls.Button)?.Tag is MissingHomeworkItem m)
-        {
-            _miss.Remove(m);
-            UpdateEmptyHints();
-            DebounceSave();
-        }
-    }
-
-    private void UpdateEmptyHints()
-    {
-        if (TxtHwEmpty != null)
-        {
-            bool empty = _items.Count <= 1
-                && string.IsNullOrWhiteSpace(_items[0]?.Subject)
-                && string.IsNullOrWhiteSpace(_items[0]?.Content);
-            TxtHwEmpty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-        }
-        if (TxtMissEmpty != null)
-            TxtMissEmpty.Visibility = _miss.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void DebounceSave()
-    {
-        if (_suppressReload) return;   // 重载过程中不触发保存，避免回写噪声
-        _saveTimer?.Stop();
-        _saveTimer?.Start();
-    }
-
-    // ---------- 文本格式（加粗 / 颜色 / 字号档位） ----------
-    private void Fmt_Changed(object sender, RoutedEventArgs e) => DebounceSave();
-
-    private HomeworkBoard BuildBoard()
-    {
-        return new HomeworkBoard
-        {
-            Title = (TxtTitle.Text ?? "").Trim(),
-            Items = _items
-                .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
-                .Select(x => new HomeworkItem
-                {
-                    Subject = (x.Subject ?? "").Trim(),
-                    Content = (x.Content ?? "").Trim(),
-                    Bold = x.Bold,
-                    Color = x.Color ?? "",
-                    SizeLevel = x.SizeLevel
-                })
-                .ToList(),
-            Missing = _miss
-                .Where(m => !string.IsNullOrWhiteSpace(m.Subject) || !string.IsNullOrWhiteSpace(m.Students))
-                .Select(m => new MissingHomeworkItem
-                {
-                    Subject = (m.Subject ?? "").Trim(),
-                    Students = (m.Students ?? "").Trim(),
-                    Bold = m.Bold,
-                    Color = m.Color ?? "",
-                    SizeLevel = m.SizeLevel
-                })
-                .ToList(),
-            UpdatedAt = DateTime.Now,
-            Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()
-        };
-    }
-
-    private void SaveNow()
+    // ---------- 位置 / 大小持久化 ----------
+    private void RestorePlacement()
     {
         try
         {
-            var board = BuildBoard();
-            Store.SaveHomework(board);
-
-            // 若作业公示已在桌面背景显示，则同步重绘（含缺交名单）
+            _loading = true;
             var s = Store.LoadSettings();
-            if (s.Backdrop?.ShowHomework == true)
-                BackdropService.Apply(silent: true, out _);
+            if (s.HwWinWidth.HasValue && s.HwWinWidth.Value >= MinWidth) Width = s.HwWinWidth.Value;
+            if (s.HwWinHeight.HasValue && s.HwWinHeight.Value >= MinHeight) Height = s.HwWinHeight.Value;
 
-            _suppressReload = true;
-            try
+            if (s.HwWinLeft.HasValue && s.HwWinTop.HasValue)
             {
-                AppEvents.RaiseHomeworkChanged();
-                AppEvents.RaiseBackdropChanged();
+                Left = s.HwWinLeft.Value;
+                Top = s.HwWinTop.Value;
+                ClampIntoScreen();
             }
-            finally { _suppressReload = false; }
+            else
+            {
+                var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
+                if (area.HasValue)
+                {
+                    Left = Math.Max(0, area.Value.Left + area.Value.Width - Width - 32);
+                    Top = Math.Max(0, area.Value.Top + 40);
+                }
+            }
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    /// <summary>若保存的位置已跑到屏幕外（换分辨率 / 拔显示器），拉回可见区域。</summary>
+    private void ClampIntoScreen()
+    {
+        try
+        {
+            var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
+            if (!area.HasValue) return;
+            var a = area.Value;
+            if (Left > a.Right - 60) Left = Math.Max(a.Left, a.Right - Math.Min(Width, a.Width) - 16);
+            if (Left + Width < a.Left + 60) Left = a.Left + 16;
+            if (Top > a.Bottom - 40) Top = Math.Max(a.Top, a.Bottom - Math.Min(Height, a.Height) - 16);
+            if (Top < a.Top - 40) Top = a.Top + 16;
         }
         catch { }
     }
 
-    // ---------- 桌面背景开关（窗口右下角） ----------
+    private void SavePlacement()
+    {
+        if (_loading) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.HwWinLeft = Left;
+            s.HwWinTop = Top;
+            s.HwWinWidth = Width;
+            s.HwWinHeight = Height;
+            Store.SaveSettings(s);
+        }
+        catch { }
+    }
+
+    private void Window_LocationChanged(object sender, EventArgs e) => DebounceSavePlacement();
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e) => DebounceSavePlacement();
+
+    private void DebounceSavePlacement()
+    {
+        if (_loading) return;
+        _posTimer?.Stop();
+        _posTimer?.Start();
+    }
+
+    // ---------- 内容展示 ----------
+    private void Reload()
+    {
+        var board = Store.LoadHomework() ?? new HomeworkBoard();
+        _themeKey = string.IsNullOrWhiteSpace(board.Theme) ? "classic" : board.Theme;
+        ApplyTheme(HomeworkThemes.Find(_themeKey));
+        TxtTitle.Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title;
+        RebuildContent(board);
+    }
+
+    private void OnHomeworkChanged() => Reload();
+
+    private void ApplyTheme(HomeworkTheme t)
+    {
+        NoteBorder.Background = ThemeHelper.Brush(t.Background, Color.FromRgb(0xFF, 0xF9, 0xC4));
+        NoteBorder.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xF0, 0xDF, 0xA0));
+        Header.Background = ThemeHelper.Brush(t.HeaderBackground, Color.FromRgb(0xFF, 0xE0, 0x82));
+        TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x5D, 0x40, 0x37));
+        BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x5D, 0x40, 0x37));
+        TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x6B, 0x5B, 0x33));
+    }
+
+    private void RebuildContent(HomeworkBoard board)
+    {
+        var t = HomeworkThemes.Find(_themeKey);
+        var accent = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
+        var missing = ThemeHelper.Brush(t.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
+        var muted = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x9C, 0xA3, 0xAF));
+        var fg = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+
+        ContentPanel.Children.Clear();
+
+        var items = board.Items ?? new();
+        if (items.Count == 0)
+        {
+            ContentPanel.Children.Add(new TextBlock
+            {
+                Text = "（暂无作业，双击添加）",
+                FontSize = 14, Foreground = muted, Margin = new Thickness(0, 4, 0, 0)
+            });
+        }
+        else
+        {
+            foreach (var it in items)
+            {
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+                if (!string.IsNullOrWhiteSpace(it.Subject))
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = "【" + it.Subject + "】",
+                        FontSize = 15, FontWeight = FontWeights.Bold,
+                        Foreground = accent, TextWrapping = TextWrapping.Wrap
+                    });
+                row.Children.Add(new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,
+                    FontSize = HwTextStyle.SizeOf(it.SizeLevel) - 4,
+                    FontWeight = it.Bold ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = string.IsNullOrWhiteSpace(it.Color) ? fg : ThemeHelper.Brush(it.Color, Color.FromRgb(0x33, 0x3B, 0x47)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                ContentPanel.Children.Add(row);
+            }
+        }
+
+        var miss = (board.Missing ?? new()).Where(m => !string.IsNullOrWhiteSpace(m.Students)).ToList();
+        if (miss.Count > 0)
+        {
+            ContentPanel.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 8), Background = muted });
+            ContentPanel.Children.Add(new TextBlock
+            {
+                Text = "缺交作业名单", FontSize = 15, FontWeight = FontWeights.Bold,
+                Foreground = missing, Margin = new Thickness(0, 0, 0, 6)
+            });
+            foreach (var m in miss)
+            {
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+                string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
+                row.Children.Add(new TextBlock
+                {
+                    Text = label, FontSize = 13, FontWeight = FontWeights.Bold,
+                    Foreground = missing, TextWrapping = TextWrapping.Wrap
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = m.Students,
+                    FontSize = HwTextStyle.SizeOf(m.SizeLevel) - 4,
+                    FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = string.IsNullOrWhiteSpace(m.Color) ? fg : ThemeHelper.Brush(m.Color, Color.FromRgb(0x33, 0x3B, 0x47)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0)
+                });
+                ContentPanel.Children.Add(row);
+            }
+        }
+
+        ContentPanel.Children.Add(new TextBlock
+        {
+            Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = 11, Foreground = muted, Margin = new Thickness(0, 8, 0, 0)
+        });
+    }
+
+    // ---------- 编辑对话框 ----------
+    private void OpenEditor()
+    {
+        try
+        {
+            var board = Store.LoadHomework() ?? new HomeworkBoard();
+            var dlg = new HomeworkEditWindow(board);
+            if (dlg.ShowDialog() != true) return;
+
+            var saved = dlg.BuildBoard();
+            Store.SaveHomework(saved);
+
+            var st = Store.LoadSettings();
+            if (st.Backdrop?.ShowHomework == true)
+                BackdropService.Apply(silent: true, out _);
+
+            AppEvents.RaiseHomeworkChanged();
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch { }
+    }
+
+    // ---------- 桌面背景 ----------
     private void UpdateBackdropButton()
     {
         try
@@ -311,26 +314,19 @@ public partial class HomeworkWindow : Window
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             bool on = b.ShowHomework;
             BtnWp.Content = on ? "桌面背景：开" : "桌面背景：关";
-            BtnWp.Background = on
-                ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
-                : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
+            BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
             BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
-            TxtWpState.Text = on
-                ? "作业公示已在桌面背景显示（不遮挡操作）"
-                : "点右侧可把作业公示画到桌面壁纸";
         }
         catch { }
     }
 
     private void BtnWp_Click(object sender, RoutedEventArgs e)
     {
-        BackdropService.ToggleHomework(out string msg);
+        BackdropService.ToggleHomework(out _);
         UpdateBackdropButton();
         AppEvents.RaiseBackdropChanged();
-        TxtWpState.Text = msg;
     }
 
-    // ---------- 桌面背景位置设置（窗口左下角） ----------
     private void BtnPos_Click(object sender, RoutedEventArgs e)
     {
         try { new LayoutWindow { InitialTabIndex = 2 }.Show(); }
@@ -341,10 +337,10 @@ public partial class HomeworkWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        SaveNow();   // 关闭前确保落盘
+        SavePlacement();
         AppEvents.HomeworkChanged -= OnHomeworkChanged;
         AppEvents.BackdropChanged -= UpdateBackdropButton;
-        _saveTimer?.Stop();
+        _posTimer?.Stop();
         base.OnClosed(e);
     }
 }

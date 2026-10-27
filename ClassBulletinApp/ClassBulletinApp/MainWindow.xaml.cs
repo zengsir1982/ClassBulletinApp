@@ -1119,6 +1119,78 @@ public partial class MainWindow : Window
         }
         if (HomeworkItems.Count == 0)
             HomeworkItems.Add(new HomeworkItem());
+
+        // 主题风格下拉：带色块预览
+        LoadHwThemeCombo(board?.Theme);
+    }
+
+    /// <summary>填充作业公示主题下拉（每项带主题底色色块），并选中当前主题。</summary>
+    private void LoadHwThemeCombo(string? currentTheme)
+    {
+        if (CbHwTheme == null) return;
+        if (CbHwTheme.ItemsSource == null)
+        {
+            CbHwTheme.ItemsSource = HomeworkThemes.Presets
+                .Select(t => new
+                {
+                    t.Name,
+                    Background = (System.Windows.Media.Brush)ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White)
+                })
+                .ToList();
+        }
+        CbHwTheme.SelectedIndex = HomeworkThemes.IndexOf(currentTheme);
+    }
+
+    private void CbHwTheme_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (CbHwTheme == null || CbHwTheme.SelectedIndex < 0) return;
+        int idx = CbHwTheme.SelectedIndex;
+        if (idx >= HomeworkThemes.Presets.Count) return;
+        try
+        {
+            var board = Store.LoadHomework() ?? new HomeworkBoard();
+            board.Theme = HomeworkThemes.Presets[idx].Key;
+            Store.SaveHomework(board);
+
+            if (Store.LoadSettings().Backdrop?.ShowHomework == true)
+                BackdropService.Apply(silent: true, out _);
+
+            AppEvents.RaiseHomeworkChanged();
+            AppEvents.RaiseBackdropChanged();
+            TxtStatus.Text = "作业公示主题已切换为「" + HomeworkThemes.Presets[idx].Name + "」";
+        }
+        catch { }
+    }
+
+    /// <summary>打开作业编辑对话框（内容 / 格式 / 主题一并编辑）。</summary>
+    private void BtnEditHwFull_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 先把本页当前内容落盘，避免打开编辑框时丢掉未保存的改动
+            var cur = BuildHomeworkBoard();
+            var disk = Store.LoadHomework();
+            cur.Missing = disk?.Missing ?? new();
+            cur.Theme = disk?.Theme ?? "classic";
+            Store.SaveHomework(cur);
+
+            var dlg = new HomeworkEditWindow(cur);
+            if (dlg.ShowDialog() != true) return;
+
+            var saved = dlg.BuildBoard();
+            Store.SaveHomework(saved);
+            if (Store.LoadSettings().Backdrop?.ShowHomework == true)
+                BackdropService.Apply(silent: true, out _);
+
+            ReloadHomework();
+            AppEvents.RaiseHomeworkChanged();
+            AppEvents.RaiseBackdropChanged();
+            TxtStatus.Text = "作业内容与格式已更新（共 " + saved.Items.Count + " 科）";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "打开作业编辑失败：" + ex.Message;
+        }
     }
 
     private HomeworkBoard BuildHomeworkBoard() => new()

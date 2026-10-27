@@ -177,6 +177,22 @@
                         <Slider x:Name="SlHwY" Minimum="-700" Maximum="700" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="HwLayout_Changed"/>
                         <TextBlock x:Name="TxtHwY" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
 
+                        <!-- 固定大小的作业公示板：位置不随作业条数多少而漂移 -->
+                        <CheckBox x:Name="ChkHwFixed" Content="使用固定大小的作业公示板（推荐：位置稳定，不随作业多少漂移）"
+                                  FontSize="14" Margin="12,16,0,2" Click="HwLayout_Changed"/>
+                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
+                            <TextBlock Text="固定宽度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <Slider x:Name="SlHwFixedW" Minimum="220" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="HwLayout_Changed"/>
+                            <TextBlock x:Name="TxtHwFixedW" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
+                            <TextBlock Text="固定高度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <Slider x:Name="SlHwFixedH" Minimum="0" Maximum="1000" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="HwLayout_Changed"/>
+                            <TextBlock x:Name="TxtHwFixedH" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                        <TextBlock Text="固定高度为 0 时高度随内容自适应；设为具体像素后板面高度固定，定位最稳定（内容过多时会截断，可适当调大）。"
+                                   FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="12,4,0,0"/>
+
                         <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
                             <Button x:Name="BtnApplyWp" Content="应用到桌面背景" Padding="18,9" FontSize="15" Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnApplyWp_Click"/>
                             <Button x:Name="BtnClearWp" Content="清除（恢复原壁纸）" Padding="16,9" FontSize="15" Margin="12,0,0,0" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearWp_Click"/>

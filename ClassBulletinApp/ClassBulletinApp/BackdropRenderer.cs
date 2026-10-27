@@ -111,10 +111,16 @@ public static class BackdropRenderer
     private static void Place(Canvas canvas, FrameworkElement card, HomeworkWallpaperLayout lay,
         double width, double height, double scale)
     {
-        double ratio = Math.Clamp(lay.WidthRatio <= 0 ? 0.4 : lay.WidthRatio, 0.18, 0.95);
-        card.Width = width * ratio;
+        // 固定大小模式：宽高用固定像素，卡片位置不再随作业条数多少而漂移，定位更稳定
+        if (lay.UseFixedSize && lay.FixedWidth > 0)
+            card.Width = Math.Clamp(lay.FixedWidth, 120, Math.Max(120, width - 40));
+        else
+            card.Width = width * Math.Clamp(lay.WidthRatio <= 0 ? 0.4 : lay.WidthRatio, 0.18, 0.95);
+
         card.Measure(new Size(card.Width, double.PositiveInfinity));
-        card.Height = card.DesiredSize.Height;
+        card.Height = (lay.UseFixedSize && lay.FixedHeight > 0)
+            ? Math.Clamp(lay.FixedHeight, 120, Math.Max(120, height - 40))
+            : card.DesiredSize.Height;
 
         AnchorOf(lay.Anchor, out string hAlign, out string vAlign);
         double baseM = 60 * scale;
@@ -314,13 +320,20 @@ public static class BackdropRenderer
 
     private static Border BuildHomeworkCard(HomeworkBoard board, double scale, Func<double, double> ScaleFont)
     {
+        var theme = HomeworkThemes.Find(board.Theme);
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
+        var missingColor = ParseHwColor(theme.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
+
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title,
             FontSize = ScaleFont(34),
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = new SolidColorBrush(titleColor),
             Margin = new Thickness(0, 0, 0, 16 * scale),
             TextWrapping = TextWrapping.Wrap
         });
@@ -331,7 +344,7 @@ public static class BackdropRenderer
             {
                 Text = "（暂无作业）",
                 FontSize = ScaleFont(20),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF))
+                Foreground = new SolidColorBrush(muted)
             });
         }
         else
@@ -344,7 +357,7 @@ public static class BackdropRenderer
                     Text = "【" + (it.Subject ?? "") + "】",
                     FontSize = ScaleFont(22),
                     FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)),
+                    Foreground = new SolidColorBrush(accent),
                     TextWrapping = TextWrapping.Wrap
                 });
                 row.Children.Add(new TextBlock
@@ -352,7 +365,7 @@ public static class BackdropRenderer
                     Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,
                     FontSize = ScaleFont(HwTextStyle.SizeOf(it.SizeLevel)),
                     FontWeight = it.Bold ? FontWeights.Bold : FontWeights.Normal,
-                    Foreground = new SolidColorBrush(ParseHwColor(it.Color, Color.FromRgb(0x33, 0x3B, 0x47))),
+                    Foreground = new SolidColorBrush(ParseHwColor(it.Color, fg)),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 4 * scale, 0, 0)
                 });
@@ -368,7 +381,7 @@ public static class BackdropRenderer
                 Text = "缺交作业名单",
                 FontSize = ScaleFont(26),
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B)),
+                Foreground = new SolidColorBrush(missingColor),
                 Margin = new Thickness(0, 16 * scale, 0, 8 * scale)
             });
             foreach (var m in board.Missing)
@@ -381,7 +394,7 @@ public static class BackdropRenderer
                     Text = label,
                     FontSize = ScaleFont(18),
                     FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x8E, 0x2B, 0x20)),
+                    Foreground = new SolidColorBrush(missingColor),
                     TextWrapping = TextWrapping.Wrap
                 });
                 row.Children.Add(new TextBlock
@@ -389,7 +402,7 @@ public static class BackdropRenderer
                     Text = m.Students,
                     FontSize = ScaleFont(HwTextStyle.SizeOf(m.SizeLevel)),
                     FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
-                    Foreground = new SolidColorBrush(ParseHwColor(m.Color, Color.FromRgb(0x33, 0x3B, 0x47))),
+                    Foreground = new SolidColorBrush(ParseHwColor(m.Color, fg)),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 2 * scale, 0, 0)
                 });
@@ -401,18 +414,27 @@ public static class BackdropRenderer
         {
             Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
             FontSize = ScaleFont(14),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xB0, 0xB6, 0xBF)),
+            Foreground = new SolidColorBrush(muted),
             Margin = new Thickness(0, 14 * scale, 0, 0)
         });
 
-        return Card(stack, scale);
+        return Card(stack, scale, theme);
     }
 
-    private static Border Card(StackPanel content, double scale) => new()
+    /// <summary>带透明度的纯色画刷（用于卡片底色等）。</summary>
+    private static SolidColorBrush BrushOf(Color c, byte alpha = 0xFF)
+        => new SolidColorBrush(Color.FromArgb(alpha, c.R, c.G, c.B));
+
+    /// <summary>卡片外框：传入 theme 时按便签主题配色（与悬浮便签观感一致）。</summary>
+    private static Border Card(StackPanel content, double scale, HomeworkTheme? theme = null) => new()
     {
         CornerRadius = new CornerRadius(18 * scale),
-        Background = new SolidColorBrush(Color.FromArgb(0xF4, 0xFF, 0xFF, 0xFF)),
-        BorderBrush = new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC)),
+        Background = theme == null
+            ? BrushOf(Color.FromRgb(0xFF, 0xFF, 0xFF), 0xF4)
+            : BrushOf(ParseHwColor(theme.Background, Color.FromRgb(0xFF, 0xFF, 0xFF)), 0xF6),
+        BorderBrush = theme == null
+            ? new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC))
+            : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC9, 0xD6, 0xEC))),
         BorderThickness = new Thickness(2 * scale),
         Padding = new Thickness(36 * scale),
         HorizontalAlignment = HorizontalAlignment.Left,

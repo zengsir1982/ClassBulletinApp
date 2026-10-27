@@ -3,28 +3,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="作业公示" WindowStyle="None" ResizeMode="CanResize"
         ShowInTaskbar="False" AllowsTransparency="True" Background="Transparent"
-        Width="440" Height="720" MinWidth="320" MinHeight="420"
-        Loaded="Window_Loaded" SourceInitialized="Window_SourceInitialized">
-    <Window.Resources>
-        <!-- 作业 / 名单正文：按条目的加粗、颜色、字号档位即时呈现（与桌面背景渲染一致） -->
-        <Style x:Key="HwStyledBox" TargetType="TextBox">
-            <Setter Property="FontSize" Value="14"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Bold}" Value="True">
-                    <Setter Property="FontWeight" Value="Bold"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#C0392B"><Setter Property="Foreground" Value="#C0392B"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#2D6CDF"><Setter Property="Foreground" Value="#2D6CDF"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#1E8E3E"><Setter Property="Foreground" Value="#1E8E3E"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#E07B00"><Setter Property="Foreground" Value="#E07B00"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#7B3FBF"><Setter Property="Foreground" Value="#7B3FBF"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="1"><Setter Property="FontSize" Value="12"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="2"><Setter Property="FontSize" Value="17"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="3"><Setter Property="FontSize" Value="20"/></DataTrigger>
-            </Style.Triggers>
-        </Style>
-    </Window.Resources>
-    <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1" Padding="0">
+        Width="380" Height="540" MinWidth="220" MinHeight="240"
+        Loaded="Window_Loaded" SourceInitialized="Window_SourceInitialized"
+        LocationChanged="Window_LocationChanged" SizeChanged="Window_SizeChanged">
+    <Border x:Name="NoteBorder" CornerRadius="12" BorderThickness="1"
+            Background="#FFF9C4" BorderBrush="#F0DFA0">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" Opacity="0.35" ShadowDepth="4" Direction="300"/>
+        </Border.Effect>
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -32,134 +18,34 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 头部：标题栏空白处可拖动窗口（系统原生，无抖动）；标题双击编辑；隐藏按钮 -->
-            <Border x:Name="Header" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="16,12">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="TxtTitle" Grid.Column="0" Text="各科作业公示" FontSize="22" FontWeight="Bold"
-                               Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                               MouseLeftButtonDown="TxtTitle_MouseLeftButtonDown" Cursor="IBeam"
-                               ToolTip="双击可修改公示总标题"/>
-                    <TextBox x:Name="TxtTitleEdit" Grid.Column="0" Text="各科作业公示" FontSize="22" FontWeight="Bold"
-                             Foreground="White" Background="#1E5FD0" BorderThickness="0" VerticalAlignment="Center"
-                             Visibility="Collapsed" KeyDown="TxtTitleEdit_KeyDown" LostFocus="TxtTitleEdit_LostFocus"/>
-                    <Button x:Name="BtnHide" Grid.Column="1" Content="隐藏" Click="BtnHide_Click"
-                            VerticalAlignment="Top" Padding="8,3" FontSize="12" Margin="8,0,0,0"
-                            Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                            ToolTip="隐藏本窗口（可在控制面板或托盘重新打开）"/>
-                </Grid>
+            <!-- 顶部条：标题 + 隐藏 -->
+            <Border x:Name="Header" Grid.Row="0" CornerRadius="11,11,0,0" Padding="12,8" Background="#FFE082">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnHide" DockPanel.Dock="Right" Content="✕" Click="BtnHide_Click"
+                            Padding="6,2" FontSize="12" Margin="8,0,0,0"
+                            Background="#33FFFFFF" Foreground="#5D4037" BorderBrush="#55FFFFFF"
+                            ToolTip="隐藏便签（可在控制面板或托盘重新打开）"/>
+                    <TextBlock x:Name="TxtTitle" Text="各科作业公示" FontSize="17" FontWeight="Bold"
+                               Foreground="#5D4037" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
             </Border>
 
-            <!-- 编辑区 -->
-            <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
-                <StackPanel>
-                    <!-- 各科作业 -->
-                    <DockPanel LastChildFill="False" Margin="0,0,0,8">
-                        <TextBlock Text="各科作业" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
-                        <Button x:Name="BtnAddHw" DockPanel.Dock="Right" Content="＋ 添加科目" Click="BtnAddHw_Click" Padding="10,4" FontSize="13"
-                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                    </DockPanel>
-                    <ItemsControl x:Name="HwItems">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="110"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Grid.Column="0" Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="14" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" TextChanged="Editable_TextChanged" ToolTip="科目"/>
-                                            <TextBox Grid.Column="1" Style="{StaticResource HwStyledBox}" Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="48" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="Editable_TextChanged" ToolTip="作业内容（可直接点击修改）"/>
-                                            <Button Grid.Column="2" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelHw_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                                        </Grid>
-                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                            <ToggleButton Content="B" FontWeight="Bold" Padding="8,2" FontSize="12" IsChecked="{Binding Bold, Mode=TwoWay}" Checked="Fmt_Changed" Unchecked="Fmt_Changed" ToolTip="加粗"/>
-                                            <ComboBox Width="94" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedValuePath="Tag" SelectedValue="{Binding Color, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" SelectionChanged="Fmt_Changed" ToolTip="文字颜色">
-                                                <ComboBoxItem Content="默认墨色" Tag=""/>
-                                                <ComboBoxItem Content="红色" Tag="#C0392B"/>
-                                                <ComboBoxItem Content="蓝色" Tag="#2D6CDF"/>
-                                                <ComboBoxItem Content="绿色" Tag="#1E8E3E"/>
-                                                <ComboBoxItem Content="橙色" Tag="#E07B00"/>
-                                                <ComboBoxItem Content="紫色" Tag="#7B3FBF"/>
-                                            </ComboBox>
-                                            <ComboBox Width="74" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedIndex="{Binding SizeLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" SelectionChanged="Fmt_Changed" ToolTip="文字大小">
-                                                <ComboBoxItem Content="标准"/>
-                                                <ComboBoxItem Content="小"/>
-                                                <ComboBoxItem Content="大"/>
-                                                <ComboBoxItem Content="特大"/>
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock x:Name="TxtHwEmpty" Text="点击「＋ 添加科目」登记各科作业" FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,12"/>
-
-                    <!-- 缺交作业名单 -->
-                    <DockPanel LastChildFill="False" Margin="0,4,0,8">
-                        <TextBlock Text="缺交作业名单" FontSize="16" FontWeight="Bold" Foreground="#C0392B" VerticalAlignment="Center"/>
-                        <Button x:Name="BtnAddMiss" DockPanel.Dock="Right" Content="＋ 添加记录" Click="BtnAddMiss_Click" Padding="10,4" FontSize="13"
-                                Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                    </DockPanel>
-                    <ItemsControl x:Name="MissItems">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-                                        <DockPanel Grid.Row="0" LastChildFill="True">
-                                            <Button DockPanel.Dock="Right" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelMiss_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                                            <TextBox Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="13" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" TextChanged="Editable_TextChanged" ToolTip="科目（留空表示通用）"/>
-                                        </DockPanel>
-                                        <TextBox Grid.Row="1" Style="{StaticResource HwStyledBox}" Text="{Binding Students, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,6,0,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="Editable_TextChanged" ToolTip="缺交学生姓名：每行一个或用逗号 / 顿号分隔"/>
-                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,6,0,0">
-                                            <ToggleButton Content="B" FontWeight="Bold" Padding="8,2" FontSize="12" IsChecked="{Binding Bold, Mode=TwoWay}" Checked="Fmt_Changed" Unchecked="Fmt_Changed" ToolTip="加粗"/>
-                                            <ComboBox Width="94" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedValuePath="Tag" SelectedValue="{Binding Color, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" SelectionChanged="Fmt_Changed" ToolTip="文字颜色">
-                                                <ComboBoxItem Content="默认墨色" Tag=""/>
-                                                <ComboBoxItem Content="红色" Tag="#C0392B"/>
-                                                <ComboBoxItem Content="蓝色" Tag="#2D6CDF"/>
-                                                <ComboBoxItem Content="绿色" Tag="#1E8E3E"/>
-                                                <ComboBoxItem Content="橙色" Tag="#E07B00"/>
-                                                <ComboBoxItem Content="紫色" Tag="#7B3FBF"/>
-                                            </ComboBox>
-                                            <ComboBox Width="74" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedIndex="{Binding SizeLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" SelectionChanged="Fmt_Changed" ToolTip="文字大小">
-                                                <ComboBoxItem Content="标准"/>
-                                                <ComboBoxItem Content="小"/>
-                                                <ComboBoxItem Content="大"/>
-                                                <ComboBoxItem Content="特大"/>
-                                            </ComboBox>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock x:Name="TxtMissEmpty" Text="点击「＋ 添加记录」登记缺交名单（科目可留空表示通用）" FontSize="12" Foreground="#9CA3AF"/>
-                </StackPanel>
+            <!-- 内容：只读展示（双击任意处弹出编辑对话框） -->
+            <ScrollViewer Grid.Row="1" Margin="12,10" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="ContentPanel"/>
             </ScrollViewer>
 
-            <!-- 底部：位置设置（左） + 桌面背景开关（右） -->
-            <Border Grid.Row="2" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12" Padding="12,8">
+            <!-- 底部：位置设置 + 桌面背景开关 -->
+            <Border Grid.Row="2" Padding="10,6" BorderThickness="0,1,0,0"
+                    BorderBrush="#22000000" Background="#12000000">
                 <DockPanel LastChildFill="True">
-                    <Button x:Name="BtnPos" DockPanel.Dock="Left" Content="位置设置" Click="BtnPos_Click" Padding="10,5" FontSize="12"
-                            Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                            ToolTip="打开作业公示在桌面背景中的位置 / 大小设置"/>
-                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click" Padding="10,5" FontSize="12"
-                            Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                            ToolTip="把「作业公示」（含缺交名单）画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与当天课表同屏"/>
-                    <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="12" Margin="8,0"
-                               Foreground="#6B7280" TextTrimming="CharacterEllipsis"
-                               Text="点右侧可把作业公示画到桌面壁纸"/>
+                    <Button x:Name="BtnPos" DockPanel.Dock="Left" Content="位置" Click="BtnPos_Click"
+                            Padding="9,3" FontSize="11" ToolTip="调整作业公示在桌面背景上的位置与大小"/>
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
+                            Padding="9,3" FontSize="11" Margin="8,0,0,0"
+                            ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>
+                    <TextBlock x:Name="TxtHint" Text="拖动摆放 · 双击编辑" FontSize="11"
+                               Foreground="#6B5B33" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
             </Border>
         </Grid>

@@ -231,6 +231,9 @@ public partial class LayoutWindow : Window
             SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
             double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
             SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
+            ChkHwFixed.IsChecked = lay?.UseFixedSize == true;
+            SlHwFixedW.Value = Math.Clamp(lay?.FixedWidth ?? 420, SlHwFixedW.Minimum, SlHwFixedW.Maximum);
+            SlHwFixedH.Value = Math.Clamp(lay?.FixedHeight ?? 0, SlHwFixedH.Minimum, SlHwFixedH.Maximum);
         }
         finally { _hwReady = ready; }
         UpdateHwLabels();
@@ -241,7 +244,10 @@ public partial class LayoutWindow : Window
         Anchor = ComboAnchor(CbHwAnchor, "MiddleRight"),
         OffsetX = SlHwX.Value,
         OffsetY = SlHwY.Value,
-        WidthRatio = SlHwWidth.Value
+        WidthRatio = SlHwWidth.Value,
+        UseFixedSize = ChkHwFixed.IsChecked == true,
+        FixedWidth = SlHwFixedW.Value,
+        FixedHeight = SlHwFixedH.Value
     };
 
     private HomeworkWallpaperLayout CurrentWpScheduleLayout() => new()
@@ -282,6 +288,9 @@ public partial class LayoutWindow : Window
         if (TxtHwX != null) TxtHwX.Text = $"{SlHwX.Value:0} 像素";
         if (TxtHwY != null) TxtHwY.Text = $"{SlHwY.Value:0} 像素";
         if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
+        if (TxtHwFixedW != null) TxtHwFixedW.Text = $"{SlHwFixedW.Value:0} 像素";
+        if (TxtHwFixedH != null)
+            TxtHwFixedH.Text = SlHwFixedH.Value <= 0 ? "随内容自适应" : $"{SlHwFixedH.Value:0} 像素";
     }
 
     private void UpdateWpLabels()
@@ -304,11 +313,15 @@ public partial class LayoutWindow : Window
         _wpSaveTimer.Start();
     }
 
+    /// <summary>把界面当前的桌面背景设置写入设置文件。
+    /// 注意：必须写入本窗口的内存对象 _s（而不是重新 LoadSettings 得到的副本），
+    /// 否则「应用到桌面背景」触发的 BackdropChanged → ReloadBackdropUi 会拿旧的 _s 回写界面，
+    /// 导致刚调好的水平 / 垂直偏移被弹回默认值。</summary>
     private void SaveWpSettings()
     {
         try
         {
-            var s = Store.LoadSettings();
+            var s = _s;
             s.Backdrop ??= new BackdropSettings();
             s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
             s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
@@ -359,7 +372,7 @@ public partial class LayoutWindow : Window
     {
         try
         {
-            var s = Store.LoadSettings();
+            var s = _s;
             s.Backdrop ??= new BackdropSettings();
             s.Backdrop.ShowSchedule = false;
             s.Backdrop.ShowHomework = false;

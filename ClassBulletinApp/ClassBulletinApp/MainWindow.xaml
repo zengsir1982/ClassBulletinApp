@@ -283,11 +283,29 @@
                     <ScrollViewer Margin="14">
                         <StackPanel MaxWidth="780">
                             <TextBlock Text="📚 各科作业公示栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="更快捷的方式：系统会自动弹出「作业公示」悬浮窗，可随时点击直接增删改各科作业与缺交名单，并带「桌面背景」开关一键投射到桌面壁纸（位于所有窗口之下、不遮挡操作）。此页作为备用编辑入口同样可用，二者数据互通。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="更快捷的方式：系统会自动弹出「作业公示」便签，可拖到屏幕任意位置固定摆放，双击便签即可修改内容、文字格式与主题风格，底部「桌面背景」开关一键投射到桌面壁纸（位于所有窗口之下、不遮挡操作）。此页作为备用编辑入口同样可用，二者数据互通；上方「主题风格」与「编辑内容与格式…」也能设置格式和风格。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <TextBlock Text="总标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBox x:Name="TxtHwTitle" FontSize="14" Padding="8" Width="320" Background="White" BorderBrush="#D1D5DB"/>
                                 <Button x:Name="BtnAddHw" Content="添加科目" Padding="12,6" FontSize="14" Margin="12,0,0,0" Click="BtnAddHw_Click"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="CbHwTheme" Width="190" FontSize="14" SelectionChanged="CbHwTheme_Changed">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Margin="2">
+                                                <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
+                                                           Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button x:Name="BtnEditHwFull" Content="编辑内容与格式…" Padding="14,7" FontSize="14" Margin="12,0,0,0"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnEditHwFull_Click"
+                                        ToolTip="打开编辑对话框：修改各科作业 / 缺交名单、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
                             </StackPanel>
                             <ItemsControl x:Name="HwItems" Margin="0,0,0,12">
                                 <ItemsControl.ItemTemplate>

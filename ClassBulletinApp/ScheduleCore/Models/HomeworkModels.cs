@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ScheduleCore.Models;
 
@@ -12,7 +13,7 @@ public class HomeworkItem
     /// <summary>作业内容是否加粗。</summary>
     public bool Bold { get; set; }
 
-    /// <summary>作业内容颜色（#RRGGBB；空表示默认墨色）。</summary>
+    /// <summary>作业内容颜色（#RRGGBB；空表示默认墨色，实际取主题正文色）。</summary>
     public string Color { get; set; } = "";
 
     /// <summary>作业内容字号档位：0=标准 1=小 2=大 3=特大。</summary>
@@ -44,9 +45,111 @@ public static class HwTextStyle
 }
 
 /// <summary>
+/// 作业公示的便签主题风格：决定便签底色、正文色、标题 / 科目强调色、边框与顶部条配色。
+/// 悬浮便签与桌面背景卡片共用同一套主题，保证两处观感一致。
+/// </summary>
+public class HomeworkTheme
+{
+    /// <summary>主题标识（持久化用）。</summary>
+    public string Key { get; set; } = "";
+
+    /// <summary>主题显示名。</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>便签底色。</summary>
+    public string Background { get; set; } = "#FFF9C4";
+
+    /// <summary>正文文字色。</summary>
+    public string Foreground { get; set; } = "#4A3F1A";
+
+    /// <summary>科目 / 强调色。</summary>
+    public string Accent { get; set; } = "#A17400";
+
+    /// <summary>总标题色。</summary>
+    public string TitleColor { get; set; } = "#8D6E00";
+
+    /// <summary>卡片 / 便签边框色。</summary>
+    public string BorderColor { get; set; } = "#F0DFA0";
+
+    /// <summary>顶部条背景色。</summary>
+    public string HeaderBackground { get; set; } = "#FFE082";
+
+    /// <summary>顶部条文字色。</summary>
+    public string HeaderForeground { get; set; } = "#5D4037";
+
+    /// <summary>缺交名单强调色。</summary>
+    public string MissingColor { get; set; } = "#C0392B";
+
+    /// <summary>次要文字（更新时间等）颜色。</summary>
+    public string MutedColor { get; set; } = "#A39464";
+}
+
+/// <summary>作业公示预设主题（便签风格）。</summary>
+public static class HomeworkThemes
+{
+    public static readonly IReadOnlyList<HomeworkTheme> Presets = new List<HomeworkTheme>
+    {
+        new() { Key = "classic", Name = "经典便签黄",
+                Background = "#FFF9C4", Foreground = "#4A3F1A", Accent = "#A17400", TitleColor = "#8D6E00",
+                BorderColor = "#F0DFA0", HeaderBackground = "#FFE082", HeaderForeground = "#5D4037",
+                MissingColor = "#C0392B", MutedColor = "#A39464" },
+
+        new() { Key = "blue", Name = "清新蓝",
+                Background = "#E3F2FD", Foreground = "#1A3A5C", Accent = "#1565C0", TitleColor = "#0D47A1",
+                BorderColor = "#BBDEFB", HeaderBackground = "#BBDEFB", HeaderForeground = "#0D47A1",
+                MissingColor = "#C0392B", MutedColor = "#7A9AB5" },
+
+        new() { Key = "pink", Name = "少女粉",
+                Background = "#FCE4EC", Foreground = "#5C2A3A", Accent = "#C2185B", TitleColor = "#AD1457",
+                BorderColor = "#F8BBD0", HeaderBackground = "#F8BBD0", HeaderForeground = "#AD1457",
+                MissingColor = "#C62828", MutedColor = "#B08A96" },
+
+        new() { Key = "green", Name = "护眼绿",
+                Background = "#E8F5E9", Foreground = "#1B3A20", Accent = "#2E7D32", TitleColor = "#1B5E20",
+                BorderColor = "#C8E6C9", HeaderBackground = "#C8E6C9", HeaderForeground = "#1B5E20",
+                MissingColor = "#B71C1C", MutedColor = "#7A9A7E" },
+
+        new() { Key = "kraft", Name = "牛皮纸",
+                Background = "#EFE0C8", Foreground = "#4A3728", Accent = "#8D6E63", TitleColor = "#5D4037",
+                BorderColor = "#D7C4A3", HeaderBackground = "#D7C4A3", HeaderForeground = "#4A3728",
+                MissingColor = "#A02B2B", MutedColor = "#A08D76" },
+
+        new() { Key = "dark", Name = "暗夜黑板",
+                Background = "#2B3038", Foreground = "#E6EAF2", Accent = "#7FB3FF", TitleColor = "#FFFFFF",
+                BorderColor = "#454C57", HeaderBackground = "#363C46", HeaderForeground = "#FFFFFF",
+                MissingColor = "#FF8A80", MutedColor = "#8A93A1" },
+
+        new() { Key = "plain", Name = "素雅白",
+                Background = "#FFFFFF", Foreground = "#333B47", Accent = "#2D6CDF", TitleColor = "#1F2A37",
+                BorderColor = "#D8DEE9", HeaderBackground = "#EAF1FD", HeaderForeground = "#1F2A37",
+                MissingColor = "#C0392B", MutedColor = "#B0B6BF" }
+    };
+
+    /// <summary>按标识取主题；未知或为空时回退到「经典便签黄」。</summary>
+    public static HomeworkTheme Find(string? key)
+    {
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            var hit = Presets.FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.OrdinalIgnoreCase));
+            if (hit != null) return hit;
+        }
+        return Presets[0];
+    }
+
+    /// <summary>取主题在预设列表中的下标（用于下拉选中）。</summary>
+    public static int IndexOf(string? key)
+    {
+        for (int i = 0; i < Presets.Count; i++)
+            if (string.Equals(Presets[i].Key, key, StringComparison.OrdinalIgnoreCase)) return i;
+        return 0;
+    }
+}
+
+/// <summary>
 /// 作业公示图在桌面壁纸上的摆放方式：
 /// Anchor 为九宫格锚点，OffsetX / OffsetY 为相对锚点的像素偏移（右、下为正），
-/// WidthRatio 为卡片宽度占屏幕宽度的比例。
+/// WidthRatio 为卡片宽度占屏幕宽度的比例；开启 UseFixedSize 后改用固定像素尺寸，
+/// 卡片位置不再随作业条数多少而漂移，定位更稳定。
 /// </summary>
 public class HomeworkWallpaperLayout
 {
@@ -64,6 +167,18 @@ public class HomeworkWallpaperLayout
 
     /// <summary>卡片宽度占屏幕宽度的比例 0.25~0.9。</summary>
     public double WidthRatio { get; set; } = 0.4;
+
+    /// <summary>
+    /// 是否使用固定像素大小的作业公示板。开启后宽度 / 高度固定，
+    /// 卡片位置不会随作业条数多少而漂移，定位更稳定可靠。
+    /// </summary>
+    public bool UseFixedSize { get; set; }
+
+    /// <summary>固定宽度（像素，0 表示仍按屏幕比例）。</summary>
+    public double FixedWidth { get; set; } = 420;
+
+    /// <summary>固定高度（像素，0 表示高度随内容自适应）。</summary>
+    public double FixedHeight { get; set; } = 560;
 }
 
 /// <summary>单条缺交作业记录：可指定科目（留空表示通用），以及缺交学生姓名（换行 / 逗号分隔）。</summary>
@@ -85,7 +200,7 @@ public class MissingHomeworkItem
     public int SizeLevel { get; set; }
 }
 
-/// <summary>作业公示栏内容：标题 + 各科目作业 + 缺交作业名单 + 桌面背景摆放位置。</summary>
+/// <summary>作业公示栏内容：标题 + 各科目作业 + 缺交作业名单 + 主题风格 + 桌面背景摆放位置。</summary>
 public class HomeworkBoard
 {
     public string Title { get; set; } = "各科作业公示";
@@ -94,6 +209,9 @@ public class HomeworkBoard
 
     /// <summary>缺交作业名单（可按科目登记未交学生）。</summary>
     public List<MissingHomeworkItem> Missing { get; set; } = new();
+
+    /// <summary>便签主题风格标识（见 HomeworkThemes.Presets），为空时为经典便签黄。</summary>
+    public string Theme { get; set; } = "classic";
 
     /// <summary>作为桌面壁纸时的显示位置与大小。</summary>
     public HomeworkWallpaperLayout Layout { get; set; } = new();

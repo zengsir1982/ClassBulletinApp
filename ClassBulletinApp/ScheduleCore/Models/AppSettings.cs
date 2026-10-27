@@ -39,6 +39,18 @@ public class AppSettings
     /// <summary>启动后是否自动弹出作业公示悬浮窗。</summary>
     public bool AutoShowHomework { get; set; } = true;
 
+    /// <summary>作业公示便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
+    public double? HwWinLeft { get; set; }
+
+    /// <summary>作业公示便签固定摆放的左上角 Y。</summary>
+    public double? HwWinTop { get; set; }
+
+    /// <summary>作业公示便签的宽度（为空表示用默认宽度）。</summary>
+    public double? HwWinWidth { get; set; }
+
+    /// <summary>作业公示便签的高度。</summary>
+    public double? HwWinHeight { get; set; }
+
     /// <summary>启动后是否自动弹出教师个人课表悬浮窗。</summary>
     public bool AutoShowTeacher { get; set; }
 
