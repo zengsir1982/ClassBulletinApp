@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     // 教师个人课表下拉（支持输入姓名查询）
     private List<string> _allTeachers = new();
     private bool _teacherGuard;
+    private bool _classGuard;   // 从设置反向同步班级下拉时防止 SelectionChanged 递归
 
     // 桌面最大化窗口自动隐藏
     private readonly DispatcherTimer _winTimer;
@@ -34,6 +35,9 @@ public partial class MainWindow : Window
 
     /// <summary>界面控件是否已就绪。为 false 时忽略作业公示参数变更事件（避免 XAML 加载期空引用）。</summary>
     private bool _hwReady;
+
+    /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
+    private bool _remindReady;
 
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
@@ -78,11 +82,19 @@ public partial class MainWindow : Window
             ReloadHomework();
             RefreshTeacherCombo();
             UpdateModeIndicator();
+            ReloadReminderUi();
         }
         catch (Exception ex)
         {
             TxtStatus.Text = "加载数据出错：" + ex.Message;
         }
+
+        // 课表数据 / 显示对象变化时（含悬浮窗与周视图的双击切换），同步顶栏下拉与模式提示
+        AppEvents.ScheduleChanged += SyncTargetUi;
+
+        // 上下课提醒后台服务
+        try { ReminderService.Start(); }
+        catch (Exception ex) { TxtStatus.Text += " [提醒服务启动失败：" + ex.Message + "]"; }
 
         // 托盘初始化失败不应拖垮主窗口
         try { SetupTray(); }
@@ -162,6 +174,73 @@ public partial class MainWindow : Window
             : $"当前显示：{s.SelectedClass}";
     }
 
+    /// <summary>
+    /// 课表 / 显示对象变化后（含悬浮课表、周课程表里双击姓名互切），
+    /// 把顶栏「教师 / 班级」下拉同步为设置中的当前值。
+    /// </summary>
+    private void SyncTargetUi()
+    {
+        if (!IsLoaded) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            bool teacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+            _teacherGuard = true;
+            _classGuard = true;
+            try
+            {
+                if (teacher)
+                {
+                    if (_allTeachers.Contains(s.SelectedTeacher)) CbTeacher.Text = s.SelectedTeacher;
+                }
+                else
+                {
+                    if (ClassNames.Contains(s.SelectedClass)) CbClass.SelectedItem = s.SelectedClass;
+                }
+            }
+            finally { _teacherGuard = false; _classGuard = false; }
+            UpdateModeIndicator();
+        }
+        catch { }
+    }
+
+    // ---------- 上下课提醒设置 ----------
+    private void ReloadReminderUi()
+    {
+        var r = Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings();
+        _remindReady = false;
+        ChkRemindEnabled.IsChecked = r.Enabled;
+        TxtRemindBeforeClass.Text = Math.Max(0, r.BeforeClassMinutes).ToString();
+        TxtRemindBeforeEnd.Text = Math.Max(0, r.BeforeEndMinutes).ToString();
+        ChkRemindAfterSchool.IsChecked = r.AfterSchoolRemind;
+        ChkRemindSound.IsChecked = r.PlaySound;
+        _remindReady = true;
+    }
+
+    private void RemindSetting_Changed(object sender, RoutedEventArgs e) => SaveReminderUi();
+
+    private void RemindSetting_TextChanged(object sender, TextChangedEventArgs e) => SaveReminderUi();
+
+    private void SaveReminderUi()
+    {
+        if (!_remindReady) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.Reminder ??= new ScheduleCore.Models.ReminderSettings();
+            s.Reminder.Enabled = ChkRemindEnabled.IsChecked == true;
+            s.Reminder.BeforeClassMinutes = ParseRemindMinutes(TxtRemindBeforeClass.Text);
+            s.Reminder.BeforeEndMinutes = ParseRemindMinutes(TxtRemindBeforeEnd.Text);
+            s.Reminder.AfterSchoolRemind = ChkRemindAfterSchool.IsChecked == true;
+            s.Reminder.PlaySound = ChkRemindSound.IsChecked == true;
+            Store.SaveSettings(s);
+        }
+        catch { }
+    }
+
+    private static int ParseRemindMinutes(string? text)
+        => int.TryParse(text?.Trim(), out var v) && v >= 0 && v <= 30 ? v : 0;
+
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
     {
         if (_schOn) HideScheduleWin(); else ShowScheduleWin();
@@ -229,6 +308,7 @@ public partial class MainWindow : Window
     // ---------- 班级选择（切换到班级课表） ----------
     private void CbClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_classGuard) return;   // 从设置反向同步时跳过，避免递归保存
         var cls = CbClass.SelectedItem as string;
         if (cls != null)
         {

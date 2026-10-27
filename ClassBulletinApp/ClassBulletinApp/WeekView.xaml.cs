@@ -79,8 +79,8 @@ public partial class WeekView : System.Windows.Controls.UserControl
         if (!IsLoaded || TxtHint == null) return;
         TxtHint.Text = Mode == WeekViewMode.Manage
             ? (_isTeacher
-                ? "当前显示的是教师个人周课表（只读）：格子中的第二行为所教班级。要安排调课 / 代课，请先到顶栏「班级」下拉切换到对应班级。"
-                : "操作：拖动课卡可调课（目标有课则互换，为空则移动并清空原格）；右键某格 = 安排调课/代课；单击已安排的格子 = 二次确认后清除该节调课/代课。橙色=调课，蓝色=代课。")
+                ? "当前显示的是教师个人周课表（只读）：格子中的第二行为所教班级，双击班级名称可切换到该班级的周课表。要安排调课 / 代课，请先到顶栏「班级」下拉切换到对应班级。"
+                : "操作：拖动课卡可调课（目标有课则互换，为空则移动并清空原格）；右键某格 = 安排调课/代课；双击格子中的教师姓名 = 切换到该教师的个人周课表。橙色=调课，蓝色=代课。")
             : "操作：拖动某节课到另一格（目标有课则互换，为空则移动并清空原格）；右键某格可清除该格调课。";
     }
 
@@ -129,6 +129,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         TxtStatus.Text = _isTeacher
             ? $"当前显示教师「{_selectedName}」的周课表（只读；如需查看某班请到顶栏「班级」下拉切换）。"
             : "";
+
     }
 
     private void BuildGrid(WeekGridData data)
@@ -243,7 +244,28 @@ public partial class WeekView : System.Windows.Controls.UserControl
                 TextWrapping = TextWrapping.Wrap
             });
             if (!string.IsNullOrEmpty(cell.Teacher))
-                sp.Children.Add(new TextBlock { Text = cell.Teacher, FontSize = 12, Foreground = Brush("#4B5563") });
+            {
+                // 第二行：班级课表显示任课教师，教师课表显示所教班级。
+                // 双击可互切：看某位教师的个人周课表 / 看某个班的周课表。
+                var tbName = new TextBlock
+                {
+                    Text = cell.Teacher,
+                    FontSize = 12,
+                    Foreground = Brush("#2D6CDF"),
+                    Background = WpfBrushes.Transparent,
+                    Cursor = WpfCursors.Hand,
+                    ToolTip = "双击切换到该" + (_isTeacher ? "班级" : "教师") + "的周课表"
+                };
+                tbName.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (e.ClickCount == 2)
+                    {
+                        SwitchFromCell(cell);
+                        e.Handled = true;
+                    }
+                };
+                sp.Children.Add(tbName);
+            }
             if (!string.IsNullOrEmpty(cell.LocationText))
                 sp.Children.Add(new TextBlock { Text = cell.LocationText.Trim(), FontSize = 11, Foreground = Brush("#2E8B57") });
         }
@@ -283,13 +305,10 @@ public partial class WeekView : System.Windows.Controls.UserControl
         };
         border.PreviewMouseLeftButtonUp += (s, e) =>
         {
-            var press = _pressCell;
             _pressCell = null;
             _dragSrc = null;
             if (_cellDragged) { _cellDragged = false; return; }
-            // 单击（未拖动）：Manage 模式下单击「已安排」的格子 → 二次确认清除
-            if (!_isTeacher && Mode == WeekViewMode.Manage && press == cell && cell.IsOverridden)
-                ConfirmClearCell(cell);
+            // 单击不再清除调课/代课（清除请用「清除全部」按钮或重新安排调课）
         };
 
         // 拖拽（目标）
@@ -321,6 +340,34 @@ public partial class WeekView : System.Windows.Controls.UserControl
         return border;
     }
 
+    // ---------- 双击教师姓名 / 班级名称：在班级课表与教师个人课表间互切 ----------
+    private void SwitchFromCell(WeekCell cell)
+    {
+        if (string.IsNullOrEmpty(cell.Teacher)) return;
+        string fromLabel = _isTeacher ? "班级" : "教师";
+
+        // 切到教师前先确认该教师有个人课表数据
+        if (!_isTeacher)
+        {
+            var ts = Store.LoadTeacherSchedule();
+            if (ts == null || !ts.Classes.Any(c => c.ClassName == cell.Teacher))
+            {
+                TxtStatus.Text = $"教师「{cell.Teacher}」暂无个人课表数据（可在「数据管理」导入全校课表自动整理）。";
+                return;
+            }
+        }
+
+        var s = Store.LoadSettings();
+        if (_isTeacher) { s.ScheduleKind = "Class"; s.SelectedClass = cell.Teacher; }
+        else { s.ScheduleKind = "Teacher"; s.SelectedTeacher = cell.Teacher; }
+        Store.SaveSettings(s);
+        AppEvents.RaiseScheduleChanged();   // Rebuild 同步执行，_isTeacher 已是新状态
+
+        TxtStatus.Text = _isTeacher
+            ? $"已从{fromLabel}课表切换到教师「{cell.Teacher}」的个人周课表。"
+            : $"已从{fromLabel}课表切换到班级「{cell.Teacher}」的周课表。";
+    }
+
     // ---------- 安排调课/代课（右键，Manage 模式） ----------
     private void OpenArrangeEditor(WeekCell cell)
     {
@@ -349,15 +396,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         }
     }
 
-    // ---------- 清除单格（Float 右键 / Manage 单击确认） ----------
-    private void ConfirmClearCell(WeekCell cell)
-    {
-        var r = WpfMessageBox.Show(
-            $"确定清除 {cell.DayName}第{cell.Period}节 的调课/代课安排吗？（恢复为原课表）",
-            "清除调代课", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (r == MessageBoxResult.OK) ClearCell(cell);
-    }
-
+    // ---------- 清除单格（Float 右键） ----------
     private void ClearCell(WeekCell cell)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;

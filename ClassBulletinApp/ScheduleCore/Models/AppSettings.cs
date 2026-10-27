@@ -59,6 +59,9 @@ public class AppSettings
     /// <summary>应用作业公示栏壁纸前系统原有壁纸路径，用于「清除」时恢复。</summary>
     public string SavedWallpaper { get; set; } = "";
 
+    /// <summary>上下课提醒设置（课前 / 上课 / 下课 / 放学弹窗提示）。</summary>
+    public ReminderSettings Reminder { get; set; } = new();
+
     /// <summary>课表悬浮窗布局（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
     public PanelLayout ScheduleLayout { get; set; } = new()
     {

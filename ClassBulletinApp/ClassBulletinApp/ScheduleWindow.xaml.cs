@@ -199,6 +199,40 @@ public partial class ScheduleWindow : Window
         if (w.ShowDialog() == true) AppEvents.RaiseScheduleChanged();
     }
 
+    // ---------- 双击课卡「教师：XX」/「班级：XX」行：互切班级课表 / 教师个人课表 ----------
+    private void SwitchTargetFromCard(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+
+        // 班级课表 → 教师：确认该教师有个人课表数据
+        if (!_isTeacherMode)
+        {
+            var ts = Store.LoadTeacherSchedule();
+            if (ts == null || !ts.Classes.Any(c => c.ClassName == name)) return;
+        }
+
+        var s = Store.LoadSettings();
+        if (_isTeacherMode) { s.ScheduleKind = "Class"; s.SelectedClass = name; }
+        else { s.ScheduleKind = "Teacher"; s.SelectedTeacher = name; }
+        Store.SaveSettings(s);
+        AppEvents.RaiseScheduleChanged();   // 本窗与周视图、控制面板下拉都会同步刷新
+    }
+
+    /// <summary>从命中元素向上查找课卡「教师 / 班级行」（Tag=TeacherTag）。</summary>
+    private static FrameworkElement? FindTeacherTagElement(DependencyObject? dep)
+    {
+        while (dep != null)
+        {
+            if (dep is FrameworkElement fe && "TeacherTag".Equals(fe.Tag as string, StringComparison.Ordinal))
+                return fe;
+            var next = LogicalTreeHelper.GetParent(dep);
+            if (next == null && dep is System.Windows.Media.Visual v)
+                next = VisualTreeHelper.GetParent(v);
+            dep = next;
+        }
+        return null;
+    }
+
     private void OpenDateSwitch()
     {
         var s = Store.LoadSettings();
@@ -231,6 +265,22 @@ public partial class ScheduleWindow : Window
     private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
+
+        // 双击课卡里的「教师：XX」/「班级：XX」行 → 在班级课表与教师个人课表间互切。
+        // 必须在按下处理最前面判断：该区域不做拖动候选、也不启动长按编辑。
+        if (e.ClickCount == 2)
+        {
+            var el = FindTeacherTagElement(e.OriginalSource as DependencyObject);
+            if (el != null)
+            {
+                CancelPress();
+                if (el.DataContext is LessonView lv && !string.IsNullOrEmpty(lv.Teacher))
+                    SwitchTargetFromCard(lv.Teacher);
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (_isTeacherMode || _clickThrough)
         {
             _pressRow = null;
@@ -253,8 +303,8 @@ public partial class ScheduleWindow : Window
         _dragging = false;
         if (_dragCandidate != null)
         {
-            Mouse.Capture(this);
-            // 按下即暂停自动隐藏，避免课表在伸手取课时滑回边缘
+            // 不在这里 Mouse.Capture：提前捕获会让后续事件的 OriginalSource 变成窗口本身，
+            // 导致双击「教师 / 班级行」无法识别；真正开始拖动时再捕获（见 PreviewMouseMove）
             if (_hider != null) _hider.Suspended = true;
         }
     }
@@ -278,6 +328,7 @@ public partial class ScheduleWindow : Window
             {
                 CancelPress();
                 _dragging = true;
+                Mouse.Capture(this);   // 真正开始拖动才捕获，保证移出窗口仍能收到 move/up
                 if (_hider != null) _hider.Suspended = true;
                 Mouse.OverrideCursor = Cursors.Hand;
             }

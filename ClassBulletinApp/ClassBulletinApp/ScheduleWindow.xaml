@@ -55,11 +55,11 @@
             <!-- 课表滚动区 -->
             <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <TextBlock Text="按住课卡拖动可调课（拖到空节＝移动并清空原节，拖到有课的节＝互换）；右键或长按课卡可调课/代课；双击标题姓名可换班或换教师、双击日期可换日（调休上课）"
+                    <TextBlock Text="按住课卡拖动可调课（拖到空节＝移动并清空原节，拖到有课的节＝互换）；右键或长按课卡可调课/代课；双击课卡中的教师姓名＝查看该教师的个人课表，双击标题姓名可换班或换教师、双击日期可换日（调休上课）"
                                FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"
                                x:Name="TxtHint"/>
                     <TextBlock x:Name="TxtTeacherHint" Visibility="Collapsed"
-                               Text="教师个人课表（不可调课）：双击标题姓名可换其他教师或改看某个班，双击日期可换日（调休上课）"
+                               Text="教师个人课表（不可调课）：双击课卡中的班级名称＝查看该班级的课表；双击标题姓名可换其他教师或改看某个班，双击日期可换日（调休上课）"
                                FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,8" TextWrapping="Wrap"/>
                     <ItemsControl x:Name="TodayPanel">
                         <ItemsControl.ItemTemplate>
@@ -91,7 +91,8 @@
                                                                 <Run Text="{Binding Subject}"/>
                                                                 <Run Text="{Binding WeekTag}" FontSize="13" Foreground="#9CA3AF" FontWeight="Normal"/>
                                                             </TextBlock>
-                                                            <TextBlock FontSize="14" Foreground="#4B5563">
+                                                            <TextBlock FontSize="14" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
+                                                                       ToolTip="双击可切换到该教师 / 班级的课表">
                                                                 <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
                                                                 <Run Text="{Binding Teacher}"/>
                                                                 <Run Text="{Binding LocationText}" Foreground="#2E8B57"/>
