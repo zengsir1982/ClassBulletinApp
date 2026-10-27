@@ -99,10 +99,49 @@ public partial class LayoutWindow : Window
         WireLivePreview();
     }
 
-    /// <summary>拖动课表 / 通知的尺寸、透明度、锚点等时，实时让已打开的悬浮窗同步（所见即所得）。</summary>
+    /// <summary>把界面控件当前值同步进内存设置对象 _s（不落盘）。实时预览与「保存并应用」共用，
+    /// 保证 RaisedLayoutChanged 传出去的布局对象携带滑块最新值，悬浮窗才能即时变化。</summary>
+    private void SyncControlsToSettings()
+    {
+        var sl = _s.ScheduleLayout;
+        sl.Anchor = CbSchAnchor.SelectedIndex switch { 0 => "Left", 1 => "Right", 2 => "Top", 3 => "Bottom", _ => "Center" };
+        sl.Width = SlSchWidth.Value;
+        sl.Height = SlSchHeight.Value;
+        sl.Opacity = SlSchOpacity.Value;
+        sl.OverlayOpacity = SlSchOverlay.Value;
+        sl.TopMost = ChkSchTop.IsChecked == true;
+        sl.ClickThrough = ChkSchClick.IsChecked == true;
+        sl.AutoHide = ChkSchHide.IsChecked == true && !sl.ClickThrough;
+        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true && !sl.ClickThrough;
+        sl.EdgePeek = SlSchPeek.Value;
+        sl.EdgeTrigger = SlSchEdge.Value;
+
+        var nl = _s.NotificationLayout;
+        nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
+        nl.Height = SlNotHeight.Value;
+        nl.Width = SlNotWidth.Value;
+        nl.HAnchor = CbNotHAnchor.SelectedIndex switch { 0 => "Left", 2 => "Right", _ => "Center" };
+        nl.FontSize = SlNotFont.Value;
+        nl.MarqueeSpeed = SlNotSpeed.Value;
+        nl.Opacity = SlNotOpacity.Value;
+        nl.OverlayOpacity = SlNotOverlay.Value;
+        nl.TopMost = ChkNotTop.IsChecked == true;
+        nl.ClickThrough = ChkNotClick.IsChecked == true;
+        nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
+        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true && !nl.ClickThrough;
+        nl.EdgePeek = SlNotPeek.Value;
+        nl.EdgeTrigger = SlNotEdge.Value;
+    }
+
+    /// <summary>拖动课表 / 通知的尺寸、透明度、锚点等时，实时让已打开的悬浮窗同步（所见即所得）。
+    /// 先同步控件值到 _s，再把内存中正在编辑的布局对象传过去，避免悬浮窗每次都重新读盘拿不到最新滑块值。</summary>
     private void WireLivePreview()
     {
-        void Preview(object? _, EventArgs __) => AppEvents.RaiseLayoutChanged();
+        void Preview(object? _, EventArgs __)
+        {
+            SyncControlsToSettings();
+            AppEvents.RaiseLayoutChanged(_s.ScheduleLayout, _s.NotificationLayout);
+        }
 
         SlSchWidth.ValueChanged += Preview;
         SlSchHeight.ValueChanged += Preview;
@@ -126,36 +165,7 @@ public partial class LayoutWindow : Window
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
-        var sl = _s.ScheduleLayout;
-        sl.Anchor = CbSchAnchor.SelectedIndex switch { 0 => "Left", 1 => "Right", 2 => "Top", 3 => "Bottom", _ => "Center" };
-        sl.Width = SlSchWidth.Value;
-        sl.Height = SlSchHeight.Value;
-        sl.Opacity = SlSchOpacity.Value;
-        sl.OverlayOpacity = SlSchOverlay.Value;
-        sl.TopMost = ChkSchTop.IsChecked == true;
-        sl.ClickThrough = ChkSchClick.IsChecked == true;
-        // 鼠标穿透与靠边隐藏互斥：穿透开启时强制关闭两类靠边隐藏
-        sl.AutoHide = ChkSchHide.IsChecked == true && !sl.ClickThrough;
-        sl.AutoHideDuringClass = ChkSchClassHide.IsChecked == true && !sl.ClickThrough;
-        sl.EdgePeek = SlSchPeek.Value;
-        sl.EdgeTrigger = SlSchEdge.Value;
-
-        var nl = _s.NotificationLayout;
-        nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
-        nl.Height = SlNotHeight.Value;
-        nl.Width = SlNotWidth.Value;
-        nl.HAnchor = CbNotHAnchor.SelectedIndex switch { 0 => "Left", 2 => "Right", _ => "Center" };
-        nl.FontSize = SlNotFont.Value;
-        nl.MarqueeSpeed = SlNotSpeed.Value;
-        nl.Opacity = SlNotOpacity.Value;
-        nl.OverlayOpacity = SlNotOverlay.Value;
-        nl.TopMost = ChkNotTop.IsChecked == true;
-        nl.ClickThrough = ChkNotClick.IsChecked == true;
-        nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
-        nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true && !nl.ClickThrough;
-        nl.EdgePeek = SlNotPeek.Value;
-        nl.EdgeTrigger = SlNotEdge.Value;
-
+        SyncControlsToSettings();
         Store.SaveSettings(_s);
         AppEvents.RaiseLayoutChanged();
         DialogResult = true;

@@ -99,7 +99,7 @@ public static class BackdropService
             }
 
             TodayResult? today = null;
-            string title = "", subtitle = "";
+            string title = "", dateText = "", weekText = "";
             if (b.ShowSchedule)
             {
                 var built = BuildToday(s);
@@ -107,14 +107,15 @@ public static class BackdropService
                 {
                     today = built.Value.Res;
                     title = built.Value.Title;
-                    subtitle = built.Value.Subtitle;
+                    dateText = built.Value.DateText;
+                    weekText = built.Value.WeekText;
                 }
             }
 
             string? origin = string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper;
 
             Directory.CreateDirectory(Store.AppDir);
-            BackdropRenderer.RenderToPng(today, title, subtitle, b.ShowHomework ? board : null, b,
+            BackdropRenderer.RenderToPng(today, title, dateText, weekText, b.ShowHomework ? board : null, b,
                 screen.Bounds.Width, screen.Bounds.Height, origin, OutputPath);
 
             // 首次应用前记录系统原壁纸，便于「清除」恢复
@@ -191,7 +192,7 @@ public static class BackdropService
             var board = Store.LoadHomework();
 
             TodayResult? today = null;
-            string title = "", subtitle = "";
+            string title = "", dateText = "", weekText = "";
             if (b.ShowSchedule)
             {
                 var built = BuildToday(s);
@@ -199,11 +200,12 @@ public static class BackdropService
                 {
                     today = built.Value.Res;
                     title = built.Value.Title;
-                    subtitle = built.Value.Subtitle;
+                    dateText = built.Value.DateText;
+                    weekText = built.Value.WeekText;
                 }
             }
 
-            BackdropRenderer.RenderToPng(today, title, subtitle,
+            BackdropRenderer.RenderToPng(today, title, dateText, weekText,
                 b.ShowHomework ? board : null, b, width, height,
                 string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath);
             message = "已生成桌面背景预览图：" + outPath;
@@ -217,7 +219,7 @@ public static class BackdropService
     }
 
     // ---------- 内容构建 ----------
-    private static (TodayResult Res, string Title, string Subtitle)? BuildToday(AppSettings s)
+    private static (TodayResult Res, string Title, string DateText, string WeekText)? BuildToday(AppSettings s)
     {
         bool teacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
         var sf = teacher ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
@@ -232,8 +234,7 @@ public static class BackdropService
         var res = BoardBuilder.Build(name, s.SemesterStartMonday, sf, date, overrides);
         string title = string.IsNullOrWhiteSpace(res.ClassName) ? name : res.ClassName;
         if (teacher && !string.IsNullOrWhiteSpace(title)) title = title + " 老师";
-        string subtitle = $"{res.DateText}　{res.WeekLine}";
-        return (res, title, subtitle);
+        return (res, title, res.DateText, res.WeekLine);
     }
 
     /// <summary>内容签名：用于判断是否真的需要重绘（日期 / 显示对象 / 课程内容任一变化）。</summary>

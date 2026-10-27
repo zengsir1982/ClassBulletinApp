@@ -13,6 +13,10 @@ using Size = System.Windows.Size;
 using Color = System.Windows.Media.Color;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using VerticalAlignment = System.Windows.VerticalAlignment;
+using Orientation = System.Windows.Controls.Orientation;
+using FlowDirection = System.Windows.FlowDirection;
+using FontFamily = System.Windows.Media.FontFamily;
+using Brushes = System.Windows.Media.Brushes;
 
 namespace ClassBulletinApp;
 
@@ -32,7 +36,7 @@ public static class BackdropRenderer
     /// <param name="homework">作业公示内容（可为 null）。</param>
     /// <param name="b">桌面背面设置。</param>
     /// <param name="backgroundPath">系统原壁纸路径（可为空）。</param>
-    public static string RenderToPng(TodayResult? today, string title, string subtitle,
+    public static string RenderToPng(TodayResult? today, string title, string dateText, string weekText,
         HomeworkBoard? homework, BackdropSettings b, int width, int height,
         string? backgroundPath, string outPath)
     {
@@ -51,7 +55,10 @@ public static class BackdropRenderer
 
         if (b.ShowSchedule && today != null && today.Rows.Count > 0)
         {
-            var card = BuildScheduleCard(today, title, subtitle, scale, ScaleFont);
+            var sl = b.ScheduleLayout;
+            double ratio = sl == null ? 0.38 : Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, 0.18, 0.95);
+            double cardW = width * ratio;
+            var card = BuildScheduleCard(today, title, dateText, weekText, scale, ScaleFont, cardW);
             Place(canvas, card, b.ScheduleLayout, width, height, scale);
         }
 
@@ -137,28 +144,71 @@ public static class BackdropRenderer
     }
 
     // ---------- 课表卡片 ----------
-    private static Border BuildScheduleCard(TodayResult today, string title, string subtitle,
-        double scale, Func<double, double> ScaleFont)
+    private static Border BuildScheduleCard(TodayResult today, string title, string dateText, string weekText,
+        double scale, Func<double, double> ScaleFont, double cardWidth)
     {
         var stack = new StackPanel();
 
-        var head = new StackPanel { Margin = new Thickness(0, 0, 0, 14 * scale) };
+        var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16 * scale) };
+        string titleText = string.IsNullOrWhiteSpace(title) ? "当天课表" : title;
+
+        // 标题：按卡片实际宽度自适应字号（窄卡片自动缩小，宽卡片可更大），避免溢出或过小
+        double pad = 36 * scale;
+        double availW = Math.Max(80, cardWidth - 2 * pad);
+        var titleFamily = new FontFamily("Microsoft YaHei");
+        double titleSize = FitFontSize(titleText, availW, 42 * scale, 22 * scale, 56 * scale, titleFamily);
+
         head.Children.Add(new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(title) ? "当天课表" : title,
-            FontSize = ScaleFont(38),
+            Text = titleText,
+            FontSize = titleSize,
+            FontFamily = titleFamily,
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37)),
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.NoWrap,
+            TextTrimming = TextTrimming.CharacterEllipsis
         });
+
+        // 分隔线：标题与日期/周次之间留一道浅色横线，视觉分组更清爽
+        head.Children.Add(new Border
+        {
+            Height = 2 * scale,
+            Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xE3, 0xF1)),
+            Margin = new Thickness(0, 12 * scale, 0, 12 * scale)
+        });
+
+        // 日期（单独一行）
         head.Children.Add(new TextBlock
         {
-            Text = subtitle ?? "",
-            FontSize = ScaleFont(18),
-            Foreground = new SolidColorBrush(Color.FromRgb(0x60, 0x6B, 0x7A)),
-            Margin = new Thickness(0, 6 * scale, 0, 0),
+            Text = dateText ?? "",
+            FontSize = ScaleFont(20),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x4A, 0x55, 0x68)),
+            Margin = new Thickness(0, 0, 0, 6 * scale),
             TextWrapping = TextWrapping.Wrap
         });
+
+        // 第几周 · 星期几（单独一行，主题色 + 浅色胶囊底，醒目美观）
+        var weekWrap = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 0)
+        };
+        var weekPill = new Border
+        {
+            CornerRadius = new CornerRadius(8 * scale),
+            Background = new SolidColorBrush(Color.FromArgb(0x33, 0x2D, 0x6C, 0xDF)),
+            Padding = new Thickness(12 * scale, 4 * scale, 12 * scale, 4 * scale)
+        };
+        weekPill.Child = new TextBlock
+        {
+            Text = weekText ?? "",
+            FontSize = ScaleFont(19),
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA8))
+        };
+        weekWrap.Children.Add(weekPill);
+        head.Children.Add(weekWrap);
+
         stack.Children.Add(head);
 
         foreach (var row in today.Rows)
@@ -320,6 +370,35 @@ public static class BackdropRenderer
         },
         Child = content
     };
+
+    /// <summary>
+    /// 按可用宽度计算标题的合适字号：以 baseSize 测量文本宽度，按比例缩放到恰好放得下（留 4% 安全余量），
+    /// 并限制在 [minSize, maxSize] 之间。用于「标题文字大小自适应容器」。
+    /// 测量与渲染必须使用同一 FontFamily，否则实际宽度与测量不一致会导致折行 / 溢出。
+    /// </summary>
+    private static double FitFontSize(string text, double availWidth, double baseSize, double minSize, double maxSize, FontFamily fontFamily)
+    {
+        if (string.IsNullOrWhiteSpace(text) || availWidth <= 0) return baseSize;
+        try
+        {
+            var ft = new FormattedText(
+                text,
+                System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(fontFamily, FontStyles.Normal, FontWeights.Bold, FontStretches.Normal),
+                baseSize,
+                Brushes.Black,
+                1.0);
+            double measured = ft.Width;
+            if (measured <= 0) return baseSize;
+            double size = baseSize * (availWidth * 0.96) / measured;
+            return Math.Max(minSize, Math.Min(maxSize, size));
+        }
+        catch
+        {
+            return baseSize;
+        }
+    }
 
     /// <summary>九宫格锚点 → 水平/垂直对齐方式（兼容旧值 Right / Center 等）。</summary>
     private static void AnchorOf(string? anchor, out string hAlign, out string vAlign)

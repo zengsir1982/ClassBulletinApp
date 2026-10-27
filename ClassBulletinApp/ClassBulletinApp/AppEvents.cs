@@ -1,3 +1,5 @@
+using ScheduleCore.Models;
+
 namespace ClassBulletinApp;
 
 /// <summary>
@@ -8,8 +10,12 @@ public static class AppEvents
     /// <summary>课表 / 班级 / 调课发生变化。</summary>
     public static event Action? ScheduleChanged;
 
-    /// <summary>布局或外观设置发生变化（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
-    public static event Action? LayoutChanged;
+    /// <summary>
+    /// 布局或外观设置发生变化（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。
+    /// 参数为「内存中正在编辑、尚未落盘的布局」：传入对应布局对象可实现拖动滑块时实时预览；
+    /// 传 null 时各悬浮窗回落到从磁盘重新读取（如点击「保存并应用」后）。
+    /// </summary>
+    public static event Action<PanelLayout?, PanelLayout?>? LayoutChanged;
 
     /// <summary>通知 / 公告数据发生变化。</summary>
     public static event Action? NotificationChanged;
@@ -21,7 +27,8 @@ public static class AppEvents
     public static event Action<string, int>? ReminderDanmaku;
 
     public static void RaiseScheduleChanged() => ScheduleChanged?.Invoke();
-    public static void RaiseLayoutChanged() => LayoutChanged?.Invoke();
+    public static void RaiseLayoutChanged(PanelLayout? schedule = null, PanelLayout? notification = null)
+        => LayoutChanged?.Invoke(schedule, notification);
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
     public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
     public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);

@@ -181,9 +181,9 @@ public partial class ScheduleWindow : Window
         catch { }
     }
 
-    private void ApplyCurrentLayout()
+    private void ApplyCurrentLayout(PanelLayout? live = null)
     {
-        var l = Store.LoadSettings().ScheduleLayout;
+        var l = live ?? Store.LoadSettings().ScheduleLayout;
         _layout = l;
         // 「置顶显示」= 半透明常驻且可交互；只有在布局里显式勾选「鼠标穿透」时才穿透，
         // 且穿透时隐藏按钮、标题区、课表区仍保持可点击。
@@ -203,9 +203,9 @@ public partial class ScheduleWindow : Window
             : null;
     }
 
-    private void OnLayoutChanged()
+    private void OnLayoutChanged(PanelLayout? schedule, PanelLayout? notification)
     {
-        ApplyCurrentLayout();
+        ApplyCurrentLayout(schedule);
         Refresh();
     }
 
