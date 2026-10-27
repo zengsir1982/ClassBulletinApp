@@ -14,6 +14,7 @@
         LostMouseCapture="Window_LostMouseCapture">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:QlIconConverter x:Key="QlIcon"/>
     </Window.Resources>
     <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
             Margin="0" Padding="0">
@@ -25,7 +26,7 @@
             </Grid.RowDefinitions>
 
             <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期 -->
-            <Border Grid.Row="0" Background="#2D6CDF" CornerRadius="14,14,0,0" Padding="18,12">
+            <Border Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="18,12">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -68,7 +69,7 @@
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding PeriodText}" FontSize="20" FontWeight="Bold" Foreground="#2D6CDF"/>
+                                            <TextBlock Text="{Binding PeriodText}" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource PrimaryBrush}"/>
                                             <TextBlock Text="{Binding TimeRange}" FontSize="12" Foreground="#9CA3AF" Margin="0,4,0,0"/>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1">
@@ -102,21 +103,48 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock x:Name="TxtHint" Margin="0,12,0,0"
-                               Text="操作说明：按住课卡拖动可调课（拖到空节＝移动并清空原节，拖到有课的节＝互换）；右键或长按课卡可调课/代课；双击课卡中的教师姓名＝查看该教师的个人课表，双击标题姓名可换班或换教师、双击日期可换日（调休上课）"
-                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap"/>
-                    <TextBlock x:Name="TxtTeacherHint" Visibility="Collapsed"
-                               Text="教师个人课表（不可调课）：双击课卡中的班级名称＝查看该班级的课表；双击标题姓名可换其他教师或改看某个班，双击日期可换日（调休上课）"
-                               FontSize="12" Foreground="#9CA3AF" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                    <!-- 常用快捷：替换原操作说明，可自定义常用软件 / 文件夹，点击直达 -->
+                    <StackPanel x:Name="QuickLaunchSection" Margin="0,12,0,0">
+                        <DockPanel LastChildFill="False" Margin="0,0,0,6">
+                            <TextBlock Text="常用快捷" FontSize="13" FontWeight="Bold" Foreground="#6B7280" VerticalAlignment="Center"/>
+                            <Button x:Name="BtnAddFolder" DockPanel.Dock="Right" Content="＋ 文件夹" Click="BtnAddFolder_Click" Padding="8,2" FontSize="12"
+                                    Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                            <Button x:Name="BtnAddQl" DockPanel.Dock="Right" Content="＋ 程序" Click="BtnAddQl_Click" Padding="8,2" FontSize="12" Margin="0,0,4,0"
+                                    Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                        </DockPanel>
+                        <ItemsControl x:Name="QuickLaunchPanel">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="8" Margin="0,0,6,6">
+                                        <DockPanel LastChildFill="False">
+                                            <Button DockPanel.Dock="Left" Click="QlItem_Click" Tag="{Binding}" Background="Transparent"
+                                                    BorderThickness="0" Padding="6,3" ToolTip="{Binding Path}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Image Source="{Binding Path, Converter={StaticResource QlIcon}}" Width="16" Height="16" Margin="0,0,5,0"/>
+                                                    <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" MaxWidth="120" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button DockPanel.Dock="Right" Click="QlRemove_Click" Tag="{Binding}" Content="×" FontSize="13" Width="18" Height="18"
+                                                    Background="Transparent" BorderThickness="0" Foreground="#9CA3AF" ToolTip="移除"/>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="TxtQlEmpty" Text="点击「＋ 程序 / ＋ 文件夹」添加常用入口" FontSize="12" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                    </StackPanel>
                 </StackPanel>
             </ScrollViewer>
 
             <!-- 最下方：一键把当天课表设为桌面背景（画到桌面壁纸，不遮挡任何操作） -->
-            <Border Grid.Row="2" Background="#F7FAFF" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <Border Grid.Row="2" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,12,12" Padding="12,8">
                 <DockPanel LastChildFill="True">
                     <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
-                            Padding="10,4" FontSize="12" Background="#EAF1FD" BorderBrush="#9DBDF0"
+                            Padding="10,4" FontSize="12" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
                             ToolTip="把「当天课表」画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与作业公示一起显示"/>
                     <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="12"
                                Foreground="#6B7280" TextTrimming="CharacterEllipsis"

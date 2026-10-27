@@ -65,6 +65,12 @@ public class AppSettings
     /// <summary>桌面背面（当天课表 / 作业公示合成壁纸）设置。</summary>
     public BackdropSettings Backdrop { get; set; } = new();
 
+    /// <summary>界面主题配色方案名称（见 ThemeManager 预设）。</summary>
+    public string Theme { get; set; } = "ClassicBlue";
+
+    /// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口。</summary>
+    public System.Collections.Generic.List<QuickLaunchItem> QuickLaunchers { get; set; } = new();
+
     /// <summary>课表悬浮窗布局（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
     public PanelLayout ScheduleLayout { get; set; } = new()
     {
@@ -94,4 +100,17 @@ public class AppSettings
         FontSize = 28,
         MarqueeSpeed = 120
     };
+}
+
+/// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口项。</summary>
+public class QuickLaunchItem
+{
+    /// <summary>显示名称（留空则自动取文件 / 文件夹名）。</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>可执行文件(.exe/.bat/.lnk)或文件夹的完整路径。</summary>
+    public string Path { get; set; } = "";
+
+    /// <summary>true = 文件夹（用资源管理器打开）；false = 程序 / 文件（直接打开）。</summary>
+    public bool IsFolder { get; set; }
 }

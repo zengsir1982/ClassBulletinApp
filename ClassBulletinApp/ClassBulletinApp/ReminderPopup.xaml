@@ -5,7 +5,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowActivated="False" ShowInTaskbar="False" Topmost="True"
         ResizeMode="NoResize" IsHitTestVisible="False">
-    <Border Background="#2D6CDF" CornerRadius="16" Padding="20,14" Margin="10"
+    <Border Background="{DynamicResource PrimaryBrush}" CornerRadius="16" Padding="20,14" Margin="10"
             BorderBrush="#8FB4EE" BorderThickness="1">
         <Border.Effect>
             <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.35"/>

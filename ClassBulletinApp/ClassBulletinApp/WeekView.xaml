@@ -5,7 +5,7 @@
              x:Name="Root">
     <DockPanel LastChildFill="True">
         <!-- 顶部工具栏 -->
-        <Border DockPanel.Dock="Top" Background="#2D6CDF" Padding="12">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource PrimaryBrush}" Padding="12">
             <DockPanel LastChildFill="True">
                 <TextBlock Text="📅 周课程表（拖拽调课）" Foreground="White" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">

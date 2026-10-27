@@ -32,6 +32,9 @@ public partial class ScheduleWindow : Window
     private AutoHider? _hider;
     private readonly DispatcherTimer _timer;
 
+    // 常用快捷（悬浮课表下方自定义软件 / 文件夹入口）
+    private System.Collections.ObjectModel.ObservableCollection<QuickLaunchItem> _ql = new();
+
     // 长按（触摸/鼠标左键按住）弹出编辑
     private DispatcherTimer? _pressTimer;
     private PeriodRow? _pressRow;
@@ -63,6 +66,7 @@ public partial class ScheduleWindow : Window
         AppEvents.BackdropChanged += UpdateBackdropButton;
         Refresh();
         UpdateBackdropButton();
+        LoadQuickLaunchers();
         _timer.Start();
     }
 
@@ -92,6 +96,89 @@ public partial class ScheduleWindow : Window
         UpdateBackdropButton();
         AppEvents.RaiseBackdropChanged();
         TxtWpState.Text = msg;
+    }
+
+    // ---------- 常用快捷（悬浮课表下方自定义软件 / 文件夹入口） ----------
+    private void LoadQuickLaunchers()
+    {
+        _ql = new System.Collections.ObjectModel.ObservableCollection<QuickLaunchItem>(
+            Store.LoadSettings().QuickLaunchers ?? new System.Collections.Generic.List<QuickLaunchItem>());
+        QuickLaunchPanel.ItemsSource = _ql;
+        UpdateQlEmpty();
+    }
+
+    private void UpdateQlEmpty()
+    {
+        if (TxtQlEmpty != null)
+            TxtQlEmpty.Visibility = _ql.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void BtnAddQl_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "程序与快捷方式 (*.exe;*.lnk)|*.exe;*.lnk|所有文件 (*.*)|*.*",
+            Title = "选择要添加的软件"
+        };
+        if (dlg.ShowDialog() == true) AddLauncher(dlg.FileName, false);
+    }
+
+    private void BtnAddFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new System.Windows.Forms.FolderBrowserDialog { Description = "选择要添加的文件夹" };
+        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK) AddLauncher(dlg.SelectedPath, true);
+    }
+
+    private void AddLauncher(string path, bool isFolder)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var name = isFolder
+            ? System.IO.Path.GetFileName(path.TrimEnd('\\', '/'))
+            : System.IO.Path.GetFileNameWithoutExtension(path);
+        if (string.IsNullOrEmpty(name)) name = path;
+        _ql.Add(new QuickLaunchItem { Name = name, Path = path, IsFolder = isFolder });
+        SaveLaunchers();
+        UpdateQlEmpty();
+    }
+
+    private void QlItem_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is QuickLaunchItem item && !string.IsNullOrWhiteSpace(item.Path))
+        {
+            try
+            {
+                if (item.IsFolder)
+                    System.Diagnostics.Process.Start("explorer.exe", item.Path);
+                else
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(item.Path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show("无法打开：" + item.Path + "\n" + ex.Message,
+                    "常用快捷", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+    }
+
+    private void QlRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is QuickLaunchItem item)
+        {
+            _ql.Remove(item);
+            SaveLaunchers();
+            UpdateQlEmpty();
+        }
+    }
+
+    private void SaveLaunchers()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.QuickLaunchers = new System.Collections.Generic.List<QuickLaunchItem>(_ql);
+            Store.SaveSettings(s);
+        }
+        catch { }
     }
 
     private void ApplyCurrentLayout()
@@ -181,8 +268,7 @@ public partial class ScheduleWindow : Window
             rows.Add(r);
         }
 
-        TxtHint.Visibility = (!_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
-        TxtTeacherHint.Visibility = (_isTeacherMode && res.Rows.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+        UpdateQlEmpty();
     }
 
     /// <summary>确保有有效的显示对象；原选中项不存在时自动取第一个并回写设置。</summary>

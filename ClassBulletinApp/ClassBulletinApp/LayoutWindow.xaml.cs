@@ -1,5 +1,6 @@
 using System;
 using System.Windows;
+using System.Windows.Threading;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
@@ -9,13 +10,33 @@ public partial class LayoutWindow : Window
 {
     private readonly AppSettings _s;
 
+    /// <summary>打开时默认选中的标签页下标（0=课表悬浮窗，1=通知悬浮窗，2=桌面背景）。</summary>
+    public int InitialTabIndex { get; set; } = 0;
+
+    private bool _hwReady;
+    private DispatcherTimer? _wpSaveTimer;
+    private DispatcherTimer? _hwApplyTimer;
+
+    private static readonly string[] HwAnchors =
+    {
+        "TopLeft", "TopCenter", "TopRight",
+        "MiddleLeft", "MiddleCenter", "MiddleRight",
+        "BottomLeft", "BottomCenter", "BottomRight"
+    };
+
     public LayoutWindow()
     {
         InitializeComponent();
         _s = Store.LoadSettings();
         LoadValues();
         WireLabels();
+        ReloadBackdropUi();
+        _hwReady = true;
+        AppEvents.BackdropChanged += OnBackdropChanged;
+        MainTabs.SelectedIndex = Math.Clamp(InitialTabIndex, 0, MainTabs.Items.Count - 1);
     }
+
+    private void OnBackdropChanged() => ReloadBackdropUi();
 
     private void LoadValues()
     {
@@ -118,5 +139,201 @@ public partial class LayoutWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    // ---------- 桌面背景（当天课表 + 作业公示 合成壁纸） ----------
+    private void ReloadBackdropUi()
+    {
+        var b = _s.Backdrop ?? new BackdropSettings();
+        bool ready = _hwReady;
+        _hwReady = false;
+        try
+        {
+            ChkWpSchedule.IsChecked = b.ShowSchedule;
+            ChkWpHomework.IsChecked = b.ShowHomework;
+            ChkWpOrigin.IsChecked = b.UseOriginWallpaper;
+
+            var sl = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
+            FillAnchorCombo(CbWpSchAnchor, sl.Anchor, 3);
+            SlWpSchWidth.Value = Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, SlWpSchWidth.Minimum, SlWpSchWidth.Maximum);
+            SlWpSchX.Value = Math.Clamp(sl.OffsetX, SlWpSchX.Minimum, SlWpSchX.Maximum);
+            SlWpSchY.Value = Math.Clamp(sl.OffsetY, SlWpSchY.Minimum, SlWpSchY.Maximum);
+
+            ApplyHwLayoutToUi(b.HomeworkLayout ?? Store.LoadHomework()?.Layout);
+        }
+        finally { _hwReady = ready; }
+        UpdateWpLabels();
+    }
+
+    private static void FillAnchorCombo(System.Windows.Controls.ComboBox cb, string? anchor, int fallback)
+    {
+        int idx = Array.IndexOf(HwAnchors, (anchor ?? "").Trim());
+        if (idx < 0)
+        {
+            idx = (anchor ?? "").Trim() switch
+            {
+                "Left" => 3, "Right" => 5, "Top" => 1, "Bottom" => 7, "Center" => 4, _ => fallback
+            };
+        }
+        cb.SelectedIndex = Math.Clamp(idx, 0, HwAnchors.Length - 1);
+    }
+
+    private static string ComboAnchor(System.Windows.Controls.ComboBox cb, string fallback)
+        => cb.SelectedIndex >= 0 && cb.SelectedIndex < HwAnchors.Length ? HwAnchors[cb.SelectedIndex] : fallback;
+
+    private void ApplyHwLayoutToUi(HomeworkWallpaperLayout? lay)
+    {
+        bool ready = _hwReady;
+        _hwReady = false;
+        try
+        {
+            FillAnchorCombo(CbHwAnchor, lay?.Anchor, 5);
+            SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
+            SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
+            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
+            SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
+        }
+        finally { _hwReady = ready; }
+        UpdateHwLabels();
+    }
+
+    private HomeworkWallpaperLayout CurrentHwLayout() => new()
+    {
+        Anchor = ComboAnchor(CbHwAnchor, "MiddleRight"),
+        OffsetX = SlHwX.Value,
+        OffsetY = SlHwY.Value,
+        WidthRatio = SlHwWidth.Value
+    };
+
+    private HomeworkWallpaperLayout CurrentWpScheduleLayout() => new()
+    {
+        Anchor = ComboAnchor(CbWpSchAnchor, "MiddleLeft"),
+        OffsetX = SlWpSchX.Value,
+        OffsetY = SlWpSchY.Value,
+        WidthRatio = SlWpSchWidth.Value
+    };
+
+    private void HwLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        UpdateHwLabels();
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+    }
+
+    private void WpLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        UpdateWpLabels();
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+    }
+
+    private void WpSetting_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        SaveWpSettings();
+        ScheduleWpRepaint();
+        TxtWpStatus.Text = "桌面背景内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背景」即可生效。");
+    }
+
+    private void UpdateHwLabels()
+    {
+        if (SlHwX == null || SlHwY == null || SlHwWidth == null) return;
+        if (TxtHwX != null) TxtHwX.Text = $"{SlHwX.Value:0} 像素";
+        if (TxtHwY != null) TxtHwY.Text = $"{SlHwY.Value:0} 像素";
+        if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
+    }
+
+    private void UpdateWpLabels()
+    {
+        if (SlWpSchX == null || SlWpSchY == null || SlWpSchWidth == null) return;
+        if (TxtWpSchX != null) TxtWpSchX.Text = $"{SlWpSchX.Value:0} 像素";
+        if (TxtWpSchY != null) TxtWpSchY.Text = $"{SlWpSchY.Value:0} 像素";
+        if (TxtWpSchWidth != null) TxtWpSchWidth.Text = $"{SlWpSchWidth.Value:0%}";
+    }
+
+    private void ScheduleWpSave()
+    {
+        _wpSaveTimer?.Stop();
+        _wpSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _wpSaveTimer.Tick += (_, _) =>
+        {
+            _wpSaveTimer?.Stop();
+            SaveWpSettings();
+        };
+        _wpSaveTimer.Start();
+    }
+
+    private void SaveWpSettings()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
+            s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
+            s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
+            s.Backdrop.ScheduleLayout = CurrentWpScheduleLayout();
+            s.Backdrop.HomeworkLayout = CurrentHwLayout();
+            Store.SaveSettings(s);
+
+            // 作业内容文件里也写一份布局，保证老入口 / 其他窗口读到的位置一致
+            var board = Store.LoadHomework();
+            if (board != null)
+            {
+                board.Layout = s.Backdrop.HomeworkLayout;
+                Store.SaveHomework(board);
+            }
+        }
+        catch { }
+    }
+
+    private void ScheduleWpRepaint()
+    {
+        if (!BackdropService.IsApplied()) return;
+
+        _hwApplyTimer?.Stop();
+        _hwApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _hwApplyTimer.Tick += (_, _) =>
+        {
+            _hwApplyTimer?.Stop();
+            BackdropService.Apply(silent: true);
+        };
+        _hwApplyTimer.Start();
+    }
+
+    private void BtnApplyWp_Click(object sender, RoutedEventArgs e)
+    {
+        SaveWpSettings();
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true)
+        {
+            TxtWpStatus.Text = "请至少勾选「当天课表」或「作业公示」其中一项。";
+            return;
+        }
+        BackdropService.Apply(silent: false, out string msg);
+        TxtWpStatus.Text = msg;
+        AppEvents.RaiseBackdropChanged();
+    }
+
+    private void BtnClearWp_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowSchedule = false;
+            s.Backdrop.ShowHomework = false;
+            Store.SaveSettings(s);
+
+            BackdropService.Clear();
+            ReloadBackdropUi();
+            AppEvents.RaiseBackdropChanged();
+            TxtWpStatus.Text = "已清除桌面背景，恢复系统原壁纸。";
+        }
+        catch (Exception ex)
+        {
+            TxtWpStatus.Text = "清除桌面背景失败：" + ex.Message;
+        }
     }
 }

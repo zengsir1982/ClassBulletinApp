@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using ScheduleCore.Services;
 
 namespace ClassBulletinApp;
 
@@ -34,6 +35,10 @@ public partial class App : System.Windows.Application
         }
 
         base.OnStartup(e);
+
+        // 应用用户选择的主题配色（标题栏 / 按钮 / 强调色）
+        try { ThemeManager.Apply(Store.LoadSettings().Theme); }
+        catch { }
 
         // 启动主控制面板（原来的 StartupUri 改为手动创建，便于支持上面的诊断模式）
         try

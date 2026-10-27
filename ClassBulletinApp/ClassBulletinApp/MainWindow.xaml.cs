@@ -32,12 +32,7 @@ public partial class MainWindow : Window
     // 桌面最大化窗口自动隐藏
     private readonly DispatcherTimer _winTimer;
     private bool _maxActive;
-    private DispatcherTimer? _hwApplyTimer;
-    private DispatcherTimer? _wpSaveTimer;
     private System.Windows.Forms.ToolStripMenuItem? _miWp;
-
-    /// <summary>界面控件是否已就绪。为 false 时忽略作业公示参数变更事件（避免 XAML 加载期空引用）。</summary>
-    private bool _hwReady;
 
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
@@ -61,7 +56,6 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        _hwReady = true;   // 控件已就绪，此后才响应作业公示参数变更
         var settings = Store.LoadSettings();
         try
         {
@@ -83,7 +77,7 @@ public partial class MainWindow : Window
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
             ReloadHomework();
-            ReloadBackdropUi();
+            PopulateThemeCombo(settings.Theme);
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -387,6 +381,61 @@ public partial class MainWindow : Window
         w.ShowDialog();
     }
 
+    // ---------- 界面主题（配色方案） ----------
+    private void PopulateThemeCombo(string currentTheme)
+    {
+        if (CbTheme == null) return;
+        CbTheme.ItemsSource = ThemeManager.Themes
+            .Select(t => new { Key = t.Key, Name = t.Name })
+            .ToList();
+        CbTheme.DisplayMemberPath = "Name";
+        CbTheme.SelectedValuePath = "Key";
+        CbTheme.SelectedValue = ThemeManager.Themes.Any(t => t.Key == currentTheme)
+            ? currentTheme
+            : "ClassicBlue";
+    }
+
+    private void CbTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CbTheme?.SelectedValue is not string key || string.IsNullOrEmpty(key)) return;
+        try
+        {
+            ThemeManager.Apply(key);
+            var s = Store.LoadSettings();
+            s.Theme = key;
+            Store.SaveSettings(s);
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换主题失败：" + ex.Message;
+        }
+    }
+
+    private void BtnThemeReset_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            ThemeManager.Apply("ClassicBlue");
+            var s = Store.LoadSettings();
+            s.Theme = "ClassicBlue";
+            Store.SaveSettings(s);
+            if (CbTheme != null) CbTheme.SelectedValue = "ClassicBlue";
+            TxtStatus.Text = "已恢复默认配色（经典蓝）。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "恢复默认主题失败：" + ex.Message;
+        }
+    }
+
+    // ---------- 作业公示 → 桌面背景位置调整 ----------
+    private void BtnWpSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // 直接打开「布局设置」对话框并定位到「桌面背景」标签页
+        var w = new LayoutWindow { Owner = this, InitialTabIndex = 2 };
+        w.ShowDialog();
+    }
+
     // ---------- 托盘 ----------
     private void SetupTray()
     {
@@ -438,7 +487,6 @@ public partial class MainWindow : Window
         {
             BackdropService.ToggleSchedule(out string msg);
             TxtStatus.Text = msg;
-            ReloadBackdropUi();
             UpdateTrayBackdropText();
             AppEvents.RaiseBackdropChanged();
         }
@@ -930,80 +978,6 @@ public partial class MainWindow : Window
             HomeworkItems.Add(new HomeworkItem());
     }
 
-    // ---------- 桌面背面（当天课表 + 作业公示 合成壁纸） ----------
-    /// <summary>把设置中的桌面背面参数同步到「桌面背面」标签页控件。</summary>
-    private void ReloadBackdropUi()
-    {
-        var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
-        bool ready = _hwReady;
-        _hwReady = false;
-        try
-        {
-            ChkWpSchedule.IsChecked = b.ShowSchedule;
-            ChkWpHomework.IsChecked = b.ShowHomework;
-            ChkWpOrigin.IsChecked = b.UseOriginWallpaper;
-
-            var sl = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
-            FillAnchorCombo(CbWpSchAnchor, sl.Anchor, 3);
-            SlWpSchWidth.Value = Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, SlWpSchWidth.Minimum, SlWpSchWidth.Maximum);
-            SlWpSchX.Value = Math.Clamp(sl.OffsetX, SlWpSchX.Minimum, SlWpSchX.Maximum);
-            SlWpSchY.Value = Math.Clamp(sl.OffsetY, SlWpSchY.Minimum, SlWpSchY.Maximum);
-
-            ApplyHwLayoutToUi(b.HomeworkLayout ?? Store.LoadHomework()?.Layout);
-        }
-        finally { _hwReady = ready; }
-        UpdateWpLabels();
-    }
-
-    private static void FillAnchorCombo(System.Windows.Controls.ComboBox cb, string? anchor, int fallback)
-    {
-        int idx = Array.IndexOf(HwAnchors, (anchor ?? "").Trim());
-        // 兼容旧值
-        if (idx < 0)
-        {
-            idx = (anchor ?? "").Trim() switch
-            {
-                "Left" => 3, "Right" => 5, "Top" => 1, "Bottom" => 7, "Center" => 4, _ => fallback
-            };
-        }
-        cb.SelectedIndex = Math.Clamp(idx, 0, HwAnchors.Length - 1);
-    }
-
-    private static string ComboAnchor(System.Windows.Controls.ComboBox cb, string fallback)
-        => cb.SelectedIndex >= 0 && cb.SelectedIndex < HwAnchors.Length ? HwAnchors[cb.SelectedIndex] : fallback;
-
-    private void ApplyHwLayoutToUi(HomeworkWallpaperLayout? lay)
-    {
-        bool ready = _hwReady;
-        _hwReady = false;
-        try
-        {
-            FillAnchorCombo(CbHwAnchor, lay?.Anchor, 5);
-            SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
-            SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
-            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
-            SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
-        }
-        finally { _hwReady = ready; }
-        UpdateHwLabels();
-    }
-
-    private HomeworkWallpaperLayout CurrentHwLayout() => new()
-    {
-        Anchor = ComboAnchor(CbHwAnchor, "MiddleRight"),
-        OffsetX = SlHwX.Value,
-        OffsetY = SlHwY.Value,
-        WidthRatio = SlHwWidth.Value
-    };
-
-    private HomeworkWallpaperLayout CurrentWpScheduleLayout() => new()
-    {
-        Anchor = ComboAnchor(CbWpSchAnchor, "MiddleLeft"),
-        OffsetX = SlWpSchX.Value,
-        OffsetY = SlWpSchY.Value,
-        WidthRatio = SlWpSchWidth.Value
-    };
-
     private HomeworkBoard BuildHomeworkBoard() => new()
     {
         Title = (TxtHwTitle.Text ?? "").Trim(),
@@ -1012,139 +986,8 @@ public partial class MainWindow : Window
             .Select(x => new HomeworkItem { Subject = (x.Subject ?? "").Trim(), Content = (x.Content ?? "").Trim() })
             .ToList(),
         UpdatedAt = DateTime.Now,
-        Layout = CurrentHwLayout()
+        Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()
     };
-
-    private void HwLayout_Changed(object sender, RoutedEventArgs e)
-    {
-        // XAML 加载期间（ComboBox 的 SelectedIndex、Slider 因 Minimum 而 coerce 初值）就会触发本事件，
-        // 此时 SlHwX / TxtHwX 等字段尚未赋值，必须等 Loaded 之后再响应。
-        if (!_hwReady) return;
-        UpdateHwLabels();
-        ScheduleWpSave();
-        ScheduleWpRepaint();
-    }
-
-    private void WpLayout_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_hwReady) return;
-        UpdateWpLabels();
-        ScheduleWpSave();
-        ScheduleWpRepaint();
-    }
-
-    private void WpSetting_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_hwReady) return;
-        SaveWpSettings();
-        ScheduleWpRepaint();
-        TxtStatus.Text = "桌面背景内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背景」即可生效。");
-    }
-
-    private void UpdateHwLabels()
-    {
-        if (SlHwX == null || SlHwY == null || SlHwWidth == null) return;
-        if (TxtHwX != null) TxtHwX.Text = $"{SlHwX.Value:0} 像素";
-        if (TxtHwY != null) TxtHwY.Text = $"{SlHwY.Value:0} 像素";
-        if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
-    }
-
-    private void UpdateWpLabels()
-    {
-        if (SlWpSchX == null || SlWpSchY == null || SlWpSchWidth == null) return;
-        if (TxtWpSchX != null) TxtWpSchX.Text = $"{SlWpSchX.Value:0} 像素";
-        if (TxtWpSchY != null) TxtWpSchY.Text = $"{SlWpSchY.Value:0} 像素";
-        if (TxtWpSchWidth != null) TxtWpSchWidth.Text = $"{SlWpSchWidth.Value:0%}";
-    }
-
-    /// <summary>把桌面背面参数写入设置（拖动滑块时防抖 400ms，避免频繁写文件）。</summary>
-    private void ScheduleWpSave()
-    {
-        _wpSaveTimer?.Stop();
-        _wpSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        _wpSaveTimer.Tick += (_, _) =>
-        {
-            _wpSaveTimer?.Stop();
-            SaveWpSettings();
-        };
-        _wpSaveTimer.Start();
-    }
-
-    private void SaveWpSettings()
-    {
-        try
-        {
-            var s = Store.LoadSettings();
-            s.Backdrop ??= new BackdropSettings();
-            s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
-            s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
-            s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
-            s.Backdrop.ScheduleLayout = CurrentWpScheduleLayout();
-            s.Backdrop.HomeworkLayout = CurrentHwLayout();
-            Store.SaveSettings(s);
-
-            // 作业内容文件里也写一份布局，保证老入口 / 其他窗口读到的位置一致
-            var board = Store.LoadHomework();
-            if (board != null)
-            {
-                board.Layout = s.Backdrop.HomeworkLayout;
-                Store.SaveHomework(board);
-            }
-        }
-        catch { }
-    }
-
-    /// <summary>已经应用到桌面时，调整参数后自动重绘（防抖 0.6 秒），方便直观调整位置。</summary>
-    private void ScheduleWpRepaint()
-    {
-        if (!BackdropService.IsApplied()) return;
-
-        _hwApplyTimer?.Stop();
-        _hwApplyTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-        _hwApplyTimer.Tick += (_, _) =>
-        {
-            _hwApplyTimer?.Stop();
-            BackdropService.Apply(silent: true);
-        };
-        _hwApplyTimer.Start();
-    }
-
-    private void BtnApplyWp_Click(object sender, RoutedEventArgs e)
-    {
-        SaveWpSettings();
-        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true)
-        {
-            TxtStatus.Text = "请至少勾选「当天课表」或「作业公示」其中一项。";
-            return;
-        }
-        BackdropService.Apply(silent: false, out string msg);
-        TxtStatus.Text = msg;
-        UpdateTrayBackdropText();
-        AppEvents.RaiseBackdropChanged();
-    }
-
-    private void BtnClearWp_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            // 先落盘关闭开关，再恢复壁纸：避免「清除了壁纸但开关还亮着」的不一致
-            var s = Store.LoadSettings();
-            s.Backdrop ??= new BackdropSettings();
-            s.Backdrop.ShowSchedule = false;
-            s.Backdrop.ShowHomework = false;
-            Store.SaveSettings(s);
-
-            BackdropService.Clear();
-            ReloadBackdropUi();
-            UpdateTrayBackdropText();
-            AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "已清除桌面背景，恢复系统原壁纸。";
-        }
-        catch (Exception ex)
-        {
-            TxtStatus.Text = "清除桌面背景失败：" + ex.Message;
-        }
-    }
 
     private void ApplyHomeworkWallpaper(bool silent)
     {
@@ -1191,7 +1034,25 @@ public partial class MainWindow : Window
 
     private void BtnSaveHw_Click(object sender, RoutedEventArgs e) => ApplyHomeworkWallpaper(silent: false);
 
-    private void BtnClearHw_Click(object sender, RoutedEventArgs e) => BtnClearWp_Click(sender, e);
+    private void BtnClearHw_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new BackdropSettings();
+            s.Backdrop.ShowHomework = false;       // 仅关闭作业公示，不影响当天课表
+            Store.SaveSettings(s);
+
+            // 仍显示当天课表则重绘，否则两者皆关时自动恢复原壁纸
+            BackdropService.Apply(silent: true, out string msg);
+            TxtStatus.Text = "已清除作业公示壁纸" + (s.Backdrop.ShowSchedule ? "（当天课表仍保留在桌面背景）" : "，桌面壁纸已恢复。");
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "清除作业公示失败：" + ex.Message;
+        }
+    }
 
     // ---------- 快捷键 ----------
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
