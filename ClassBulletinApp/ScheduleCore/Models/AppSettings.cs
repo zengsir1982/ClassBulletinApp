@@ -36,6 +36,9 @@ public class AppSettings
     /// <summary>启动后是否自动弹出通知悬浮窗。</summary>
     public bool AutoShowNotification { get; set; } = true;
 
+    /// <summary>启动后是否自动弹出作业公示悬浮窗。</summary>
+    public bool AutoShowHomework { get; set; } = true;
+
     /// <summary>启动后是否自动弹出教师个人课表悬浮窗。</summary>
     public bool AutoShowTeacher { get; set; }
 

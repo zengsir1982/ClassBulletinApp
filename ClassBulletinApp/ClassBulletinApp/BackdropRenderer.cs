@@ -342,6 +342,42 @@ public static class BackdropRenderer
             }
         }
 
+        // 缺交作业名单：醒目红色区块，便于一眼看到谁还没交
+        if (board.Missing != null && board.Missing.Any(m => !string.IsNullOrWhiteSpace(m.Students)))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "缺交作业名单",
+                FontSize = ScaleFont(26),
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B)),
+                Margin = new Thickness(0, 16 * scale, 0, 8 * scale)
+            });
+            foreach (var m in board.Missing)
+            {
+                if (string.IsNullOrWhiteSpace(m.Students)) continue;
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8 * scale) };
+                string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
+                row.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    FontSize = ScaleFont(18),
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x8E, 0x2B, 0x20)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = m.Students,
+                    FontSize = ScaleFont(18),
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x33, 0x3B, 0x47)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2 * scale, 0, 0)
+                });
+                stack.Children.Add(row);
+            }
+        }
+
         stack.Children.Add(new TextBlock
         {
             Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),

@@ -82,6 +82,7 @@
                             <WrapPanel Orientation="Horizontal">
                                 <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                                 <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                <Button x:Name="BtnToggleHw" Content="作业悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleHw_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                                 <Button x:Name="BtnLayout" Content="布局设置" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"/>
                                 <Button x:Name="BtnFull" Content="全屏" Style="{StaticResource TabBtn}" Click="BtnFull_Click"/>
                                 <Button x:Name="BtnLock" Content="锁定" Style="{StaticResource TabBtn}" Click="BtnLock_Click"/>
@@ -282,7 +283,7 @@
                     <ScrollViewer Margin="14">
                         <StackPanel MaxWidth="780">
                             <TextBlock Text="📚 各科作业公示栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="编辑各科作业后点「保存并应用到桌面背景」：壁纸会显示作业公示（可与「当天课表」同屏），始终显示于桌面背景、不遮挡也不影响电脑操作；「清除」可恢复原壁纸。其显示位置 / 宽度在「布局设置 → 桌面背景」调整（点下方按钮可直接进入）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                            <TextBlock Text="更快捷的方式：系统会自动弹出「作业公示」悬浮窗，可随时点击直接增删改各科作业与缺交名单，并带「桌面背景」开关一键投射到桌面壁纸（位于所有窗口之下、不遮挡操作）。此页作为备用编辑入口同样可用，二者数据互通。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                 <TextBlock Text="总标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBox x:Name="TxtHwTitle" FontSize="14" Padding="8" Width="320" Background="White" BorderBrush="#D1D5DB"/>

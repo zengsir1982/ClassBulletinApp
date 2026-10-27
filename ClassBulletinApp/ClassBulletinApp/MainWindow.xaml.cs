@@ -20,7 +20,8 @@ public partial class MainWindow : Window
 
     private ScheduleWindow? _schWin;
     private NotificationWindow? _notifWin;
-    private bool _schOn, _notOn;
+    private HomeworkWindow? _hwWin;
+    private bool _schOn, _notOn, _hwOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
     // 教师个人课表下拉（支持输入姓名查询）
@@ -33,6 +34,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _winTimer;
     private bool _maxActive;
     private System.Windows.Forms.ToolStripMenuItem? _miWp;
+    private System.Windows.Forms.ToolStripMenuItem? _miWpHw;
 
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
@@ -100,6 +102,7 @@ public partial class MainWindow : Window
         {
             BackdropService.Start();
             AppEvents.BackdropChanged += UpdateTrayBackdropText;
+            AppEvents.HomeworkChanged += ReloadHomework;
         }
         catch { }
 
@@ -112,6 +115,7 @@ public partial class MainWindow : Window
         {
             if (settings.AutoShowSchedule) ShowScheduleWin();
             if (settings.AutoShowNotification) ShowNotificationWin();
+            if (settings.AutoShowHomework) ShowHomeworkWin();
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
@@ -164,10 +168,30 @@ public partial class MainWindow : Window
         UpdateToggleLabels();
     }
 
+    private void ShowHomeworkWin()
+    {
+        if (_hwWin == null)
+        {
+            _hwWin = new HomeworkWindow();
+            _hwWin.Closed += (_, _) => { _hwWin = null; _hwOn = false; UpdateToggleLabels(); };
+        }
+        _hwWin.Show();
+        _hwOn = true;
+        UpdateToggleLabels();
+    }
+
+    private void HideHomeworkWin()
+    {
+        _hwWin?.Hide();
+        _hwOn = false;
+        UpdateToggleLabels();
+    }
+
     private void UpdateToggleLabels()
     {
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
+        if (BtnToggleHw != null) BtnToggleHw.Content = _hwOn ? "作业悬浮：开" : "作业悬浮：关";
         UpdateModeIndicator();
     }
 
@@ -420,6 +444,11 @@ public partial class MainWindow : Window
         if (_notOn) HideNotificationWin(); else ShowNotificationWin();
     }
 
+    private void BtnToggleHw_Click(object sender, RoutedEventArgs e)
+    {
+        if (_hwOn) HideHomeworkWin(); else ShowHomeworkWin();
+    }
+
     private void BtnLayout_Click(object sender, RoutedEventArgs e)
     {
         var w = new LayoutWindow { Owner = this };
@@ -494,13 +523,15 @@ public partial class MainWindow : Window
         var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
+        var miHw = new System.Windows.Forms.ToolStripMenuItem("作业悬浮：开/关", null, (_, _) => BtnToggleHw_Click(this, new RoutedEventArgs()));
         _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背景", null, (_, _) => ToggleBackdropSchedule());
+        _miWpHw = new System.Windows.Forms.ToolStripMenuItem("作业公示 → 桌面背景", null, (_, _) => ToggleBackdropHomework());
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
         menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
         {
-            miPanel, miSch, miNot,
+            miPanel, miSch, miNot, miHw,
             new System.Windows.Forms.ToolStripSeparator(),
-            _miWp,
+            _miWp, _miWpHw,
             new System.Windows.Forms.ToolStripSeparator(),
             miExit
         });
@@ -510,20 +541,45 @@ public partial class MainWindow : Window
         UpdateTrayBackdropText();
     }
 
-    /// <summary>同步托盘菜单中「当天课表 → 桌面背景」的勾选状态。</summary>
+    /// <summary>同步托盘菜单中「当天课表 / 作业公示 → 桌面背景」的勾选状态。</summary>
     private void UpdateTrayBackdropText()
     {
         try
         {
-            if (_miWp == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
-            _miWp.Checked = b.ShowSchedule;
-            _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背景（开）" : "当天课表 → 桌面背景（关）";
-            _miWp.ToolTipText = b.ShowSchedule
-                ? "点击关闭：从桌面背景移除当天课表"
-                : "点击开启：把当天课表画到桌面壁纸上（位于所有窗口之下）";
+            if (_miWp != null)
+            {
+                _miWp.Checked = b.ShowSchedule;
+                _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背景（开）" : "当天课表 → 桌面背景（关）";
+                _miWp.ToolTipText = b.ShowSchedule
+                    ? "点击关闭：从桌面背景移除当天课表"
+                    : "点击开启：把当天课表画到桌面壁纸上（位于所有窗口之下）";
+            }
+            if (_miWpHw != null)
+            {
+                _miWpHw.Checked = b.ShowHomework;
+                _miWpHw.Text = b.ShowHomework ? "作业公示 → 桌面背景（开）" : "作业公示 → 桌面背景（关）";
+                _miWpHw.ToolTipText = b.ShowHomework
+                    ? "点击关闭：从桌面背景移除作业公示"
+                    : "点击开启：把作业公示（含缺交名单）画到桌面壁纸上";
+            }
         }
         catch { }
+    }
+
+    private void ToggleBackdropHomework()
+    {
+        try
+        {
+            BackdropService.ToggleHomework(out string msg);
+            TxtStatus.Text = msg;
+            UpdateTrayBackdropText();
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换桌面背景失败：" + ex.Message;
+        }
     }
 
     private void ToggleBackdropSchedule()
@@ -1093,6 +1149,7 @@ public partial class MainWindow : Window
             if (!silent)
                 TxtStatus.Text = ok ? $"{msg}（共 {board.Items.Count} 科作业）" : msg;
             UpdateTrayBackdropText();
+            AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
@@ -1133,6 +1190,7 @@ public partial class MainWindow : Window
             // 仍显示当天课表则重绘，否则两者皆关时自动恢复原壁纸
             BackdropService.Apply(silent: true, out string msg);
             TxtStatus.Text = "已清除作业公示壁纸" + (s.Backdrop.ShowSchedule ? "（当天课表仍保留在桌面背景）" : "，桌面壁纸已恢复。");
+            AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)

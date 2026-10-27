@@ -179,6 +179,28 @@ public static class BackdropService
     }
 
     /// <summary>
+    /// 悬浮课表底部 / 托盘菜单：一键开关「作业公示显示在桌面背景」。
+    /// 翻转 Backdrop.ShowHomework 并按当前设置重绘（含缺交名单）。
+    /// </summary>
+    public static bool ToggleHomework(out string message)
+    {
+        var s = Store.LoadSettings();
+        s.Backdrop ??= new BackdropSettings();
+        bool turnOn = !s.Backdrop.ShowHomework;
+        s.Backdrop.ShowHomework = turnOn;
+        // 只切换「作业公示」这一项：当天课表是否一起显示由「显示设置」里的桌面背景区块独立控制
+        Store.SaveSettings(s);
+
+        bool ok = Apply(silent: false, out message);
+        if (!ok && turnOn)
+        {
+            s.Backdrop.ShowHomework = !turnOn;
+            Store.SaveSettings(s);
+        }
+        return ok;
+    }
+
+    /// <summary>
     /// 预览 / 诊断：按当前设置渲染一张桌面背景图到指定路径（不修改系统壁纸）。
     /// 用于「应用前先看效果」，也便于自动化测试。
     /// </summary>
@@ -272,6 +294,7 @@ public static class BackdropService
                 {
                     sb.Append('|').Append(board.Title).Append(board.UpdatedAt.Ticks);
                     foreach (var it in board.Items) sb.Append('#').Append(it.Subject).Append(',').Append(it.Content);
+                    foreach (var m in board.Missing) sb.Append('@').Append(m.Subject).Append(',').Append(m.Students);
                 }
                 var hwLay = b.HomeworkLayout ?? board?.Layout;
                 sb.Append("|H").Append(hwLay?.Anchor).Append(hwLay?.OffsetX)

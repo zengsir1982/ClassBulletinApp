@@ -1,0 +1,110 @@
+<Window x:Class="ClassBulletinApp.HomeworkWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="作业公示" WindowStyle="None" ResizeMode="NoResize"
+        ShowInTaskbar="False" AllowsTransparency="True" Background="Transparent"
+        Width="440" Height="720" Loaded="Window_Loaded"
+        PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
+        PreviewMouseMove="Window_PreviewMouseMove"
+        PreviewMouseLeftButtonUp="Window_PreviewMouseLeftButtonUp">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+    <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1" Padding="0">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 头部：总标题（可直接点击修改）/ 隐藏 -->
+            <Border Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="TxtTitle" Grid.Column="0" Text="各科作业公示" FontSize="22" FontWeight="Bold"
+                             Foreground="White" Background="Transparent" BorderThickness="0"
+                             VerticalAlignment="Center" TextChanged="Editable_TextChanged"
+                             ToolTip="点击可直接修改公示总标题"/>
+                    <Button x:Name="BtnHide" Grid.Column="1" Content="隐藏" Click="BtnHide_Click"
+                            VerticalAlignment="Top" Padding="8,3" FontSize="12"
+                            Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                            ToolTip="隐藏本窗口（可在控制面板或托盘重新打开）"/>
+                </Grid>
+            </Border>
+
+            <!-- 编辑区 -->
+            <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <!-- 各科作业 -->
+                    <DockPanel LastChildFill="False" Margin="0,0,0,8">
+                        <TextBlock Text="各科作业" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
+                        <Button x:Name="BtnAddHw" DockPanel.Dock="Right" Content="＋ 添加科目" Click="BtnAddHw_Click" Padding="10,4" FontSize="13"
+                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                    </DockPanel>
+                    <ItemsControl x:Name="HwItems">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="14" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" TextChanged="Editable_TextChanged" ToolTip="科目"/>
+                                        <TextBox Grid.Column="1" Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="14" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="48" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="Editable_TextChanged" ToolTip="作业内容"/>
+                                        <Button Grid.Column="2" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelHw_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="TxtHwEmpty" Text="点击「＋ 添加科目」登记各科作业" FontSize="12" Foreground="#9CA3AF" Margin="0,0,0,12"/>
+
+                    <!-- 缺交作业名单 -->
+                    <DockPanel LastChildFill="False" Margin="0,4,0,8">
+                        <TextBlock Text="缺交作业名单" FontSize="16" FontWeight="Bold" Foreground="#C0392B" VerticalAlignment="Center"/>
+                        <Button x:Name="BtnAddMiss" DockPanel.Dock="Right" Content="＋ 添加记录" Click="BtnAddMiss_Click" Padding="10,4" FontSize="13"
+                                Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                    </DockPanel>
+                    <ItemsControl x:Name="MissItems">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <DockPanel Grid.Row="0" LastChildFill="True">
+                                            <Button DockPanel.Dock="Right" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelMiss_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                                            <TextBox Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="13" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" TextChanged="Editable_TextChanged" ToolTip="科目（留空表示通用）"/>
+                                        </DockPanel>
+                                        <TextBox Grid.Row="1" Text="{Binding Students, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="13" Padding="6" Margin="0,6,0,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="56" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="Editable_TextChanged" ToolTip="缺交学生姓名：每行一个或用逗号 / 顿号分隔"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="TxtMissEmpty" Text="点击「＋ 添加记录」登记缺交名单（科目可留空表示通用）" FontSize="12" Foreground="#9CA3AF"/>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- 底部：桌面背景开关（右下角，与悬浮课表一致） -->
+            <Border Grid.Row="2" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" CornerRadius="0,0,12,12" Padding="12,8">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click" Padding="10,4" FontSize="12"
+                            Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            ToolTip="把「作业公示」（含缺交名单）画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与当天课表同屏"/>
+                    <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="12"
+                               Foreground="#6B7280" TextTrimming="CharacterEllipsis"
+                               Text="点右侧可把作业公示画到桌面壁纸"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
