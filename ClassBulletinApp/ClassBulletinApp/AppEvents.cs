@@ -17,8 +17,12 @@ public static class AppEvents
     /// <summary>「桌面背面」（当天课表 / 作业公示壁纸）开关或内容发生变化。</summary>
     public static event Action? BackdropChanged;
 
+    /// <summary>提醒弹幕：把一段文案临时推送到通知条滚动显示（text, 显示秒数）。</summary>
+    public static event Action<string, int>? ReminderDanmaku;
+
     public static void RaiseScheduleChanged() => ScheduleChanged?.Invoke();
     public static void RaiseLayoutChanged() => LayoutChanged?.Invoke();
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
     public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
+    public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);
 }

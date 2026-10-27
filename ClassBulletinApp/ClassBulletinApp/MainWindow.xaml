@@ -65,6 +65,7 @@
                             <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportSingle_Click"/>
                             <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportTeacher_Click"/>
                             <Button x:Name="BtnClearOverrides" Content="清除全部临时调课 / 代课" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
+                            <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearImported_Click"/>
                             <TextBlock Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <TextBlock Text="若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <TextBlock Text="导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
@@ -112,61 +113,129 @@
                 <!-- 提醒设置（独立标签页） -->
                 <TabItem Header="提醒设置">
                     <ScrollViewer Margin="14">
-                        <StackPanel MaxWidth="720">
+                        <StackPanel MaxWidth="780">
                             <TextBlock Text="⏰ 上下课提醒" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="依据当前显示的班级 / 教师课表（含临时课表调 / 代安排）到点提醒；调休日按「显示日」的课表提醒。同一提醒每天只弹一次。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <TextBlock Text="依据当前显示的班级 / 教师课表（含临时课表调 / 代安排）到点提醒；调休日按「显示日」的课表提醒。同一提醒每天只弹一次。上课 / 下课 / 放学各自独立设置，文案与语音均可自定义。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
-                            <CheckBox x:Name="ChkRemindEnabled" Content="启用上下课提醒（课前 / 上课 / 下课 / 放学自动弹窗提示）"
-                                      FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,14" Click="RemindSetting_Changed"/>
+                            <CheckBox x:Name="ChkRemindEnabled" Content="启用上下课提醒（总开关）"
+                                      FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12" Click="RemindSetting_Changed"/>
 
-                            <TextBlock Text="提醒时间" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,8"/>
-                            <StackPanel Orientation="Horizontal" Margin="12,0,0,6">
-                                <TextBlock Text="上课前提前" FontSize="14" VerticalAlignment="Center"/>
-                                <TextBox x:Name="TxtRemindBeforeClass" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center"
-                                         TextChanged="RemindSetting_TextChanged"
-                                         ToolTip="提前几分钟提醒即将上课；0 = 不做课前提醒"/>
-                                <TextBlock Text="分钟提醒" FontSize="14" VerticalAlignment="Center" Margin="0,0,26,0"/>
-                                <TextBlock Text="下课前提前" FontSize="14" VerticalAlignment="Center"/>
-                                <TextBox x:Name="TxtRemindBeforeEnd" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center"
-                                         TextChanged="RemindSetting_TextChanged"
-                                         ToolTip="提前几分钟提醒即将下课；0 = 下课时提示课间休息"/>
-                                <TextBlock Text="分钟提醒（0 = 下课时提示）" FontSize="14" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="12,4,0,6">
+                            <TextBlock Text="文案占位符：{p}=节次　{s}=科目　{t}=时间(HH:mm)。可在下列框中自由改写。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                            <!-- 上课提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkCsOn" Content="上课提醒（课前 / 上课）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtCsLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在上课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 下课提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkCeOn" Content="下课提醒（下课前 / 下课）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtCeLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在下课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 放学提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkAsOn" Content="放学提醒（当天最后一节结束后）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtAsLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在下课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                 <TextBlock Text="弹窗显示" FontSize="14" VerticalAlignment="Center"/>
-                                <TextBox x:Name="TxtRemindSeconds" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center"
-                                         TextChanged="RemindSetting_TextChanged"
-                                         ToolTip="提醒窗口停留几秒后自动消失"/>
-                                <TextBlock Text="秒" FontSize="14" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="12,0,0,6">
-                                <CheckBox x:Name="ChkRemindAfterSchool" Content="放学提醒（当天最后一节结束后）" FontSize="14" Margin="0,0,26,0" Click="RemindSetting_Changed"/>
+                                <TextBox x:Name="TxtRemindSeconds" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提醒窗口停留几秒后自动消失"/>
+                                <TextBlock Text="秒" FontSize="14" VerticalAlignment="Center" Margin="0,0,26,0"/>
                                 <CheckBox x:Name="ChkRemindSound" Content="提醒时播放提示音" FontSize="14" Click="RemindSetting_Changed"/>
                             </StackPanel>
 
-                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,18,0,0">
+                            <Border Background="#F4F8FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,14,0,0">
                                 <StackPanel>
-                                    <CheckBox x:Name="ChkRemindVoice" Content="🔊 语音播报（用系统语音朗读提醒内容，如「第 3 节 语文 即将上课」）"
+                                    <CheckBox x:Name="ChkRemindVoice" Content="🔊 语音播报（用系统语音朗读提醒内容）"
                                               FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
                                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                                        <TextBlock Text="语音" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <ComboBox x:Name="CbRemindVoice" Width="300" FontSize="14" SelectionChanged="RemindVoice_Selected"/>
+                                        <TextBlock Text="音色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox x:Name="CbRemindVoice" Width="340" FontSize="14" SelectionChanged="RemindVoice_Selected" ToolTip="系统已安装的语音；可到 Windows「设置 → 时间和语言 → 语音」安装更多音色"/>
                                         <Button x:Name="BtnVoiceTest" Content="试听" FontSize="13" Padding="12,4" Margin="10,0,0,0" Click="BtnVoiceTest_Click"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                                         <TextBlock Text="语速" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                         <Slider x:Name="SlVoiceRate" Minimum="-10" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
-                                                Width="230" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
+                                                Width="240" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
                                         <TextBlock x:Name="TxtVoiceRate" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <TextBlock Text="音量" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                         <Slider x:Name="SlVoiceVolume" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
-                                                Width="230" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
+                                                Width="240" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
                                         <TextBlock x:Name="TxtVoiceVolume" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
                                     </StackPanel>
-                                    <TextBlock Text="语音来自 Windows 自带语音合成（SAPI），选「系统默认」时自动优先使用中文语音。若列表为空或没有中文语音，可到「设置 → 时间和语言 → 语音」安装中文语音包；同一提醒只会播报一次。"
+                                    <TextBlock Text="音色来自 Windows 自带语音合成（SAPI）。列表中列出系统已安装的全部语音（如 Microsoft Huihui 中文女声等），可从中选择多种音色；选「系统默认」时自动优先使用中文语音。若列表为空或没有中文语音，请到「设置 → 时间和语言 → 语音」安装中文语音包。"
                                                FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,10,0,0"/>
                                 </StackPanel>
                             </Border>

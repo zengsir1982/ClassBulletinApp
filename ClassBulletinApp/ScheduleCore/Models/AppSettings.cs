@@ -88,9 +88,9 @@ public class AppSettings
     public PanelLayout NotificationLayout { get; set; } = new()
     {
         Anchor = "Top",
-        Width = 0,
-        Height = 56,
-        Opacity = 0.95,
+        Width = 980,
+        Height = 60,
+        Opacity = 0.96,
         TopMost = true,
         ClickThrough = false,
         AutoHide = false,

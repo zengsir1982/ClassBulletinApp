@@ -81,7 +81,7 @@ public partial class LayoutWindow : Window
         SlSchOverlay.ValueChanged += (_, _) => TxtSchOverlay.Text = $"{SlSchOverlay.Value:0%}";
         SlNotHeight.ValueChanged += (_, _) => TxtNotHeight.Text = $"{SlNotHeight.Value:0} 像素";
         SlNotWidth.ValueChanged += (_, _) => TxtNotWidth.Text = SlNotWidth.Value <= 0
-            ? "0 = 整屏宽（默认）"
+            ? "0 = 整屏宽（横跨整个屏幕）"
             : $"{SlNotWidth.Value:0} 像素";
         SlNotFont.ValueChanged += (_, _) => TxtNotFont.Text = $"{SlNotFont.Value:0} 号";
         SlNotSpeed.ValueChanged += (_, _) => TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
@@ -95,6 +95,33 @@ public partial class LayoutWindow : Window
             ? "0 像素 · 完全移出屏幕（推荐）"
             : $"{SlNotPeek.Value:0} 像素（保留一条可点的细边）";
         SlNotEdge.ValueChanged += (_, _) => TxtNotEdge.Text = $"{SlNotEdge.Value:0} 像素";
+
+        WireLivePreview();
+    }
+
+    /// <summary>拖动课表 / 通知的尺寸、透明度、锚点等时，实时让已打开的悬浮窗同步（所见即所得）。</summary>
+    private void WireLivePreview()
+    {
+        void Preview(object? _, EventArgs __) => AppEvents.RaiseLayoutChanged();
+
+        SlSchWidth.ValueChanged += Preview;
+        SlSchHeight.ValueChanged += Preview;
+        SlSchOpacity.ValueChanged += Preview;
+        SlSchOverlay.ValueChanged += Preview;
+        SlSchPeek.ValueChanged += Preview;
+        SlSchEdge.ValueChanged += Preview;
+        CbSchAnchor.SelectionChanged += Preview;
+
+        SlNotHeight.ValueChanged += Preview;
+        SlNotWidth.ValueChanged += Preview;
+        SlNotFont.ValueChanged += Preview;
+        SlNotSpeed.ValueChanged += Preview;
+        SlNotOpacity.ValueChanged += Preview;
+        SlNotOverlay.ValueChanged += Preview;
+        SlNotPeek.ValueChanged += Preview;
+        SlNotEdge.ValueChanged += Preview;
+        CbNotAnchor.SelectionChanged += Preview;
+        CbNotHAnchor.SelectionChanged += Preview;
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)

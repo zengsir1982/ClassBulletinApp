@@ -264,10 +264,35 @@ public partial class MainWindow : Window
         var r = Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings();
         _remindReady = false;
         ChkRemindEnabled.IsChecked = r.Enabled;
-        TxtRemindBeforeClass.Text = Math.Max(0, r.BeforeClassMinutes).ToString();
-        TxtRemindBeforeEnd.Text = Math.Max(0, r.BeforeEndMinutes).ToString();
+
+        // 上课
+        var cs = r.ClassStart;
+        ChkCsOn.IsChecked = cs.Enabled;
+        TxtCsLead.Text = Math.Max(0, cs.LeadSeconds).ToString();
+        TxtCsTitle.Text = cs.Title;
+        TxtCsDetail.Text = cs.Detail;
+        TxtCsVoice.Text = cs.VoiceText;
+        TxtCsDanmaku.Text = cs.Danmaku;
+
+        // 下课
+        var ce = r.ClassEnd;
+        ChkCeOn.IsChecked = ce.Enabled;
+        TxtCeLead.Text = Math.Max(0, ce.LeadSeconds).ToString();
+        TxtCeTitle.Text = ce.Title;
+        TxtCeDetail.Text = ce.Detail;
+        TxtCeVoice.Text = ce.VoiceText;
+        TxtCeDanmaku.Text = ce.Danmaku;
+
+        // 放学
+        var ae = r.AfterSchool;
+        ChkAsOn.IsChecked = ae.Enabled;
+        TxtAsLead.Text = Math.Max(0, ae.LeadSeconds).ToString();
+        TxtAsTitle.Text = ae.Title;
+        TxtAsDetail.Text = ae.Detail;
+        TxtAsVoice.Text = ae.VoiceText;
+        TxtAsDanmaku.Text = ae.Danmaku;
+
         TxtRemindSeconds.Text = Math.Clamp(r.DisplaySeconds, 3, 60).ToString();
-        ChkRemindAfterSchool.IsChecked = r.AfterSchoolRemind;
         ChkRemindSound.IsChecked = r.PlaySound;
 
         // 语音：列出系统已安装语音，首项「系统默认」会自动优先选择中文语音
@@ -344,25 +369,45 @@ public partial class MainWindow : Window
         {
             var s = Store.LoadSettings();
             s.Reminder ??= new ScheduleCore.Models.ReminderSettings();
-            s.Reminder.Enabled = ChkRemindEnabled.IsChecked == true;
-            s.Reminder.BeforeClassMinutes = ParseRemindMinutes(TxtRemindBeforeClass.Text);
-            s.Reminder.BeforeEndMinutes = ParseRemindMinutes(TxtRemindBeforeEnd.Text);
-            s.Reminder.DisplaySeconds = ParseRemindSeconds(TxtRemindSeconds.Text);
-            s.Reminder.AfterSchoolRemind = ChkRemindAfterSchool.IsChecked == true;
-            s.Reminder.PlaySound = ChkRemindSound.IsChecked == true;
-            s.Reminder.VoiceEnabled = ChkRemindVoice.IsChecked == true;
-            s.Reminder.VoiceName = SelectedVoiceName();
-            s.Reminder.VoiceRate = (int)SlVoiceRate.Value;
-            s.Reminder.VoiceVolume = (int)SlVoiceVolume.Value;
+            var r = s.Reminder;
+            r.Enabled = ChkRemindEnabled.IsChecked == true;
+
+            r.ClassStart.Enabled = ChkCsOn.IsChecked == true;
+            r.ClassStart.LeadSeconds = ParseNonNeg(TxtCsLead.Text);
+            r.ClassStart.Title = TxtCsTitle.Text ?? "";
+            r.ClassStart.Detail = TxtCsDetail.Text ?? "";
+            r.ClassStart.VoiceText = TxtCsVoice.Text ?? "";
+            r.ClassStart.Danmaku = TxtCsDanmaku.Text ?? "";
+
+            r.ClassEnd.Enabled = ChkCeOn.IsChecked == true;
+            r.ClassEnd.LeadSeconds = ParseNonNeg(TxtCeLead.Text);
+            r.ClassEnd.Title = TxtCeTitle.Text ?? "";
+            r.ClassEnd.Detail = TxtCeDetail.Text ?? "";
+            r.ClassEnd.VoiceText = TxtCeVoice.Text ?? "";
+            r.ClassEnd.Danmaku = TxtCeDanmaku.Text ?? "";
+
+            r.AfterSchool.Enabled = ChkAsOn.IsChecked == true;
+            r.AfterSchool.LeadSeconds = ParseNonNeg(TxtAsLead.Text);
+            r.AfterSchool.Title = TxtAsTitle.Text ?? "";
+            r.AfterSchool.Detail = TxtAsDetail.Text ?? "";
+            r.AfterSchool.VoiceText = TxtAsVoice.Text ?? "";
+            r.AfterSchool.Danmaku = TxtAsDanmaku.Text ?? "";
+
+            r.DisplaySeconds = ParseSeconds(TxtRemindSeconds.Text);
+            r.PlaySound = ChkRemindSound.IsChecked == true;
+            r.VoiceEnabled = ChkRemindVoice.IsChecked == true;
+            r.VoiceName = SelectedVoiceName();
+            r.VoiceRate = (int)SlVoiceRate.Value;
+            r.VoiceVolume = (int)SlVoiceVolume.Value;
             Store.SaveSettings(s);
         }
         catch { }
     }
 
-    private static int ParseRemindMinutes(string? text)
-        => int.TryParse(text?.Trim(), out var v) && v >= 0 && v <= 30 ? v : 0;
+    private static int ParseNonNeg(string? text)
+        => int.TryParse(text?.Trim(), out var v) && v >= 0 && v <= 3600 ? v : 0;
 
-    private static int ParseRemindSeconds(string? text)
+    private static int ParseSeconds(string? text)
         => int.TryParse(text?.Trim(), out var v) && v >= 3 && v <= 60 ? v : 8;
 
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
@@ -861,6 +906,48 @@ public partial class MainWindow : Window
         Store.SaveOverrides(new System.Collections.Generic.List<LessonOverride>());
         AppEvents.RaiseScheduleChanged();
         TxtStatus.Text = "已清除全部临时调课记录。";
+    }
+
+    // ---------- 一键清除全部导入数据（课表 / 教师个人课表 / 调代覆盖） ----------
+    private void BtnClearImported_Click(object sender, RoutedEventArgs e)
+    {
+        var result = System.Windows.MessageBox.Show(
+            "确定要清除全部已导入的数据吗？\n\n将删除：基础课表、教师个人课表、全部调课 / 代课记录（共 3 类导入数据）。\n此操作不可撤销，清除后需重新导入。\n（通知公告、作业公示、布局与提醒设置不会受影响。）",
+            "一键清除导入数据", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.OK) return;
+
+        try
+        {
+            var dir = ScheduleCore.Services.Store.AppDir;
+            int removed = 0;
+            void TryDelete(string name)
+            {
+                var p = System.IO.Path.Combine(dir, name);
+                if (System.IO.File.Exists(p)) { System.IO.File.Delete(p); removed++; }
+            }
+            TryDelete("schedule.json");
+            TryDelete("teacher_schedule.json");
+            TryDelete("overrides.json");
+
+            // 复位与课表相关的选择，并刷新下拉与悬浮窗
+            var st = ScheduleCore.Services.Store.LoadSettings();
+            st.SelectedClass = "";
+            st.SelectedTeacher = "";
+            st.ScheduleKind = "Class";
+            ScheduleCore.Services.Store.SaveSettings(st);
+
+            ClassNames.Clear();
+            RefreshTeacherCombo();
+            UpdateModeIndicator();
+            if (CbClass != null) CbClass.SelectedIndex = -1;
+
+            AppEvents.RaiseScheduleChanged();
+            TxtStatus.Text = $"已清除导入数据（{removed} 个文件）。请重新导入课表。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "清除导入数据失败：" + ex.Message;
+        }
     }
 
     // ---------- 桌面最大化窗口自动隐藏 ----------

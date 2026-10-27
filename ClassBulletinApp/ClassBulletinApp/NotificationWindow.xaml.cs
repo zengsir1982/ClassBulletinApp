@@ -3,6 +3,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
@@ -15,6 +16,7 @@ public partial class NotificationWindow : Window
     private ScheduleFile? _schedule;
     private string? _className;
     private bool _clickThrough;
+    private DispatcherTimer? _danmakuTimer;
 
     public NotificationWindow()
     {
@@ -26,6 +28,7 @@ public partial class NotificationWindow : Window
         ApplyCurrentLayout();
         AppEvents.NotificationChanged += StartMarquee;
         AppEvents.LayoutChanged += OnLayoutChanged;
+        AppEvents.ReminderDanmaku += OnReminderDanmaku;
         MarqueeHost.SizeChanged += (_, _) => StartMarquee();
         StartMarquee();
     }
@@ -57,6 +60,29 @@ public partial class NotificationWindow : Window
     {
         ApplyCurrentLayout();
         StartMarquee();
+    }
+
+    // ---------- 提醒弹幕：临时把通知条内容替换为提醒文案，数秒后恢复 ----------
+    private void OnReminderDanmaku(string text, int seconds)
+    {
+        if (!IsLoaded || string.IsNullOrWhiteSpace(text)) return;
+        _danmakuTimer?.Stop();
+        TxtMarquee.Text = text;
+        TxtMarquee.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double tw = TxtMarquee.DesiredSize.Width;
+        double hostW = MarqueeHost.ActualWidth;
+        var tt = new TranslateTransform();
+        TxtMarquee.RenderTransform = tt;
+        tt.X = hostW > 0 ? (hostW - tw) / 2 : 0;   // 弹幕居中显示，不滚动
+
+        _danmakuTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(Math.Max(3, seconds)) };
+        _danmakuTimer.Tick += (_, _) =>
+        {
+            _danmakuTimer?.Stop();
+            _danmakuTimer = null;
+            StartMarquee();   // 恢复为正常通知滚动
+        };
+        _danmakuTimer.Start();
     }
 
     // ---------- 双击编辑通知（穿透态下通知条本身仍保持可交互） ----------
@@ -133,8 +159,10 @@ public partial class NotificationWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _hider?.Dispose();
+        _danmakuTimer?.Stop();
         AppEvents.NotificationChanged -= StartMarquee;
         AppEvents.LayoutChanged -= OnLayoutChanged;
+        AppEvents.ReminderDanmaku -= OnReminderDanmaku;
         base.OnClosed(e);
     }
 }

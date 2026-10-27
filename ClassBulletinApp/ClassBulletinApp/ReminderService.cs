@@ -74,46 +74,70 @@ public static class ReminderService
             string dateKey = now.Date.ToString("yyyyMMdd");
             var t = now.TimeOfDay;
             int shown = Math.Max(3, r.DisplaySeconds);
+            var oneMin = TimeSpan.FromMinutes(1);
+            var tenMin = TimeSpan.FromMinutes(10);
 
-            void Fire(string kind, int period, string title, string detail, string spoken)
+            string Fill(string tpl, int p, string subj, string time)
             {
+                if (string.IsNullOrEmpty(tpl)) return "";
+                return tpl.Replace("{p}", p.ToString())
+                         .Replace("{s}", subj)
+                         .Replace("{t}", time);
+            }
+
+            // 触发某一类提醒；lead>0 在「事件时间 - lead」提醒，lead=0 在事件发生的时刻提醒
+            void Fire(string kind, int period, ReminderProfile p, TimeSpan eventTime, string subj, TimeSpan windowEnd)
+            {
+                if (p == null || !p.Enabled) return;
                 string key = $"{dateKey}|{kind}|{period}";
                 lock (Fired)
                 {
                     if (!Fired.Add(key)) return;
                 }
+                string title = Fill(p.Title, period, subj, $"{eventTime:hh\\:mm}");
+                string detail = Fill(p.Detail, period, subj, $"{eventTime:hh\\:mm}");
+                string spoken = Fill(p.VoiceText, period, subj, $"{eventTime:hh\\:mm}");
+                string danmaku = Fill(p.Danmaku, period, subj, $"{eventTime:hh\\:mm}");
                 Show(title, detail, shown, r, spoken);
+                if (!string.IsNullOrWhiteSpace(danmaku))
+                    AppEvents.RaiseReminderDanmaku(danmaku, shown);
             }
 
             foreach (var sl in slots)
             {
-                if (r.BeforeClassMinutes > 0 &&
-                    t >= sl.Start - TimeSpan.FromMinutes(r.BeforeClassMinutes) && t < sl.Start)
-                    Fire("prep", sl.Period, $"即将上课 · 第{sl.Period}节",
-                        $"{sl.Subject}　{sl.Start:hh\\:mm} 开始",
-                        $"第{sl.Period}节 {sl.Subject} 即将上课，请回座位准备");
+                // 上课提醒
+                var cs = r.ClassStart;
+                if (cs.Enabled)
+                {
+                    int lead = Math.Max(0, cs.LeadSeconds);
+                    var fireAt = lead > 0 ? sl.Start - TimeSpan.FromSeconds(lead) : sl.Start;
+                    var winEnd = lead > 0 ? sl.Start : sl.Start + oneMin;
+                    if (t >= fireAt && t < winEnd)
+                        Fire("cs", sl.Period, cs, sl.Start, sl.Subject, winEnd);
+                }
 
-                if (t >= sl.Start && t < sl.Start + TimeSpan.FromMinutes(1))
-                    Fire("on", sl.Period, $"上课 · 第{sl.Period}节", sl.Subject,
-                        $"上课时间到，第{sl.Period}节 {sl.Subject}");
-
-                if (r.BeforeEndMinutes > 0 &&
-                    t >= sl.End - TimeSpan.FromMinutes(r.BeforeEndMinutes) && t < sl.End)
-                    Fire("offpre", sl.Period, $"即将下课 · 第{sl.Period}节",
-                        $"{sl.Subject}　{sl.End:hh\\:mm} 下课",
-                        $"第{sl.Period}节 {sl.Subject} 即将下课");
-
-                if (t >= sl.End && t < sl.End + TimeSpan.FromMinutes(1))
-                    Fire("off", sl.Period, "课间休息", $"第{sl.Period}节 {sl.Subject} 已下课",
-                        $"第{sl.Period}节下课，课间休息");
+                // 下课提醒
+                var ce = r.ClassEnd;
+                if (ce.Enabled)
+                {
+                    int lead = Math.Max(0, ce.LeadSeconds);
+                    var fireAt = lead > 0 ? sl.End - TimeSpan.FromSeconds(lead) : sl.End;
+                    var winEnd = lead > 0 ? sl.End : sl.End + oneMin;
+                    if (t >= fireAt && t < winEnd)
+                        Fire("ce", sl.Period, ce, sl.End, sl.Subject, winEnd);
+                }
             }
 
-            if (r.AfterSchoolRemind)
+            // 放学提醒（以当天最后一节结束时间为事件时间）
+            var asP = r.AfterSchool;
+            if (asP.Enabled)
             {
                 var last = slots.Last();
-                if (t >= last.End && t < last.End + TimeSpan.FromMinutes(10))
-                    Fire("after", last.Period, "放学了", "今天课程全部结束",
-                        "今天的课程全部结束，放学了");
+                int lead = Math.Max(0, asP.LeadSeconds);
+                var fireAt = lead > 0 ? last.End - TimeSpan.FromSeconds(lead) : last.End;
+                var winEnd = lead > 0 ? last.End : last.End + tenMin;
+                if (t >= fireAt && t < winEnd)
+                    Fire("as", last.Period, asP, last.End, last.Subject, winEnd);
             }
         }
         catch
