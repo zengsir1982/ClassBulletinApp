@@ -25,6 +25,9 @@ public partial class HomeworkWindow : Window
     private string _themeKey = "classic";
     private bool _loading;
 
+    /// <summary>本次是否因存档坐标失效而重新居中（是则立刻把修正后的位置写回，避免每次都重算）。</summary>
+    private bool _recentered;
+
     // ---------- WM_NCHITTEST 原生拖动 / 缩放 ----------
     private const int WM_NCHITTEST = 0x84;
     private const int WM_NCLBUTTONDBLCLK = 0xA3;
@@ -48,8 +51,18 @@ public partial class HomeworkWindow : Window
         UpdateTopButton();
         UpdateBackdropButton();
 
+        // 每次显示都再收一次屏（运行中改分辨率 / 拔显示器 / 改缩放后仍然看得见）
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) return;
+            FloatingHelper.ClampToScreen(this);
+        };
+
         AppEvents.HomeworkChanged += OnHomeworkChanged;
         AppEvents.BackdropChanged += UpdateBackdropButton;
+
+        // 存档坐标已失效时，把重新居中后的位置立刻写回，避免每次启动都重算
+        if (_recentered) SavePlacement();
     }
 
     private void Window_SourceInitialized(object sender, EventArgs e)
@@ -115,48 +128,41 @@ public partial class HomeworkWindow : Window
         {
             _loading = true;
             var s = Store.LoadSettings();
-            if (s.HwWinWidth.HasValue && s.HwWinWidth.Value >= MinWidth) Width = s.HwWinWidth.Value;
-            if (s.HwWinHeight.HasValue && s.HwWinHeight.Value >= MinHeight) Height = s.HwWinHeight.Value;
+            if (s.HwWinWidth is double sw && sw >= MinWidth) Width = sw;
+            if (s.HwWinHeight is double sh && sh >= MinHeight) Height = sh;
+            Topmost = s.HwWinTopMost;
 
-            if (s.HwWinLeft.HasValue && s.HwWinTop.HasValue)
+            // 统一按「窗口所在屏幕 + DPI 换算后的逻辑像素」收屏：
+            // 125% / 150% 缩放下 WinForms 的工作区是物理像素，直接和 WPF 的逻辑坐标比较会把窗口算到屏幕外。
+            var area = FloatingHelper.WorkAreaDip(this);
+            Width = Math.Min(Width, area.Width);
+            Height = Math.Min(Height, area.Height);
+
+            if (s.HwWinLeft is double l && s.HwWinTop is double t && IsUsable(l, t, area))
             {
-                Left = s.HwWinLeft.Value;
-                Top = s.HwWinTop.Value;
-                ClampIntoScreen();
+                Left = l;
+                Top = t;
+                FloatingHelper.ClampToScreen(this);
             }
             else
             {
-                var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
-                if (area.HasValue)
-                {
-                    Left = Math.Max(0, area.Value.Left + area.Value.Width - Width - 32);
-                    Top = Math.Max(0, area.Value.Top + 40);
-                }
+                // 首次打开，或存档坐标已失效（换显示器 / 改分辨率 / 改缩放）：默认摆在屏幕正中央
+                FloatingHelper.CenterOnScreen(this);
+                _recentered = true;
             }
-
-            Topmost = s.HwWinTopMost;
         }
         catch { }
         finally { _loading = false; }
     }
 
-    /// <summary>把窗口完整收进它所在的屏幕工作区（四边都拦），多屏 / 换分辨率 / 拔显示器都不会跑到屏外。</summary>
-    private void ClampIntoScreen()
+    /// <summary>存档坐标是否还可用：至少 55% 的面积落在工作区内，否则视为失效（避免窗口「打开后看不见」）。</summary>
+    private bool IsUsable(double left, double top, Rect area)
     {
-        try
-        {
-            var rect = new System.Drawing.Rectangle(
-                (int)Math.Round(Left), (int)Math.Round(Top),
-                (int)Math.Round(Width), (int)Math.Round(Height));
-            var screen = System.Windows.Forms.Screen.FromRectangle(rect) ?? System.Windows.Forms.Screen.PrimaryScreen;
-            if (screen == null) return;
-            var a = screen.WorkingArea;
-            if (Left + Width > a.Right) Left = a.Right - Width;
-            if (Left < a.Left) Left = a.Left;
-            if (Top + Height > a.Bottom) Top = a.Bottom - Height;
-            if (Top < a.Top) Top = a.Top;
-        }
-        catch { }
+        var r = new Rect(left, top, Width, Height);
+        var inter = Rect.Intersect(r, area);
+        if (inter.IsEmpty || inter.Width <= 0 || inter.Height <= 0) return false;
+        double need = Math.Max(1, r.Width * r.Height) * 0.55;
+        return inter.Width * inter.Height >= need;
     }
 
     private void SavePlacement()

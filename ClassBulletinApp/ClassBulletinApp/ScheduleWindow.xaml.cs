@@ -32,6 +32,9 @@ public partial class ScheduleWindow : Window
     private AutoHider? _hider;
     private readonly DispatcherTimer _timer;
 
+    /// <summary>程序化应用布局（ApplyLayout）期间置 true，避免把自动定位 / 自动隐藏的位移当成用户拖动保存。</summary>
+    private bool _applyingLayout;
+
     // 常用快捷（悬浮课表下方自定义软件 / 文件夹入口）
     private System.Collections.ObjectModel.ObservableCollection<QuickLaunchItem> _ql = new();
 
@@ -55,6 +58,55 @@ public partial class ScheduleWindow : Window
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _timer.Tick += (_, _) => Refresh();
+
+        // 所见即所得：按住标题区（班级 / 日期那块及空白处）拖动移动窗口；
+        // 鼠标移到窗口边沿 / 四角出现双向箭头时拖动改大小。都只在用户松手时落盘。
+        void OnStart() { if (_hider != null) _hider.Suspended = true; }
+        void OnEnd()
+        {
+            if (_hider != null) _hider.Suspended = false;
+            SavePlacement();
+            ApplyCurrentLayout();      // 按新位置重建自动隐藏的展开 / 缩回矩形
+        }
+
+        FloatChrome.Enable(this, canInteract: () => !_clickThrough,
+            onGestureStart: OnStart, onGestureEnd: OnEnd);
+        FloatChrome.EnableDrag(HeaderBar, this,
+            onDragStart: OnStart, onDragEnd: OnEnd,
+            canDrag: () => !_clickThrough);
+    }
+
+    /// <summary>
+    /// 记住用户拖动 / 缩放后的位置与大小：写入布局的自由坐标，并把锚点更新为最近的屏幕边
+    /// （自动靠边隐藏就往那条边滑出）。之后 ApplyLayout 会直接用这组坐标，不再贴边重排。
+    /// </summary>
+    private void SavePlacement()
+    {
+        if (_applyingLayout) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            var l = s.ScheduleLayout ??= new PanelLayout();
+            if (double.IsNaN(Left) || double.IsNaN(Top)) return;
+            // 自动隐藏态窗口在屏幕外：此刻的坐标不代表用户意图，不保存
+            if (!FloatingHelper.IsMostlyOnScreen(this, 0.3)) return;
+
+            var clamped = FloatingHelper.ClampRectDip(this, new Rect(Left, Top, Width, Height));
+            l.Left = clamped.X;
+            l.Top = clamped.Y;
+            l.Width = clamped.Width;
+            l.Height = clamped.Height;
+            l.Anchor = FloatingHelper.NearestAnchor(this);
+            Store.SaveSettings(s);
+
+            if (_layout != null)
+            {
+                _layout.Left = l.Left; _layout.Top = l.Top;
+                _layout.Width = l.Width; _layout.Height = l.Height;
+                _layout.Anchor = l.Anchor;
+            }
+        }
+        catch { }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -189,7 +241,12 @@ public partial class ScheduleWindow : Window
         // 且穿透时隐藏按钮、标题区、课表区仍保持可点击。
         bool topShow = !l.AutoHide;
         _clickThrough = l.ClickThrough && !l.AutoHide;
-        FloatingHelper.ApplyLayout(this, l, _clickThrough, topShow ? l.OverlayOpacity : l.Opacity);
+        _applyingLayout = true;
+        try
+        {
+            FloatingHelper.ApplyLayout(this, l, _clickThrough, topShow ? l.OverlayOpacity : l.Opacity);
+        }
+        finally { _applyingLayout = false; }
         if (_clickThrough)
             FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, ClassHeader, DateHeader, TodayPanel);
         else

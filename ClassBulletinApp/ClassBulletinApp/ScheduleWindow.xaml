@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ClassBulletinApp"
-        Title="课表悬浮窗" WindowStyle="None" ResizeMode="NoResize"
+        Title="课表悬浮窗" WindowStyle="None" ResizeMode="CanResize"
+        MinWidth="220" MinHeight="200"
         ShowInTaskbar="False" AllowsTransparency="True"
         Background="Transparent" Loaded="Window_Loaded"
         PreviewMouseRightButtonDown="Window_PreviewMouseRightButtonDown"
@@ -25,8 +26,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期 -->
-            <Border Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="18,12">
+            <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期；空白处按住可拖动整个窗口 -->
+            <Border x:Name="HeaderBar" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="18,12"
+                    ToolTip="按住空白处可拖动窗口；拖动窗口边沿可改变大小">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

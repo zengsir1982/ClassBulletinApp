@@ -92,7 +92,7 @@
                             </WrapPanel>
                             <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
                                       FontSize="14" Foreground="#1F2A37" Margin="8,16,0,0" Click="ChkMaxHide_Click"/>
-                            <TextBlock Text="布局设置可调整悬浮窗位置、大小、透明度、置顶、鼠标穿透或自动靠边隐藏；悬浮窗右上角「自动隐藏 / 置顶显示」按钮可快速切换。「置顶显示」为半透明常驻，隐藏按钮、标题双击、拖动调课均可正常操作；如需纯展示可在布局设置勾选「鼠标穿透」。"
+                            <TextBlock Text="位置和大小不用进设置页调：按住悬浮课表的标题区拖动即可移动，鼠标移到窗口边沿出现双向箭头时拖动即可改变大小，松手自动记住。布局设置里只剩透明度、置顶、鼠标穿透与自动靠边隐藏；「把悬浮课表放回屏幕中央」可应付找不到窗口的情况。「置顶显示」为半透明常驻，隐藏按钮、标题双击、拖动调课均可正常操作；如需纯展示可在布局设置勾选「鼠标穿透」。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,8,0,0"/>
                             <TextBlock Text="自动隐藏默认把窗口完全移出屏幕（不在屏幕上留任何边缘），只把鼠标移到 / 手指触到屏幕对应边沿时才平滑滑出；需要保留一条可点细边时，可在布局设置里把「露出像素」调成 1~48。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,4,0,0"/>
@@ -250,10 +250,84 @@
                     <ScrollViewer Margin="14">
                         <StackPanel MaxWidth="640">
                             <TextBlock Text="📢 通知 / 公告管理" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
+
+                            <!-- 通知条字体与背景：简单预设，选中即应用到顶部字幕条 -->
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="通知条字体与背景" FontSize="16" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <TextBlock Text="在下面选好字体 / 字号 / 字色 / 背景，顶部通知字幕条立即生效（对所有通知统一生效）。"
+                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,10"/>
+                                    <WrapPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                            <TextBlock Text="字体" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifFont" Width="180" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                            <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifSize" Width="90" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                            <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifText" Width="130" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="2">
+                                                            <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3" Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                            <TextBlock Text="背景" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifBg" Width="150" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="2">
+                                                            <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3" Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </WrapPanel>
+                                    <!-- 实时预览：与顶部字幕条完全同一套字体 / 颜色 -->
+                                    <Border x:Name="NotifPreview" CornerRadius="10" Padding="12,8" Margin="0,4,0,0">
+                                        <TextBlock x:Name="NotifPreviewText" Text="预览：今天下午第 8 节后全校大扫除"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
                             <StackPanel Margin="0,0,0,12">
-                                <TextBox x:Name="TxtNewTitle" FontSize="15" Padding="10" Margin="0,0,0,8" Background="White" BorderBrush="#D1D5DB" ToolTip="标题（选填）"/>
-                                <TextBox x:Name="TxtNewContent" FontSize="14" Padding="10" Height="64" TextWrapping="Wrap" AcceptsReturn="True" Margin="0,0,0,8" Background="White" BorderBrush="#D1D5DB" ToolTip="内容"/>
-                                <Button x:Name="BtnAddNotice" Content="添加通知" Padding="12,7" FontSize="15" HorizontalAlignment="Left" Click="BtnAddNotice_Click"/>
+                                <TextBlock Text="新公告" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,8"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="标题（选填）" FontSize="14" Foreground="#4B5563"
+                                               VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBox Grid.Column="1" x:Name="TxtNewTitle" FontSize="15" Padding="10" Background="White" BorderBrush="#D1D5DB"
+                                             ToolTip="标题会显示在内容前面，例如「通知」「紧急」"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="公告内容" FontSize="14" Foreground="#4B5563"
+                                               VerticalAlignment="Top" Margin="0,10,10,0"/>
+                                    <TextBox Grid.Column="1" x:Name="TxtNewContent" FontSize="14" Padding="10" Height="72" TextWrapping="Wrap" AcceptsReturn="True" Background="White" BorderBrush="#D1D5DB"
+                                             ToolTip="通知 / 公告内容：输入后点「添加通知」，顶部字幕条会滚动显示"/>
+                                </Grid>
+                                <DockPanel>
+                                    <Button x:Name="BtnAddNotice" Content="添加通知" Padding="12,7" FontSize="15" DockPanel.Dock="Left" Click="BtnAddNotice_Click"/>
+                                    <TextBlock Text="标题选填；内容支持多行。添加后立即在顶部字幕条滚动显示。" FontSize="12" Foreground="#9CA3AF"
+                                               VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                                </DockPanel>
                             </StackPanel>
                             <ItemsControl x:Name="NotificationsPanel">
                                 <ItemsControl.ItemTemplate>
@@ -279,91 +353,73 @@
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
-                <!-- 作业公示 -->
+                <!-- 作业公示：只放预览 + 编辑按钮，内容 / 格式 / 主题都在弹窗里改 -->
                 <TabItem Header="作业公示">
                     <ScrollViewer Margin="14">
-                        <StackPanel MaxWidth="780">
+                        <StackPanel MaxWidth="820">
                             <TextBlock Text="📚 各科作业公示栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="更快捷的方式：系统会自动弹出「作业公示」便签，可拖到屏幕任意位置固定摆放，双击便签即可修改内容、文字格式与主题风格，底部「桌面背景」开关一键投射到桌面壁纸（位于所有窗口之下、不遮挡操作）。此页作为备用编辑入口同样可用，二者数据互通；上方「主题风格」与「编辑内容与格式…」也能设置格式和风格。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <TextBlock Text="总标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TxtHwTitle" FontSize="14" Padding="8" Width="320" Background="White" BorderBrush="#D1D5DB"/>
-                                <Button x:Name="BtnAddHw" Content="添加科目" Padding="12,6" FontSize="14" Margin="12,0,0,0" Click="BtnAddHw_Click"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <ComboBox x:Name="CbHwTheme" Width="190" FontSize="14" SelectionChanged="CbHwTheme_Changed">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal" Margin="2">
-                                                <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
-                                                           Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
-                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <Button x:Name="BtnEditHwFull" Content="编辑内容与格式…" Padding="14,7" FontSize="14" Margin="12,0,0,0"
-                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                                        Click="BtnEditHwFull_Click"
-                                        ToolTip="打开编辑对话框：修改各科作业 / 缺交名单、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
-                            </StackPanel>
-                            <ItemsControl x:Name="HwItems" Margin="0,0,0,12">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid Margin="0,0,0,8">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="150"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <TextBox Grid.Column="0" Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="14" Padding="8" Margin="0,0,8,0" Background="White" BorderBrush="#D1D5DB" ToolTip="科目"/>
-                                            <TextBox Grid.Column="1" Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="14" Padding="8" Margin="0,0,8,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="42" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="作业内容"/>
-                                            <Button Grid.Column="2" Content="删除" Padding="10,4" FontSize="12" Click="BtnDelHw_Click" Tag="{Binding}"/>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Button x:Name="BtnWpSettings" Content="调整桌面背景位置" Padding="14,8" FontSize="14" Margin="0,8,0,0" HorizontalAlignment="Left"
-                                    Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnWpSettings_Click"
-                                    ToolTip="打开「布局设置 → 桌面背景」调整作业公示与当天课表的位置、宽度"/>
-                            <TextBlock Text="作业公示与当天课表的位置 / 宽度、以及是否一起显示，统一在「布局设置 → 桌面背景」调整（两块内容各自独立定位）。这里只负责编辑作业内容。"
-                                   FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,8,0,12"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                <Button x:Name="BtnHwPreview" Content="保存并预览" Padding="14,8" FontSize="14" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnHwPreview_Click"/>
-                                <Button x:Name="BtnSaveHw" Content="保存并应用到桌面背景" Padding="14,8" FontSize="15" Margin="12,0,0,0" Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnSaveHw_Click"/>
-                                <Button x:Name="BtnClearHw" Content="清除（恢复原壁纸）" Padding="14,8" FontSize="15" Margin="12,0,0,0" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearHw_Click"/>
-                            </StackPanel>
+                            <TextBlock Text="内容、文字格式与主题风格都在弹窗里编辑：点下面的按钮打开编辑窗口，改完确定即保存，并自动同步到桌面便签与悬浮便签。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
-                            <!-- 缺交作业名单：独立便签（独立主题 / 独立桌面便签 / 独立悬浮窗） -->
-                            <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10"
-                                    Padding="14" Margin="0,22,0,0">
+                            <!-- 预览：与桌面便签 / 悬浮便签同一套渲染，所见即所得 -->
+                            <WrapPanel>
+                                <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,14,14" Width="368">
+                                    <StackPanel>
+                                        <TextBlock Text="作业公示便签预览" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                        <Border Background="#F5F7FA" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                            <Image x:Name="ImgHwPreview" Stretch="Uniform" StretchDirection="DownOnly"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   ToolTip="当前作业公示便签的样子（含主题风格与文字格式）"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Background="White" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,14" Width="368">
+                                    <StackPanel>
+                                        <TextBlock Text="缺交作业名单便签预览" FontSize="15" FontWeight="Bold" Foreground="#C0392B"/>
+                                        <Border Background="#FFF6F5" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                            <Image x:Name="ImgMsPreview" Stretch="Uniform" StretchDirection="DownOnly"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   ToolTip="当前缺交名单便签的样子（含主题风格与文字格式）"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                            </WrapPanel>
+
+                            <WrapPanel Margin="0,2,0,0">
+                                <Button x:Name="BtnEditHw" Content="＋ 添加 / 编辑作业公示" Padding="16,9" FontSize="15"
+                                        Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}"
+                                        Click="BtnEditHw_Click" Margin="0,0,12,10"
+                                        ToolTip="打开编辑窗口：科目、作业内容、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
+                                <Button x:Name="BtnEditMs" Content="＋ 增加 / 编辑缺交名单" Padding="16,9" FontSize="15"
+                                        Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B"
+                                        Click="BtnEditMs_Click" Margin="0,0,12,10"
+                                        ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
+                                <Button x:Name="BtnWpSettings" Content="🖱 桌面背景排版" Padding="16,9" FontSize="15" Margin="0,0,12,10"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnWpSettings_Click"
+                                        ToolTip="打开所见即所得排版：直接拖动便签调整位置、拉边框改大小"/>
+                            </WrapPanel>
+
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,4,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="🚫 缺交作业名单（独立便签）" FontSize="17" FontWeight="Bold" Foreground="#C0392B"/>
-                                    <TextBlock Text="缺交名单已从作业公示中独立出来：拥有自己的主题风格、悬浮便签与桌面背景便签；开启固定大小后位置不随名单条数漂移，内容过多会自动缩小以完整显示。"
-                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,10"/>
-                                    <WrapPanel Orientation="Horizontal">
-                                        <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <ComboBox x:Name="CbMsTheme" Width="180" FontSize="14" SelectionChanged="CbMsTheme_Changed" Margin="0,0,12,8">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal" Margin="2">
-                                                        <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
-                                                                   Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
-                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <Button x:Name="BtnEditMs" Content="编辑名单与格式…" Padding="14,7" FontSize="14" Margin="0,0,12,8"
-                                                Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnEditMs_Click"
-                                                ToolTip="修改缺交科目 / 学生姓名、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
-                                        <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="14,7" FontSize="14" Margin="0,0,12,8"
-                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"/>
-                                        <Button x:Name="BtnMsWp" Content="桌面背景：关" Padding="14,7" FontSize="14" Margin="0,0,0,8"
+                                    <TextBlock Text="显示与桌面背景" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Button x:Name="BtnToggleHw2" Content="显示作业便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleHw_Click"
+                                                ToolTip="在屏幕上显示 / 隐藏作业公示悬浮便签"/>
+                                        <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"
+                                                ToolTip="在屏幕上显示 / 隐藏缺交名单悬浮便签"/>
+                                        <Button x:Name="BtnHwWp" Content="作业→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnHwWp_Click"
+                                                ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>
+                                        <Button x:Name="BtnMsWp" Content="缺交→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,0,8"
                                                 Background="White" BorderBrush="#D1D5DB" Click="BtnMsWp_Click"
                                                 ToolTip="把缺交作业名单画到桌面壁纸上（位于所有窗口之下）"/>
                                     </WrapPanel>
+                                    <TextBlock Text="提示：把鼠标移到便签上即可拖动摆放，拉便签边沿可改变大小；双击便签同样能打开编辑窗口。"
+                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

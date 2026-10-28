@@ -1,11 +1,15 @@
 using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
+// 项目同时引用了 WPF 与 WinForms/System.Drawing（均有同名类型），此处用别名消歧义
+using FontFamily = System.Windows.Media.FontFamily;
+using Color = System.Windows.Media.Color;
 
 namespace ClassBulletinApp;
 
@@ -18,9 +22,58 @@ public partial class NotificationWindow : Window
     private bool _clickThrough;
     private DispatcherTimer? _danmakuTimer;
 
+    /// <summary>程序化应用布局期间置 true，避免把自动定位 / 自动隐藏的位移当作拖动保存。</summary>
+    private bool _applyingLayout;
+
     public NotificationWindow()
     {
         InitializeComponent();
+
+        // 所见即所得：按住通知条拖动窗口（双击仍可编辑通知）；鼠标移到边沿 / 四角出现双向箭头时拖动改大小。
+        // 只在用户松手时落盘，避免把自动布局 / 自动隐藏的坐标当成用户位置。
+        void OnStart() { if (_hider != null) _hider.Suspended = true; }
+        void OnEnd()
+        {
+            if (_hider != null) _hider.Suspended = false;
+            SavePlacement();
+            ApplyCurrentLayout();
+        }
+
+        FloatChrome.Enable(this, canInteract: () => !_clickThrough,
+            onGestureStart: OnStart, onGestureEnd: OnEnd);
+        FloatChrome.EnableDrag(Bar, this,
+            onDragStart: OnStart, onDragEnd: OnEnd,
+            canDrag: () => !_clickThrough);
+    }
+
+    /// <summary>记住拖动 / 缩放后的位置与大小，并把锚点更新为最近的屏幕边（自动隐藏往那边滑出）。</summary>
+    private void SavePlacement()
+    {
+        if (_applyingLayout) return;
+        try
+        {
+            if (double.IsNaN(Left) || double.IsNaN(Top)) return;
+            // 自动隐藏态窗口在屏幕外：此刻的坐标不代表用户意图，不保存
+            if (!FloatingHelper.IsMostlyOnScreen(this, 0.3)) return;
+
+            var s = Store.LoadSettings();
+            var l = s.NotificationLayout ??= new PanelLayout();
+            var clamped = FloatingHelper.ClampRectDip(this, new Rect(Left, Top, Width, Height));
+            l.Left = clamped.X;
+            l.Top = clamped.Y;
+            l.Width = clamped.Width;
+            l.Height = clamped.Height;
+            l.Anchor = FloatingHelper.NearestAnchor(this);
+            Store.SaveSettings(s);
+
+            if (_layout != null)
+            {
+                _layout.Left = l.Left; _layout.Top = l.Top;
+                _layout.Width = l.Width; _layout.Height = l.Height;
+                _layout.Anchor = l.Anchor;
+            }
+        }
+        catch { }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -43,17 +96,45 @@ public partial class NotificationWindow : Window
         _clickThrough = _layout.ClickThrough && !_layout.AutoHide;
         _schedule = Store.LoadSchedule();
         _className = s.SelectedClass;
-        FloatingHelper.ApplyLayout(this, _layout, _clickThrough, topShow ? _layout.OverlayOpacity : _layout.Opacity);
+        _applyingLayout = true;
+        try
+        {
+            FloatingHelper.ApplyLayout(this, _layout, _clickThrough, topShow ? _layout.OverlayOpacity : _layout.Opacity);
+        }
+        finally { _applyingLayout = false; }
         if (_clickThrough)
             FloatingHelper.SetClickThrough(this, true, BtnHide, Bar);
         else
             FloatingHelper.SetClickThrough(this, false);
         TxtMarquee.FontSize = Math.Max(12, _layout.FontSize);
+        ApplyBarStyle(_layout);
         BtnHide.Content = _layout.AutoHide ? "置顶显示" : "自动隐藏";
         _hider?.Dispose();
         _hider = (_layout.AutoHide || _layout.AutoHideDuringClass)
             ? new AutoHider(this, _layout, () => _layout.AutoHide || (_layout.AutoHideDuringClass && WeekHelper.IsClassTimeNow(_schedule, _className)))
             : null;
+    }
+
+    /// <summary>应用通知条的外观：字体、文字颜色、条背景色（留空则用界面主题默认色）。</summary>
+    private void ApplyBarStyle(PanelLayout l)
+    {
+        try
+        {
+            TxtMarquee.FontFamily = string.IsNullOrWhiteSpace(l.FontFamily)
+                ? new FontFamily("Microsoft YaHei UI")
+                : new FontFamily(l.FontFamily);
+            TxtMarquee.Foreground = ThemeHelper.Brush(l.TextColor, Color.FromRgb(0xFF, 0xFF, 0xFF));
+
+            if (string.IsNullOrWhiteSpace(l.BarColor))
+            {
+                Bar.SetResourceReference(Border.BackgroundProperty, "PrimaryDarkBrush");
+            }
+            else
+            {
+                Bar.Background = ThemeHelper.Brush(l.BarColor, Color.FromRgb(0x1E, 0x3A, 0x6B));
+            }
+        }
+        catch { }
     }
 
     private void OnLayoutChanged(PanelLayout? schedule, PanelLayout? notification)
@@ -158,6 +239,7 @@ public partial class NotificationWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        if (_hider == null) SavePlacement();   // 自动隐藏态下窗口在屏外，别把屏外坐标存进去
         _hider?.Dispose();
         _danmakuTimer?.Stop();
         AppEvents.NotificationChanged -= StartMarquee;

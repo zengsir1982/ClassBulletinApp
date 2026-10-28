@@ -52,12 +52,6 @@ public partial class LayoutWindow : Window
     private void LoadValues()
     {
         var sl = _s.ScheduleLayout;
-        CbSchAnchor.SelectedIndex = sl.Anchor switch
-        {
-            "Left" => 0, "Right" => 1, "Top" => 2, "Bottom" => 3, _ => 4
-        };
-        SlSchWidth.Value = sl.Width;
-        SlSchHeight.Value = sl.Height;
         SlSchOpacity.Value = sl.Opacity;
         SlSchOverlay.Value = sl.OverlayOpacity;
         ChkSchTop.IsChecked = sl.TopMost;
@@ -68,10 +62,6 @@ public partial class LayoutWindow : Window
         SlSchEdge.Value = Math.Clamp(sl.EdgeTrigger, SlSchEdge.Minimum, SlSchEdge.Maximum);
 
         var nl = _s.NotificationLayout;
-        CbNotAnchor.SelectedIndex = nl.Anchor == "Bottom" ? 1 : 0;
-        SlNotHeight.Value = nl.Height;
-        SlNotWidth.Value = nl.Width;
-        CbNotHAnchor.SelectedIndex = nl.HAnchor switch { "Left" => 0, "Right" => 2, _ => 1 };
         SlNotFont.Value = nl.FontSize;
         SlNotSpeed.Value = nl.MarqueeSpeed;
         SlNotOpacity.Value = nl.Opacity;
@@ -86,14 +76,8 @@ public partial class LayoutWindow : Window
 
     private void WireLabels()
     {
-        SlSchWidth.ValueChanged += (_, _) => TxtSchWidth.Text = $"{SlSchWidth.Value:0} 像素";
-        SlSchHeight.ValueChanged += (_, _) => TxtSchHeight.Text = $"{SlSchHeight.Value:0} 像素";
         SlSchOpacity.ValueChanged += (_, _) => TxtSchOpacity.Text = $"{SlSchOpacity.Value:0%}";
         SlSchOverlay.ValueChanged += (_, _) => TxtSchOverlay.Text = $"{SlSchOverlay.Value:0%}";
-        SlNotHeight.ValueChanged += (_, _) => TxtNotHeight.Text = $"{SlNotHeight.Value:0} 像素";
-        SlNotWidth.ValueChanged += (_, _) => TxtNotWidth.Text = SlNotWidth.Value <= 0
-            ? "0 = 整屏宽（横跨整个屏幕）"
-            : $"{SlNotWidth.Value:0} 像素";
         SlNotFont.ValueChanged += (_, _) => TxtNotFont.Text = $"{SlNotFont.Value:0} 号";
         SlNotSpeed.ValueChanged += (_, _) => TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
         SlNotOpacity.ValueChanged += (_, _) => TxtNotOpacity.Text = $"{SlNotOpacity.Value:0%}";
@@ -108,17 +92,30 @@ public partial class LayoutWindow : Window
         SlNotEdge.ValueChanged += (_, _) => TxtNotEdge.Text = $"{SlNotEdge.Value:0} 像素";
 
         WireLivePreview();
+        RefreshValueLabels();   // 打开窗口时先按当前值填一遍数值提示（否则要拖动滑块才出现）
+    }
+
+    /// <summary>按滑块当前值刷新右下角的数值 / 说明文字。</summary>
+    private void RefreshValueLabels()
+    {
+        TxtSchOpacity.Text = $"{SlSchOpacity.Value:0%}";
+        TxtSchOverlay.Text = $"{SlSchOverlay.Value:0%}";
+        TxtNotFont.Text = $"{SlNotFont.Value:0} 号";
+        TxtNotSpeed.Text = $"{SlNotSpeed.Value:0} 像素/秒";
+        TxtNotOpacity.Text = $"{SlNotOpacity.Value:0%}";
+        TxtNotOverlay.Text = $"{SlNotOverlay.Value:0%}";
+        TxtSchPeek.Text = SlSchPeek.Value <= 0 ? "0 像素 · 完全移出屏幕（推荐）" : $"{SlSchPeek.Value:0} 像素（保留一条可点的细边）";
+        TxtSchEdge.Text = $"{SlSchEdge.Value:0} 像素";
+        TxtNotPeek.Text = SlNotPeek.Value <= 0 ? "0 像素 · 完全移出屏幕（推荐）" : $"{SlNotPeek.Value:0} 像素（保留一条可点的细边）";
+        TxtNotEdge.Text = $"{SlNotEdge.Value:0} 像素";
     }
 
     /// <summary>把界面控件当前值同步进内存设置对象 _s（不落盘）。实时预览与「保存并应用」共用，
-    /// 保证 RaisedLayoutChanged 传出去的布局对象携带滑块最新值，悬浮窗才能即时变化。</summary>
+    /// 保证 RaisedLayoutChanged 传出去的布局对象携带最新值，悬浮窗才能即时变化。
+    /// 注意：位置 / 大小不在这里同步——它们只由用户直接拖动窗口写入（所见即所得）。</summary>
     private void SyncControlsToSettings()
     {
         var sl = _s.ScheduleLayout;
-        sl.Anchor = CbSchAnchor.SelectedIndex switch { 0 => "Left", 1 => "Right", 2 => "Top", 3 => "Bottom", _ => "Center" };
-        sl.Width = SlSchWidth.Value;
-        sl.FullWidth = false;   // 宽度已完全由滑块（Width）决定
-        sl.Height = SlSchHeight.Value;
         sl.Opacity = SlSchOpacity.Value;
         sl.OverlayOpacity = SlSchOverlay.Value;
         sl.TopMost = ChkSchTop.IsChecked == true;
@@ -129,11 +126,6 @@ public partial class LayoutWindow : Window
         sl.EdgeTrigger = SlSchEdge.Value;
 
         var nl = _s.NotificationLayout;
-        nl.Anchor = CbNotAnchor.SelectedIndex == 1 ? "Bottom" : "Top";
-        nl.Height = SlNotHeight.Value;
-        nl.Width = SlNotWidth.Value;
-        nl.FullWidth = false;   // 宽度已完全由滑块（Width）决定，清除历史遗留的整屏宽强制开关
-        nl.HAnchor = CbNotHAnchor.SelectedIndex switch { 0 => "Left", 2 => "Right", _ => "Center" };
         nl.FontSize = SlNotFont.Value;
         nl.MarqueeSpeed = SlNotSpeed.Value;
         nl.Opacity = SlNotOpacity.Value;
@@ -146,8 +138,8 @@ public partial class LayoutWindow : Window
         nl.EdgeTrigger = SlNotEdge.Value;
     }
 
-    /// <summary>拖动课表 / 通知的尺寸、透明度、锚点等时，实时让已打开的悬浮窗同步（所见即所得）。
-    /// 先同步控件值到 _s，再把内存中正在编辑的布局对象传过去，避免悬浮窗每次都重新读盘拿不到最新滑块值。</summary>
+    /// <summary>拖动透明度 / 字号 / 自动隐藏参数时，实时让已打开的悬浮窗同步（所见即所得）。
+    /// 先同步控件值到 _s，再把内存中正在编辑的布局对象传过去，避免悬浮窗每次都重新读盘拿不到最新值。</summary>
     private void WireLivePreview()
     {
         void Preview(object? _, EventArgs __)
@@ -156,24 +148,42 @@ public partial class LayoutWindow : Window
             AppEvents.RaiseLayoutChanged(_s.ScheduleLayout, _s.NotificationLayout);
         }
 
-        SlSchWidth.ValueChanged += Preview;
-        SlSchHeight.ValueChanged += Preview;
         SlSchOpacity.ValueChanged += Preview;
         SlSchOverlay.ValueChanged += Preview;
         SlSchPeek.ValueChanged += Preview;
         SlSchEdge.ValueChanged += Preview;
-        CbSchAnchor.SelectionChanged += Preview;
 
-        SlNotHeight.ValueChanged += Preview;
-        SlNotWidth.ValueChanged += Preview;
         SlNotFont.ValueChanged += Preview;
         SlNotSpeed.ValueChanged += Preview;
         SlNotOpacity.ValueChanged += Preview;
         SlNotOverlay.ValueChanged += Preview;
         SlNotPeek.ValueChanged += Preview;
         SlNotEdge.ValueChanged += Preview;
-        CbNotAnchor.SelectionChanged += Preview;
-        CbNotHAnchor.SelectionChanged += Preview;
+    }
+
+    // ---------- 找不到窗口时的兜底：放回屏幕正中央 ----------
+    private void BtnSchCenter_Click(object sender, RoutedEventArgs e)
+    {
+        var sa = SystemParameters.WorkArea;
+        var sl = _s.ScheduleLayout;
+        sl.Width = Math.Clamp(sl.Width > 0 ? sl.Width : 420, 220, Math.Max(220, sa.Width));
+        sl.Height = Math.Clamp(sl.Height > 0 ? sl.Height : 760, 200, Math.Max(200, sa.Height));
+        sl.Left = sa.Left + Math.Max(0, (sa.Width - sl.Width) / 2);
+        sl.Top = sa.Top + Math.Max(0, (sa.Height - sl.Height) / 2);
+        Store.SaveSettings(_s);
+        AppEvents.RaiseLayoutChanged();
+    }
+
+    private void BtnNotCenter_Click(object sender, RoutedEventArgs e)
+    {
+        var sa = SystemParameters.WorkArea;
+        var nl = _s.NotificationLayout;
+        nl.Width = Math.Clamp(nl.Width > 0 ? nl.Width : 980, 220, Math.Max(220, sa.Width));
+        nl.Height = Math.Clamp(nl.Height > 0 ? nl.Height : 82, 44, Math.Max(44, sa.Height));
+        nl.Left = sa.Left + Math.Max(0, (sa.Width - nl.Width) / 2);
+        nl.Top = sa.Top + Math.Max(0, (sa.Height - nl.Height) / 2);
+        Store.SaveSettings(_s);
+        AppEvents.RaiseLayoutChanged();
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)

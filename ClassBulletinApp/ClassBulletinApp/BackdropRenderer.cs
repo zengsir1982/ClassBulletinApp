@@ -357,6 +357,41 @@ public static class BackdropRenderer
     // ---------- 作业公示便签 ----------
 
     /// <summary>解析文本颜色（#RRGGBB）；为空或非法时返回默认色。</summary>
+    // ---------- 控制面板预览：把便签渲染成位图 ----------
+    /// <summary>作业公示便签预览图（与桌面便签 / 悬浮便签同一套渲染，所见即所得）。</summary>
+    internal static BitmapSource RenderHomeworkPreview(HomeworkBoard board, double width = 320, double maxHeight = 400)
+    {
+        double scale = Math.Max(0.35, width / 760.0);
+        var card = BuildHomeworkCard(board, scale, v => Math.Max(11, v * scale));
+        return RenderCardBitmap(card, width, maxHeight);
+    }
+
+    /// <summary>缺交作业名单便签预览图。</summary>
+    internal static BitmapSource RenderMissingPreview(MissingBoard board, double width = 320, double maxHeight = 400)
+    {
+        double scale = Math.Max(0.35, width / 760.0);
+        var card = BuildMissingCard(board, scale, v => Math.Max(11, v * scale));
+        return RenderCardBitmap(card, width, maxHeight);
+    }
+
+    /// <summary>把一张便签卡片排版成指定宽度后渲染为位图（超出最大高度时裁切）。</summary>
+    private static BitmapSource RenderCardBitmap(FrameworkElement card, double width, double maxHeight)
+    {
+        card.Width = width;
+        card.Measure(new Size(width, double.PositiveInfinity));
+        double h = Math.Min(Math.Max(40, card.DesiredSize.Height), maxHeight);
+        card.Arrange(new Rect(0, 0, width, h));
+        card.UpdateLayout();
+        card.Clip = new RectangleGeometry(new Rect(0, 0, width, h));
+
+        int pw = Math.Max(1, (int)Math.Ceiling(width));
+        int ph = Math.Max(1, (int)Math.Ceiling(h));
+        var rtb = new RenderTargetBitmap(pw, ph, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(card);
+        rtb.Freeze();
+        return rtb;
+    }
+
     private static Color ParseHwColor(string? hex, Color fallback)
     {
         if (string.IsNullOrWhiteSpace(hex)) return fallback;

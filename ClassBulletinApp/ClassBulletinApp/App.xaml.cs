@@ -51,13 +51,13 @@ public partial class App : System.Windows.Application
                     Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => frame.Continue = false));
                     Dispatcher.PushFrame(frame);
 
-                    var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
-                    bool onScreen = area.HasValue &&
-                        w.Left >= area.Value.Left - 2 && w.Top >= area.Value.Top - 2 &&
-                        w.Left + w.Width <= area.Value.Right + 2 && w.Top + w.Height <= area.Value.Bottom + 2;
+                    var area = FloatingHelper.WorkAreaDip(w);
+                    // 全部按逻辑像素（DIP）比较：WinForms 的 WorkingArea 是物理像素，125% 缩放下直接比会误判
+                    bool onScreen = w.Left >= area.Left - 2 && w.Top >= area.Top - 2 &&
+                        w.Left + w.Width <= area.Right + 2 && w.Top + w.Height <= area.Bottom + 2;
                     sb.AppendLine($"{name}: Visible={w.IsVisible} Left={w.Left:0} Top={w.Top:0} " +
                         $"W={w.Width:0} H={w.Height:0} Actual={w.ActualWidth:0}x{w.ActualHeight:0} " +
-                        $"OnPrimary={onScreen}");
+                        $"OnScreen={onScreen} Area(DIP)={area.Left:0},{area.Top:0} {area.Width:0}x{area.Height:0}");
                     try { w.Close(); } catch { }
                 }
                 catch (Exception ex)
@@ -84,6 +84,15 @@ public partial class App : System.Windows.Application
                     "editor" => new BackdropEditorWindow(),
                     "homeworkedit" => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()),
                     "missingedit" => new MissingEditWindow(Store.LoadMissingBoard()),
+                    "schedulewin" => new ScheduleWindow(),
+                    "notifywin" => new NotificationWindow(),
+                    "homeworkwin" => new HomeworkWindow(),
+                    "missingwin" => new MissingWindow(),
+                    "main" => new MainWindow(),
+                    "mainnotice" => new MainWindow { InitialTabIndex = 4 },
+                    "mainhw" => new MainWindow { InitialTabIndex = 5 },
+                    "layout0" => new LayoutWindow { InitialTabIndex = 0 },
+                    "layout1" => new LayoutWindow { InitialTabIndex = 1 },
                     _ => new LayoutWindow { InitialTabIndex = 2 }
                 };
                 w0.WindowStartupLocation = WindowStartupLocation.Manual;

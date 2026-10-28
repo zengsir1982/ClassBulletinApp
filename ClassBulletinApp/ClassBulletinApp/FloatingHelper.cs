@@ -98,40 +98,179 @@ public static class FloatingHelper
     /// <summary>
     /// 按锚点把窗口贴到屏幕对应边/角，并设置尺寸与透明度、置顶、穿透。
     /// clickThrough / opacity 为 null 时使用布局中的默认值；置顶显示态可传入覆盖值。
+    /// 布局里有自由坐标（用户拖动过）时直接用该坐标，不再按锚点贴边。
     /// </summary>
     public static void ApplyLayout(Window w, PanelLayout l, bool? clickThrough = null, double? opacity = null)
     {
         var sa = SystemParameters.WorkArea;
-        // 宽度完全由布局里的 Width 决定：>0 用该宽度，<=0 才回退整屏宽（宽度滑块 = 唯一决定因素，
-        // 不再让历史遗留的 FullWidth 开关强制盖过滑块，否则用户永远调不动宽度）。
         double wW = l.Width > 0 ? l.Width : sa.Width;
         double wH = l.Height > 0 ? l.Height : sa.Height;
 
-        double left, top;
-        switch (l.Anchor)
+        // 尺寸先收进当前屏幕（防止历史存档里的超大尺寸把窗口撑出屏幕）
+        var area = w.IsLoaded ? WorkAreaDip(w) : sa;
+        wW = Math.Clamp(wW, 120, Math.Max(120, area.Width));
+        wH = Math.Clamp(wH, 60, Math.Max(60, area.Height));
+
+        if (l.HasFreePosition)
         {
-            case "Left":
-                left = sa.Left; top = sa.Top + (sa.Height - wH) / 2; break;
-            case "Right":
-                left = sa.Right - wW; top = sa.Top + (sa.Height - wH) / 2; break;
-            case "Top":
-                top = sa.Top; wW = l.Width > 0 ? l.Width : sa.Width;
-                left = HLeft(l, sa, wW); break;
-            case "Bottom":
-                top = sa.Bottom - wH; wW = l.Width > 0 ? l.Width : sa.Width;
-                left = HLeft(l, sa, wW); break;
-            default: // Center
-                left = sa.Left + (sa.Width - wW) / 2;
-                top = sa.Top + (sa.Height - wH) / 2; break;
+            var r = new Rect(l.Left!.Value, l.Top!.Value, wW, wH);
+            r = ClampRectDip(w, r);
+            w.Left = r.X; w.Top = r.Y; w.Width = r.Width; w.Height = r.Height;
+        }
+        else
+        {
+            double left, top;
+            switch (l.Anchor)
+            {
+                case "Left":
+                    left = sa.Left; top = sa.Top + (sa.Height - wH) / 2; break;
+                case "Right":
+                    left = sa.Right - wW; top = sa.Top + (sa.Height - wH) / 2; break;
+                case "Top":
+                    top = sa.Top;
+                    left = HLeft(l, sa, wW); break;
+                case "Bottom":
+                    top = sa.Bottom - wH;
+                    left = HLeft(l, sa, wW); break;
+                default: // Center
+                    left = sa.Left + (sa.Width - wW) / 2;
+                    top = sa.Top + (sa.Height - wH) / 2; break;
+            }
+            w.Left = left;
+            w.Top = top;
+            w.Width = wW;
+            w.Height = wH;
         }
 
-        w.Left = left;
-        w.Top = top;
-        w.Width = wW;
-        w.Height = wH;
         w.Opacity = Math.Clamp(opacity ?? l.Opacity, 0.2, 1.0);
         w.Topmost = l.TopMost;
         // 鼠标穿透与可交互元素由各窗口在 ApplyLayout 后单独调用 SetClickThrough 设置
+    }
+
+    // ---------- DPI 感知的屏幕工作区 / 收屏 / 居中 ----------
+    // 关键：WinForms 的 Screen.WorkingArea 是「物理像素」，而 WPF 的 Left/Top/Width 是「逻辑像素」。
+    // 125% / 150% 缩放下两者差一个缩放系数，混用会把窗口算到屏幕外（便签「开启后不出现」的根因）。
+
+    /// <summary>窗口当前所在显示器的 DPI 缩放系数（1.0 = 96 DPI）。</summary>
+    private static double DpiScale(Visual v)
+    {
+        try
+        {
+            var dpi = VisualTreeHelper.GetDpi(v);
+            return dpi.DpiScaleX <= 0 ? 1.0 : dpi.DpiScaleX;
+        }
+        catch { return 1.0; }
+    }
+
+    /// <summary>窗口所在屏幕的工作区（逻辑像素）。</summary>
+    public static Rect WorkAreaDip(Window w)
+    {
+        try
+        {
+            double k = DpiScale(w);
+            double dl = double.IsNaN(w.Left) ? 0 : w.Left;
+            double dt = double.IsNaN(w.Top) ? 0 : w.Top;
+            double dw = w.Width > 0 && !double.IsNaN(w.Width) ? w.Width : 400;
+            double dh = w.Height > 0 && !double.IsNaN(w.Height) ? w.Height : 400;
+            var phys = new System.Drawing.Rectangle(
+                (int)Math.Round(dl * k), (int)Math.Round(dt * k),
+                (int)Math.Round(dw * k), (int)Math.Round(dh * k));
+            var scr = System.Windows.Forms.Screen.FromRectangle(phys)
+                      ?? System.Windows.Forms.Screen.PrimaryScreen;
+            if (scr == null) return SystemParameters.WorkArea;
+            var a = scr.WorkingArea;
+            return new Rect(a.Left / k, a.Top / k, a.Width / k, a.Height / k);
+        }
+        catch { return SystemParameters.WorkArea; }
+    }
+
+    /// <summary>把矩形完整收进窗口所在屏幕的工作区（逻辑像素，四边都拦）。</summary>
+    public static Rect ClampRectDip(Window w, Rect r)
+    {
+        try
+        {
+            var a = WorkAreaDip(w);
+            double width = Math.Min(r.Width, a.Width);
+            double height = Math.Min(r.Height, a.Height);
+            double x = Math.Clamp(r.X, a.Left, Math.Max(a.Left, a.Right - width));
+            double y = Math.Clamp(r.Y, a.Top, Math.Max(a.Top, a.Bottom - height));
+            return new Rect(x, y, width, height);
+        }
+        catch { return r; }
+    }
+
+    /// <summary>
+    /// 窗口当前是否大部分（默认 55%）落在所在屏幕工作区内。
+    /// 用于判断「存档坐标是否还有效」以及「此刻的窗口位置是否值得保存」（自动隐藏态窗口在屏外，不该存）。
+    /// </summary>
+    public static bool IsMostlyOnScreen(Window w, double minRatio = 0.55)
+    {
+        try
+        {
+            if (double.IsNaN(w.Left) || double.IsNaN(w.Top) || w.Width <= 0 || w.Height <= 0) return false;
+            var area = WorkAreaDip(w);
+            var r = new Rect(w.Left, w.Top, w.Width, w.Height);
+            var inter = Rect.Intersect(r, area);
+            if (inter.IsEmpty || inter.Width <= 0 || inter.Height <= 0) return false;
+            return inter.Width * inter.Height >= Math.Max(1, r.Width * r.Height) * minRatio;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>把已显示的窗口收回屏幕内（尺寸不超过屏幕）。</summary>
+    public static void ClampToScreen(Window w)
+    {
+        try
+        {
+            var r = ClampRectDip(w, new Rect(w.Left, w.Top, w.Width, w.Height));
+            if (Math.Abs(r.X - w.Left) > 0.5) w.Left = r.X;
+            if (Math.Abs(r.Y - w.Top) > 0.5) w.Top = r.Y;
+            if (r.Width < w.Width) w.Width = r.Width;
+            if (r.Height < w.Height) w.Height = r.Height;
+        }
+        catch { }
+    }
+
+    /// <summary>把窗口摆到所在屏幕（无窗口位置时用主屏）的正中央。</summary>
+    public static void CenterOnScreen(Window w)
+    {
+        try
+        {
+            var a = WorkAreaDip(w);
+            w.Left = a.Left + Math.Max(0, (a.Width - w.Width) / 2);
+            w.Top = a.Top + Math.Max(0, (a.Height - w.Height) / 2);
+        }
+        catch { }
+    }
+
+    /// <summary>窗口离哪条屏幕边最近（供自动隐藏选择滑出方向）。</summary>
+    public static string NearestAnchor(Window w)
+    {
+        try
+        {
+            var a = WorkAreaDip(w);
+            double cx = w.Left + w.Width / 2, cy = w.Top + w.Height / 2;
+            double dl = cx - a.Left, dr = a.Right - cx, dt = cy - a.Top, db = a.Bottom - cy;
+            double min = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
+            if (min == dl) return "Left";
+            if (min == dr) return "Right";
+            if (min == dt) return "Top";
+            return "Bottom";
+        }
+        catch { return "Right"; }
+    }
+
+    /// <summary>把窗口提到最前但不改变用户的「置顶」偏好（先置顶再还原）。</summary>
+    public static void BringToFront(Window w)
+    {
+        try
+        {
+            bool wasTop = w.Topmost;
+            w.Topmost = true;
+            w.Topmost = wasTop;
+            w.Activate();
+        }
+        catch { }
     }
 
     /// <summary>顶部 / 底部通知条的水平左坐标（按 HAnchor 居左 / 居中 / 居右）。</summary>
@@ -197,35 +336,42 @@ public class AutoHider : IDisposable
         var sa = SystemParameters.WorkArea;
         double wW = _l.Width > 0 ? _l.Width : sa.Width;
         double wH = _l.Height > 0 ? _l.Height : sa.Height;
+
+        // 工作区按「窗口所在屏幕 + DPI 换算后的逻辑像素」取，避免 125% 缩放下算到屏幕外
+        var area = FloatingHelper.WorkAreaDip(_w);
+        wW = Math.Clamp(wW, 120, Math.Max(120, area.Width));
+        wH = Math.Clamp(wH, 60, Math.Max(60, area.Height));
         _w.Width = wW;
         _w.Height = wH;
 
         double peek = Math.Clamp(_l.EdgePeek, 0, MaxPeek);
         double hLeft = FloatingHelper.HLeft(_l, sa, wW);
 
-        switch (_l.Anchor)
+        // 展开位置：拖动过就用自由坐标，否则按锚点贴边
+        if (_l.HasFreePosition)
         {
-            case "Left":
-                _shown = new Rect(sa.Left, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Left - (wW - peek), _shown.Y, wW, wH);
-                break;
-            case "Right":
-                _shown = new Rect(sa.Right - wW, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = new Rect(sa.Right - peek, _shown.Y, wW, wH);
-                break;
-            case "Top":
-                _shown = new Rect(hLeft, sa.Top, wW, wH);
-                _hidden = new Rect(hLeft, sa.Top - (wH - peek), wW, wH);
-                break;
-            case "Bottom":
-                _shown = new Rect(hLeft, sa.Bottom - wH, wW, wH);
-                _hidden = new Rect(hLeft, sa.Bottom - peek, wW, wH);
-                break;
-            default:
-                _shown = new Rect(sa.Left + (sa.Width - wW) / 2, sa.Top + (sa.Height - wH) / 2, wW, wH);
-                _hidden = _shown;
-                break;
+            _shown = FloatingHelper.ClampRectDip(_w, new Rect(_l.Left!.Value, _l.Top!.Value, wW, wH));
         }
+        else
+        {
+            _shown = _l.Anchor switch
+            {
+                "Left" => new Rect(area.Left, area.Top + (area.Height - wH) / 2, wW, wH),
+                "Right" => new Rect(area.Right - wW, area.Top + (area.Height - wH) / 2, wW, wH),
+                "Top" => new Rect(hLeft, area.Top, wW, wH),
+                "Bottom" => new Rect(hLeft, area.Bottom - wH, wW, wH),
+                _ => new Rect(area.Left + (area.Width - wW) / 2, area.Top + (area.Height - wH) / 2, wW, wH)
+            };
+        }
+
+        _hidden = _l.Anchor switch
+        {
+            "Left" => new Rect(area.Left - (wW - peek), _shown.Y, wW, wH),
+            "Right" => new Rect(area.Right - peek, _shown.Y, wW, wH),
+            "Top" => new Rect(_shown.X, area.Top - (wH - peek), wW, wH),
+            "Bottom" => new Rect(_shown.X, area.Bottom - peek, wW, wH),
+            _ => _shown
+        };
     }
 
     /// <summary>全局光标是否落在屏幕对应边沿的感应区内（物理像素比较，含触摸指针）。</summary>

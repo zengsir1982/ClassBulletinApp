@@ -6,8 +6,17 @@ namespace ScheduleCore.Models;
 /// </summary>
 public class PanelLayout
 {
-    /// <summary>屏幕锚点位置。</summary>
+    /// <summary>屏幕锚点位置（仅在没有自由坐标时作为回退；同时决定自动隐藏往哪条屏幕边滑出）。</summary>
     public string Anchor { get; set; } = "Right";
+
+    /// <summary>
+    /// 自由摆放的左上角 X（逻辑像素，可直接由鼠标拖动窗口写入）。
+    /// 为 null 表示还没有拖动过，此时按 Anchor 贴边定位。
+    /// </summary>
+    public double? Left { get; set; }
+
+    /// <summary>自由摆放的左上角 Y（逻辑像素）。</summary>
+    public double? Top { get; set; }
 
     /// <summary>窗口逻辑宽度（像素）。&gt;0 时即为窗口宽度；&lt;=0 时回退整屏宽（宽度滑块 = 唯一决定因素）。</summary>
     public double Width { get; set; } = 400;
@@ -60,6 +69,19 @@ public class PanelLayout
     /// <summary>通知字幕字号。</summary>
     public double FontSize { get; set; } = 28;
 
+    /// <summary>通知字幕字体（留空 = 系统默认微软雅黑）。</summary>
+    public string FontFamily { get; set; } = "";
+
+    /// <summary>通知字幕文字颜色（#RRGGBB，留空 = 白色）。</summary>
+    public string TextColor { get; set; } = "";
+
+    /// <summary>通知条背景色（#RRGGBB，留空 = 跟随界面主题的深色）。</summary>
+    public string BarColor { get; set; } = "";
+
     /// <summary>通知字幕滚动速度（像素/秒）。</summary>
     public double MarqueeSpeed { get; set; } = 120;
+
+    /// <summary>是否已由用户拖动过（有自由坐标）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasFreePosition => Left.HasValue && Top.HasValue;
 }

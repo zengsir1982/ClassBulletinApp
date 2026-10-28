@@ -25,3 +25,7 @@ installer/Output/
 Thumbs.db
 Desktop.ini
 .DS_Store
+# 误建的空文件（Windows 保留名）
+nul
+# 临时导入的个人课程表
+某某老师-教师课程表2.xlsx

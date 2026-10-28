@@ -43,14 +43,23 @@ public partial class MainWindow : Window
 
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
-    public ObservableCollection<HomeworkItem> HomeworkItems { get; } = new();
+
+    /// <summary>打开时默认选中的标签页下标（0=周课程表,1=数据管理,2=显示设置,3=提醒设置,4=通知公告,5=作业公示）。
+    /// 与 LayoutWindow 一样必须走属性 setter：对象初始化器的赋值发生在构造函数之后。</summary>
+    public int InitialTabIndex
+    {
+        set
+        {
+            if (MainTabs != null && MainTabs.Items.Count > 0)
+                MainTabs.SelectedIndex = Math.Clamp(value, 0, MainTabs.Items.Count - 1);
+        }
+    }
 
     public MainWindow()
     {
         InitializeComponent();
         CbClass.ItemsSource = ClassNames;
         NotificationsPanel.ItemsSource = Notifications;
-        HwItems.ItemsSource = HomeworkItems;
 
         // 桌面最大化窗口监视（2 秒轮询，开销极小）
         _winTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -82,6 +91,7 @@ public partial class MainWindow : Window
             ReloadNotes();
             ReloadHomework();
             ReloadMissing();
+            ReloadNotifStyle();
             PopulateThemeCombo(settings.Theme);
             RefreshTeacherCombo();
             UpdateModeIndicator();
@@ -182,11 +192,9 @@ public partial class MainWindow : Window
             _hwWin.Closed += (_, _) => { _hwWin = null; _hwOn = false; UpdateToggleLabels(); };
         }
         _hwWin.Show();
-        // 临时置顶再还原偏好，确保便签一定能出现在最前（不被控制面板或其它窗口盖住）
-        bool wasTop = _hwWin.Topmost;
-        _hwWin.Topmost = true;
-        _hwWin.Topmost = wasTop;
-        _hwWin.Activate();
+        // 先收屏再提到最前，确保便签一定出现在桌面可见区域内（不被控制面板 / 全屏展示盖住）
+        FloatingHelper.ClampToScreen(_hwWin);
+        FloatingHelper.BringToFront(_hwWin);
         _hwOn = true;
         UpdateToggleLabels();
     }
@@ -206,10 +214,8 @@ public partial class MainWindow : Window
             _msWin.Closed += (_, _) => { _msWin = null; _msOn = false; UpdateToggleLabels(); };
         }
         _msWin.Show();
-        bool wasTop = _msWin.Topmost;
-        _msWin.Topmost = true;
-        _msWin.Topmost = wasTop;
-        _msWin.Activate();
+        FloatingHelper.ClampToScreen(_msWin);
+        FloatingHelper.BringToFront(_msWin);
         _msOn = true;
         UpdateToggleLabels();
     }
@@ -226,6 +232,7 @@ public partial class MainWindow : Window
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
         if (BtnToggleHw != null) BtnToggleHw.Content = _hwOn ? "作业悬浮：开" : "作业悬浮：关";
+        if (BtnToggleHw2 != null) BtnToggleHw2.Content = _hwOn ? "隐藏作业便签" : "显示作业便签";
         if (BtnToggleMs != null) BtnToggleMs.Content = _msOn ? "缺交悬浮：开" : "缺交悬浮：关";
         if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
         UpdateModeIndicator();
@@ -490,53 +497,16 @@ public partial class MainWindow : Window
         if (_msOn) HideMissingWin(); else ShowMissingWin();
     }
 
-    // ---------- 缺交作业名单（独立便签） ----------
+    // ---------- 缺交作业名单（独立便签，内容 / 格式 / 主题都在弹窗里改） ----------
     private void ReloadMissing()
     {
         try
         {
             var mb = Store.LoadMissingBoard();   // 首次调用会从 homework.json 迁移旧缺交数据
-            LoadMsThemeCombo(mb.Theme);
-            UpdateMsWpButton();
+            ImgMsPreview.Source = BackdropRenderer.RenderMissingPreview(mb, 320, 380);
         }
         catch { }
-    }
-
-    private void LoadMsThemeCombo(string? currentTheme)
-    {
-        if (CbMsTheme == null) return;
-        if (CbMsTheme.ItemsSource == null)
-        {
-            CbMsTheme.ItemsSource = HomeworkThemes.Presets
-                .Select(t => new
-                {
-                    t.Name,
-                    Background = (System.Windows.Media.Brush)ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White)
-                })
-                .ToList();
-        }
-        CbMsTheme.SelectedIndex = HomeworkThemes.IndexOf(currentTheme);
-    }
-
-    private void CbMsTheme_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (CbMsTheme == null || CbMsTheme.SelectedIndex < 0) return;
-        int idx = CbMsTheme.SelectedIndex;
-        if (idx >= HomeworkThemes.Presets.Count) return;
-        try
-        {
-            var mb = Store.LoadMissingBoard();
-            mb.Theme = HomeworkThemes.Presets[idx].Key;
-            Store.SaveMissingBoard(mb);
-
-            if (Store.LoadSettings().Backdrop?.ShowMissing == true)
-                BackdropService.Apply(silent: true, out _);
-
-            AppEvents.RaiseMissingChanged();
-            AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "缺交名单主题已切换为「" + HomeworkThemes.Presets[idx].Name + "」";
-        }
-        catch { }
+        UpdateMsWpButton();
     }
 
     private void BtnEditMs_Click(object sender, RoutedEventArgs e)
@@ -567,7 +537,7 @@ public partial class MainWindow : Window
     {
         if (BtnMsWp == null) return;
         bool on = (Store.LoadSettings().Backdrop ?? new BackdropSettings()).ShowMissing;
-        BtnMsWp.Content = on ? "桌面背景：开" : "桌面背景：关";
+        BtnMsWp.Content = on ? "缺交→桌面背景：开" : "缺交→桌面背景：关";
         BtnMsWp.Background = on
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
             : System.Windows.Media.Brushes.White;
@@ -1212,6 +1182,137 @@ public partial class MainWindow : Window
     }
 
     // ---------- 通知 / 公告 ----------
+    // ---------- 通知条字体 / 背景（顶部字幕条统一外观，选中即生效） ----------
+    private sealed class NotifColorOption
+    {
+        public string Name { get; init; } = "";
+        public string Hex { get; init; } = "";
+        public System.Windows.Media.Brush Swatch { get; init; } = System.Windows.Media.Brushes.Transparent;
+    }
+
+    /// <summary>通知条外观控件是否已就绪（避免加载期 SelectionChanged 触发保存）。</summary>
+    private bool _notifStyleReady;
+
+    private static readonly string[] NotifFonts =
+    {
+        "Microsoft YaHei UI", "微软雅黑", "黑体", "宋体", "楷体", "仿宋", "等线", "Arial"
+    };
+
+    private static readonly string[] NotifSizes = { "20", "24", "28", "32", "36", "40", "48", "56", "64" };
+
+    private static NotifColorOption ColorOption(string name, string hex) => new()
+    {
+        Name = name,
+        Hex = hex,
+        Swatch = ThemeHelper.Brush(hex, System.Windows.Media.Colors.Gray)
+    };
+
+    private static List<NotifColorOption> NotifTextColorOptions() => new()
+    {
+        ColorOption("白色", "#FFFFFF"),
+        ColorOption("亮黄", "#FFE9A8"),
+        ColorOption("天蓝", "#CFE6FF"),
+        ColorOption("浅绿", "#D5F5D8"),
+        ColorOption("粉色", "#FFD9E6"),
+        ColorOption("橙色", "#FFD8A8"),
+        ColorOption("深灰", "#2B2F36")
+    };
+
+    private static List<NotifColorOption> NotifBarColorOptions() => new()
+    {
+        new() { Name = "跟随主题", Hex = "", Swatch = ThemeHelper.Brush("#8A94A6", System.Windows.Media.Colors.Gray) },
+        ColorOption("深蓝", "#1B3A66"),
+        ColorOption("墨绿", "#10403B"),
+        ColorOption("深灰", "#2B2F36"),
+        ColorOption("酒红", "#5B1F2A"),
+        ColorOption("紫黑", "#2E2233"),
+        ColorOption("浅色", "#F2F5FA")
+    };
+
+    /// <summary>把设置里的字体 / 字号 / 字色 / 背景色同步到控件与预览条（不触发保存）。</summary>
+    private void ReloadNotifStyle()
+    {
+        var nl = Store.LoadSettings().NotificationLayout ?? new PanelLayout();
+        _notifStyleReady = false;
+        try
+        {
+            CbNotifFont.ItemsSource = NotifFonts;
+            string fam = string.IsNullOrWhiteSpace(nl.FontFamily) ? NotifFonts[0] : nl.FontFamily;
+            int fi = Array.IndexOf(NotifFonts, fam);
+            CbNotifFont.SelectedIndex = fi < 0 ? 0 : fi;
+
+            CbNotifSize.ItemsSource = NotifSizes;
+            int size = (int)Math.Round(nl.FontSize <= 0 ? 28 : nl.FontSize);
+            int si = Array.IndexOf(NotifSizes, size.ToString());
+            CbNotifSize.SelectedIndex = si < 0 ? 2 : si;   // 找不到就回到 28
+
+            var texts = NotifTextColorOptions();
+            CbNotifText.ItemsSource = texts;
+            int ti = texts.FindIndex(x => string.Equals(x.Hex, string.IsNullOrWhiteSpace(nl.TextColor) ? "#FFFFFF" : nl.TextColor, StringComparison.OrdinalIgnoreCase));
+            CbNotifText.SelectedIndex = ti < 0 ? 0 : ti;
+
+            var bars = NotifBarColorOptions();
+            CbNotifBg.ItemsSource = bars;
+            int bi = bars.FindIndex(x => string.Equals(x.Hex, nl.BarColor ?? "", StringComparison.OrdinalIgnoreCase));
+            CbNotifBg.SelectedIndex = bi < 0 ? 0 : bi;
+        }
+        finally
+        {
+            _notifStyleReady = true;
+            ApplyNotifPreview();
+        }
+    }
+
+    /// <summary>预览条与顶部通知字幕条用同一套字体 / 字号 / 颜色，改完立刻能看到效果。</summary>
+    private void ApplyNotifPreview()
+    {
+        try
+        {
+            var font = CbNotifFont.SelectedItem as string ?? NotifFonts[0];
+            NotifPreviewText.FontFamily = new System.Windows.Media.FontFamily(font);
+            NotifPreviewText.FontSize = ParseNotifSize(CbNotifSize.SelectedItem as string);
+            NotifPreviewText.Foreground = (CbNotifText.SelectedItem as NotifColorOption)?.Swatch
+                                          ?? System.Windows.Media.Brushes.White;
+
+            var bg = CbNotifBg.SelectedItem as NotifColorOption;
+            if (bg == null || string.IsNullOrEmpty(bg.Hex))
+                NotifPreview.SetResourceReference(Border.BackgroundProperty, "PrimaryDarkBrush");
+            else
+                NotifPreview.Background = ThemeHelper.Brush(bg.Hex, System.Windows.Media.Color.FromRgb(0x1B, 0x3A, 0x66));
+        }
+        catch { }
+    }
+
+    private static double ParseNotifSize(string? text)
+    {
+        double v = 28;
+        if (double.TryParse(text, out double d)) v = d;
+        return Math.Clamp(v, 14, 72);
+    }
+
+    private void NotifStyle_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_notifStyleReady) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.NotificationLayout ??= new PanelLayout();
+            s.NotificationLayout.FontFamily = CbNotifFont.SelectedItem as string ?? "";
+            s.NotificationLayout.FontSize = ParseNotifSize(CbNotifSize.SelectedItem as string);
+            s.NotificationLayout.TextColor = (CbNotifText.SelectedItem as NotifColorOption)?.Hex ?? "";
+            s.NotificationLayout.BarColor = (CbNotifBg.SelectedItem as NotifColorOption)?.Hex ?? "";
+            Store.SaveSettings(s);
+
+            ApplyNotifPreview();
+            AppEvents.RaiseLayoutChanged();   // 顶部字幕条立即换字体 / 颜色
+            TxtStatus.Text = "通知条字体与背景已更新。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "保存通知条外观失败：" + ex.Message;
+        }
+    }
+
     private void BtnAddNotice_Click(object sender, RoutedEventArgs e)
     {
         var title = TxtNewTitle.Text.Trim();
@@ -1273,75 +1374,26 @@ public partial class MainWindow : Window
         "BottomLeft", "BottomCenter", "BottomRight"
     };
 
+    // ---------- 作业公示（预览 + 弹窗编辑） ----------
+    /// <summary>刷新两张预览图：直接用桌面便签同一套渲染，所见即所得。</summary>
     private void ReloadHomework()
     {
-        var board = Store.LoadHomework();
-        HomeworkItems.Clear();
-        if (board != null)
-        {
-            TxtHwTitle.Text = board.Title;
-            foreach (var it in board.Items) HomeworkItems.Add(it);
-        }
-        else
-        {
-            TxtHwTitle.Text = "各科作业公示";
-        }
-        if (HomeworkItems.Count == 0)
-            HomeworkItems.Add(new HomeworkItem());
-
-        // 主题风格下拉：带色块预览
-        LoadHwThemeCombo(board?.Theme);
-    }
-
-    /// <summary>填充作业公示主题下拉（每项带主题底色色块），并选中当前主题。</summary>
-    private void LoadHwThemeCombo(string? currentTheme)
-    {
-        if (CbHwTheme == null) return;
-        if (CbHwTheme.ItemsSource == null)
-        {
-            CbHwTheme.ItemsSource = HomeworkThemes.Presets
-                .Select(t => new
-                {
-                    t.Name,
-                    Background = (System.Windows.Media.Brush)ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White)
-                })
-                .ToList();
-        }
-        CbHwTheme.SelectedIndex = HomeworkThemes.IndexOf(currentTheme);
-    }
-
-    private void CbHwTheme_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (CbHwTheme == null || CbHwTheme.SelectedIndex < 0) return;
-        int idx = CbHwTheme.SelectedIndex;
-        if (idx >= HomeworkThemes.Presets.Count) return;
         try
         {
             var board = Store.LoadHomework() ?? new HomeworkBoard();
-            board.Theme = HomeworkThemes.Presets[idx].Key;
-            Store.SaveHomework(board);
-
-            if (Store.LoadSettings().Backdrop?.ShowHomework == true)
-                BackdropService.Apply(silent: true, out _);
-
-            AppEvents.RaiseHomeworkChanged();
-            AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "作业公示主题已切换为「" + HomeworkThemes.Presets[idx].Name + "」";
+            ImgHwPreview.Source = BackdropRenderer.RenderHomeworkPreview(board, 320, 380);
         }
         catch { }
+        UpdateHwWpButton();
     }
 
-    /// <summary>打开作业编辑对话框（内容 / 格式 / 主题一并编辑）。</summary>
-    private void BtnEditHwFull_Click(object sender, RoutedEventArgs e)
+    /// <summary>「＋ 添加 / 编辑作业公示」：内容、文字格式、主题风格都在弹窗里完成。</summary>
+    private void BtnEditHw_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            // 先把本页当前内容落盘，避免打开编辑框时丢掉未保存的改动
-            var cur = BuildHomeworkBoard();
-            var disk = Store.LoadHomework();
-            cur.Missing = disk?.Missing ?? new();
-            cur.Theme = disk?.Theme ?? "classic";
-            Store.SaveHomework(cur);
+            var cur = Store.LoadHomework() ?? new HomeworkBoard();
+            if (cur.Items.Count == 0) cur.Items.Add(new HomeworkItem());   // 首次打开先给一行空行，填完直接确定
 
             var dlg = new HomeworkEditWindow(cur);
             if (dlg.ShowDialog() != true) return;
@@ -1354,7 +1406,7 @@ public partial class MainWindow : Window
             ReloadHomework();
             AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "作业内容与格式已更新（共 " + saved.Items.Count + " 科）";
+            TxtStatus.Text = "作业公示已保存（共 " + saved.Items.Count + " 科）";
         }
         catch (Exception ex)
         {
@@ -1362,89 +1414,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private HomeworkBoard BuildHomeworkBoard() => new()
+    /// <summary>同步「作业公示 → 桌面背景」按钮状态。</summary>
+    private void UpdateHwWpButton()
     {
-        Title = (TxtHwTitle.Text ?? "").Trim(),
-        Items = HomeworkItems
-            .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
-            .Select(x => new HomeworkItem
-            {
-                Subject = (x.Subject ?? "").Trim(),
-                Content = (x.Content ?? "").Trim(),
-                Bold = x.Bold,
-                Color = x.Color ?? "",
-                SizeLevel = x.SizeLevel
-            })
-            .ToList(),
-        Missing = Store.LoadHomework()?.Missing ?? new(),   // 缺交名单已独立存储，原样带回避免覆盖丢失
-        UpdatedAt = DateTime.Now,
-        Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()
-    };
+        if (BtnHwWp == null) return;
+        bool on = (Store.LoadSettings().Backdrop ?? new BackdropSettings()).ShowHomework;
+        BtnHwWp.Content = on ? "作业→桌面背景：开" : "作业→桌面背景：关";
+        BtnHwWp.Background = on
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+            : System.Windows.Media.Brushes.White;
+        BtnHwWp.Foreground = on ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black;
+    }
 
-    private void ApplyHomeworkWallpaper(bool silent)
+    private void BtnHwWp_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var board = BuildHomeworkBoard();
-            Store.SaveHomework(board);
-
-            var s = Store.LoadSettings();
-            s.Backdrop ??= new BackdropSettings();
-            s.Backdrop.ShowHomework = true;      // 「保存并应用」隐含要显示作业
-            s.Backdrop.HomeworkLayout = board.Layout;
-            Store.SaveSettings(s);
-
-            bool ok = BackdropService.Apply(silent, out string msg);
-            if (!silent)
-                TxtStatus.Text = ok ? $"{msg}（共 {board.Items.Count} 科作业）" : msg;
+            BackdropService.ToggleHomework(out string msg);
+            TxtStatus.Text = msg;
+            UpdateHwWpButton();
             UpdateTrayBackdropText();
-            AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
         {
-            if (!silent) TxtStatus.Text = "应用作业公示失败：" + ex.Message;
-        }
-    }
-
-    private void BtnHwPreview_Click(object sender, RoutedEventArgs e)
-    {
-        ApplyHomeworkWallpaper(silent: false);
-        WindowState = WindowState.Minimized;   // 最小化控制面板，便于看到壁纸效果
-    }
-
-    private void BtnAddHw_Click(object sender, RoutedEventArgs e)
-        => HomeworkItems.Add(new HomeworkItem());
-
-    private void BtnDelHw_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is System.Windows.Controls.Button b && b.Tag is HomeworkItem it)
-        {
-            HomeworkItems.Remove(it);
-            if (HomeworkItems.Count == 0) HomeworkItems.Add(new HomeworkItem());
-        }
-    }
-
-    private void BtnSaveHw_Click(object sender, RoutedEventArgs e) => ApplyHomeworkWallpaper(silent: false);
-
-    private void BtnClearHw_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var s = Store.LoadSettings();
-            s.Backdrop ??= new BackdropSettings();
-            s.Backdrop.ShowHomework = false;       // 仅关闭作业公示，不影响当天课表
-            Store.SaveSettings(s);
-
-            // 仍显示当天课表则重绘，否则两者皆关时自动恢复原壁纸
-            BackdropService.Apply(silent: true, out string msg);
-            TxtStatus.Text = "已清除作业公示壁纸" + (s.Backdrop.ShowSchedule ? "（当天课表仍保留在桌面背景）" : "，桌面壁纸已恢复。");
-            AppEvents.RaiseHomeworkChanged();
-            AppEvents.RaiseBackdropChanged();
-        }
-        catch (Exception ex)
-        {
-            TxtStatus.Text = "清除作业公示失败：" + ex.Message;
+            TxtStatus.Text = "切换作业桌面背景失败：" + ex.Message;
         }
     }
 
