@@ -37,6 +37,7 @@ public partial class NotificationWindow : Window
             if (_hider != null) _hider.Suspended = false;
             SavePlacement();
             ApplyCurrentLayout();
+            AppEvents.RaiseLayoutChanged();   // 自动隐藏开关变化后同步隐藏按钮标签等
         }
 
         FloatChrome.Enable(this, canInteract: () => !_clickThrough,
@@ -59,6 +60,18 @@ public partial class NotificationWindow : Window
             var s = Store.LoadSettings();
             var l = s.NotificationLayout ??= new PanelLayout();
             var clamped = FloatingHelper.ClampRectDip(this, new Rect(Left, Top, Width, Height));
+
+            // 仅当窗口位置确实发生移动时才据「是否贴边」自动切换自动隐藏，避免单纯改大小误触发。
+            bool moved = !l.Left.HasValue || !l.Top.HasValue
+                || Math.Abs(l.Left.Value - clamped.X) > 8
+                || Math.Abs(l.Top.Value - clamped.Y) > 8;
+            if (moved)
+            {
+                bool near = FloatingHelper.IsNearEdge(this);
+                l.AutoHide = near;
+                if (near) l.ClickThrough = false;   // 自动隐藏与鼠标穿透互斥
+            }
+
             l.Left = clamped.X;
             l.Top = clamped.Y;
             l.Width = clamped.Width;
@@ -71,6 +84,8 @@ public partial class NotificationWindow : Window
                 _layout.Left = l.Left; _layout.Top = l.Top;
                 _layout.Width = l.Width; _layout.Height = l.Height;
                 _layout.Anchor = l.Anchor;
+                _layout.AutoHide = l.AutoHide;
+                _layout.ClickThrough = l.ClickThrough;
             }
         }
         catch { }

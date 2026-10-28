@@ -257,18 +257,25 @@
                                     <TextBlock Text="通知条字体与背景" FontSize="16" FontWeight="Bold" Foreground="#1F2A37"/>
                                     <TextBlock Text="在下面选好字体 / 字号 / 字色 / 背景，顶部通知字幕条立即生效（对所有通知统一生效）。"
                                                FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,10"/>
-                                    <WrapPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                    <!-- 字体 / 字号 / 字色 / 背景 同一行排列，整齐美观 -->
+                                    <Grid Margin="0,6,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
                                             <TextBlock Text="字体" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifFont" Width="180" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                            <ComboBox x:Name="CbNotifFont" Width="140" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
                                             <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifSize" Width="90" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                            <ComboBox x:Name="CbNotifSize" Width="72" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,18,8">
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
                                             <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifText" Width="130" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                            <ComboBox x:Name="CbNotifText" Width="108" FontSize="14" SelectionChanged="NotifStyle_Changed">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <StackPanel Orientation="Horizontal" Margin="2">
@@ -279,9 +286,9 @@
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                                             <TextBlock Text="背景" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifBg" Width="150" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                            <ComboBox x:Name="CbNotifBg" Width="118" FontSize="14" SelectionChanged="NotifStyle_Changed">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <StackPanel Orientation="Horizontal" Margin="2">
@@ -292,7 +299,7 @@
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
                                         </StackPanel>
-                                    </WrapPanel>
+                                    </Grid>
                                     <!-- 实时预览：与顶部字幕条完全同一套字体 / 颜色 -->
                                     <Border x:Name="NotifPreview" CornerRadius="10" Padding="12,8" Margin="0,4,0,0">
                                         <TextBlock x:Name="NotifPreviewText" Text="预览：今天下午第 8 节后全校大扫除"

@@ -27,18 +27,8 @@
                         <Border Background="#EEF3FF" BorderBrush="#C9D6EC" BorderThickness="1" CornerRadius="10" Padding="14,12">
                             <StackPanel>
                                 <TextBlock Text="位置 / 大小：直接在屏幕上拖" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
-                                <TextBlock Text="按住悬浮课表的标题区（班级 / 日期那一块）拖动即可移动位置；把鼠标移到窗口边沿或四角，出现双向箭头时拖动即可改变大小。松手即自动记住，下次启动保持原位。勾选「自动靠边隐藏」时，窗口朝离它最近的屏幕边滑出。"
+                                <TextBlock Text="按住悬浮课表的标题区（班级 / 日期那一块）拖动即可移动位置；把鼠标移到窗口边沿或四角，出现双向箭头时拖动即可改变大小。松手即自动记住，下次启动保持原位。把窗口拖到屏幕边沿会自动开启「自动靠边隐藏」，拖离屏幕边沿则自动关闭。"
                                            FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,10"/>
-                                <Button x:Name="BtnSchCenter" Content="把悬浮课表放回屏幕中央"
-                                        Padding="12,7" FontSize="13" HorizontalAlignment="Left"
-                                        Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF"
-                                        Click="BtnSchCenter_Click"
-                                        ToolTip="窗口被拖到屏幕外或找不到时，点这里回到屏幕正中央"/>
-                                <Button x:Name="BtnQlManage" Content="管理应用快捷方式（图标 / 大小）"
-                                        Padding="12,7" FontSize="13" HorizontalAlignment="Left" Margin="10,0,0,0"
-                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                                        Click="BtnQlManage_Click"
-                                        ToolTip="在悬浮课表底部添加常用软件 / 文件夹，设置仅显示图标与图标大小"/>
                             </StackPanel>
                         </Border>
 
@@ -73,13 +63,8 @@
                         <Border Background="#EEF3FF" BorderBrush="#C9D6EC" BorderThickness="1" CornerRadius="10" Padding="14,12">
                             <StackPanel>
                                 <TextBlock Text="位置 / 大小：直接在屏幕上拖" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
-                                <TextBlock Text="按住通知条拖动即可移动位置（双击仍是编辑通知）；把鼠标移到条子边沿，出现双向箭头时拖动即可改变大小与条高。松手即自动记住。"
+                                <TextBlock Text="按住通知条拖动即可移动位置（双击仍是编辑通知）；把鼠标移到条子边沿，出现双向箭头时拖动即可改变大小与条高。松手即自动记住。把通知条拖到屏幕边沿会自动开启「自动靠边隐藏」，拖离屏幕边沿则自动关闭。"
                                            FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,10"/>
-                                <Button x:Name="BtnNotCenter" Content="把通知条放回屏幕中央"
-                                        Padding="12,7" FontSize="13" HorizontalAlignment="Left"
-                                        Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF"
-                                        Click="BtnNotCenter_Click"
-                                        ToolTip="通知条被拖到屏幕外或找不到时，点这里回到屏幕正中央"/>
                             </StackPanel>
                         </Border>
 

@@ -217,6 +217,38 @@ public static class FloatingHelper
         catch { return false; }
     }
 
+    /// <summary>「拖到屏幕边沿即开启自动隐藏」的判定阈值（逻辑像素）：窗口任一条边离屏幕工作区对应边沿 ≤ 此值即视为贴边。</summary>
+    public const double EdgeAutoHideThreshold = 28;
+
+    /// <summary>
+    /// 窗口是否贴近某条屏幕边（逻辑像素）。用于「拖动到屏幕边沿自动开启自动隐藏」：
+    /// 贴边=开，离边=关。取四条边的间隙最小值与阈值比较。
+    /// <para>注意全宽 / 全高窗口（如顶部通知条）：它左右恒为 0，若仍按四边取最小则永远判为贴边，
+    /// 「拖离边沿自动关闭」就失效。故铺满某个方向时，该方向的距离不参与判定。</para>
+    /// </summary>
+    public static bool IsNearEdge(Window w, double threshold = EdgeAutoHideThreshold)
+    {
+        try
+        {
+            if (double.IsNaN(w.Left) || double.IsNaN(w.Top) || w.Width <= 0 || w.Height <= 0) return false;
+            var a = WorkAreaDip(w);
+            double dl = w.Left - a.Left;
+            double dr = a.Right - (w.Left + w.Width);
+            double dt = w.Top - a.Top;
+            double db = a.Bottom - (w.Top + w.Height);
+
+            bool fullW = w.Width >= a.Width - 8;
+            bool fullH = w.Height >= a.Height - 8;
+            double min;
+            if (fullW && fullH) min = 0;                      // 铺满整屏：始终算贴边
+            else if (fullW) min = Math.Min(dt, db);           // 横向铺满：只看上下
+            else if (fullH) min = Math.Min(dl, dr);           // 纵向铺满：只看左右
+            else min = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
+            return min <= threshold;
+        }
+        catch { return false; }
+    }
+
     /// <summary>把已显示的窗口收回屏幕内（尺寸不超过屏幕）。</summary>
     public static void ClampToScreen(Window w)
     {

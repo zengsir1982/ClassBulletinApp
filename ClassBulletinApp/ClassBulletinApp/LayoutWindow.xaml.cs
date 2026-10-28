@@ -162,39 +162,8 @@ public partial class LayoutWindow : Window
     }
 
     // ---------- 找不到窗口时的兜底：放回屏幕正中央 ----------
-    private void BtnSchCenter_Click(object sender, RoutedEventArgs e)
-    {
-        var sa = SystemParameters.WorkArea;
-        var sl = _s.ScheduleLayout;
-        sl.Width = Math.Clamp(sl.Width > 0 ? sl.Width : 420, 220, Math.Max(220, sa.Width));
-        sl.Height = Math.Clamp(sl.Height > 0 ? sl.Height : 760, 200, Math.Max(200, sa.Height));
-        sl.Left = sa.Left + Math.Max(0, (sa.Width - sl.Width) / 2);
-        sl.Top = sa.Top + Math.Max(0, (sa.Height - sl.Height) / 2);
-        Store.SaveSettings(_s);
-        AppEvents.RaiseLayoutChanged();
-    }
-
-    private void BtnNotCenter_Click(object sender, RoutedEventArgs e)
-    {
-        var sa = SystemParameters.WorkArea;
-        var nl = _s.NotificationLayout;
-        nl.Width = Math.Clamp(nl.Width > 0 ? nl.Width : 980, 220, Math.Max(220, sa.Width));
-        nl.Height = Math.Clamp(nl.Height > 0 ? nl.Height : 82, 44, Math.Max(44, sa.Height));
-        nl.Left = sa.Left + Math.Max(0, (sa.Width - nl.Width) / 2);
-        nl.Top = sa.Top + Math.Max(0, (sa.Height - nl.Height) / 2);
-        Store.SaveSettings(_s);
-        AppEvents.RaiseLayoutChanged();
-    }
-
-    private void BtnQlManage_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dlg = new QuickLaunchWindow { Owner = this };
-            dlg.ShowDialog();
-        }
-        catch { }
-    }
+    // （已移除「放回屏幕中央」「管理应用快捷方式」按钮：位置直接拖动即可；
+    //   应用快捷方式仍可在悬浮课表底部「管理」按钮里设置。）
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
