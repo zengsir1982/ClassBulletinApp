@@ -141,18 +141,21 @@ public partial class MissingWindow : Window
         finally { _loading = false; }
     }
 
-    /// <summary>若保存的位置已跑到屏幕外（换分辨率 / 拔显示器），拉回可见区域。</summary>
+    /// <summary>把窗口完整收进它所在的屏幕工作区（四边都拦），多屏 / 换分辨率 / 拔显示器都不会跑到屏外。</summary>
     private void ClampIntoScreen()
     {
         try
         {
-            var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
-            if (!area.HasValue) return;
-            var a = area.Value;
-            if (Left > a.Right - 60) Left = Math.Max(a.Left, a.Right - Math.Min(Width, a.Width) - 16);
-            if (Left + Width < a.Left + 60) Left = a.Left + 16;
-            if (Top > a.Bottom - 40) Top = Math.Max(a.Top, a.Bottom - Math.Min(Height, a.Height) - 16);
-            if (Top < a.Top - 40) Top = a.Top + 16;
+            var rect = new System.Drawing.Rectangle(
+                (int)Math.Round(Left), (int)Math.Round(Top),
+                (int)Math.Round(Width), (int)Math.Round(Height));
+            var screen = System.Windows.Forms.Screen.FromRectangle(rect) ?? System.Windows.Forms.Screen.PrimaryScreen;
+            if (screen == null) return;
+            var a = screen.WorkingArea;
+            if (Left + Width > a.Right) Left = a.Right - Width;
+            if (Left < a.Left) Left = a.Left;
+            if (Top + Height > a.Bottom) Top = a.Bottom - Height;
+            if (Top < a.Top) Top = a.Top;
         }
         catch { }
     }

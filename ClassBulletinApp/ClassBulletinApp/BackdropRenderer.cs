@@ -266,9 +266,14 @@ public static class BackdropRenderer
 
         foreach (var row in today.Rows)
         {
-            var line = new Grid { Margin = new Thickness(0, 0, 0, 8 * scale) };
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.85, GridUnitType.Star) });
+            // 左列：节次 + 时间段；给定最小宽度并允许折行，避免窄便签 / 固定小尺寸时时间被裁掉
+            var line = new Grid { Margin = new Thickness(0, 0, 0, 10 * scale) };
+            line.ColumnDefinitions.Add(new ColumnDefinition
+            {
+                Width = new GridLength(1.35, GridUnitType.Star),
+                MinWidth = 96 * scale
+            });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.65, GridUnitType.Star) });
 
             var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             left.Children.Add(new TextBlock
@@ -276,21 +281,25 @@ public static class BackdropRenderer
                 Text = string.IsNullOrWhiteSpace(row.PeriodText) ? "" : row.PeriodText,
                 FontSize = ScaleFont(19),
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(accent)
+                Foreground = new SolidColorBrush(accent),
+                TextWrapping = TextWrapping.Wrap
             });
             if (!string.IsNullOrWhiteSpace(row.TimeRange))
             {
                 left.Children.Add(new TextBlock
                 {
                     Text = row.TimeRange,
-                    FontSize = ScaleFont(14),
-                    Foreground = new SolidColorBrush(muted)
+                    FontSize = ScaleFont(13),
+                    Foreground = new SolidColorBrush(muted),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 3 * scale, 0, 0)
                 });
             }
             Grid.SetColumn(left, 0);
             line.Children.Add(left);
 
-            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            // 右列：课程 + 教师 / 地点；左侧留出间距，节次与课名不再贴在一起
+            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16 * scale, 0, 0, 0) };
             var lesson = row.Lessons.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.Subject));
             bool empty = lesson == null || string.IsNullOrWhiteSpace(lesson.Subject);
 

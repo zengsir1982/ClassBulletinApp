@@ -182,6 +182,11 @@ public partial class MainWindow : Window
             _hwWin.Closed += (_, _) => { _hwWin = null; _hwOn = false; UpdateToggleLabels(); };
         }
         _hwWin.Show();
+        // 临时置顶再还原偏好，确保便签一定能出现在最前（不被控制面板或其它窗口盖住）
+        bool wasTop = _hwWin.Topmost;
+        _hwWin.Topmost = true;
+        _hwWin.Topmost = wasTop;
+        _hwWin.Activate();
         _hwOn = true;
         UpdateToggleLabels();
     }
@@ -201,6 +206,10 @@ public partial class MainWindow : Window
             _msWin.Closed += (_, _) => { _msWin = null; _msOn = false; UpdateToggleLabels(); };
         }
         _msWin.Show();
+        bool wasTop = _msWin.Topmost;
+        _msWin.Topmost = true;
+        _msWin.Topmost = wasTop;
+        _msWin.Activate();
         _msOn = true;
         UpdateToggleLabels();
     }

@@ -36,6 +36,43 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
+        // 诊断：--pos-check 实测作业 / 缺交便签窗口的落点与可见性，结果写入 ClassBulletinApp.poscheck.log
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--pos-check", StringComparison.OrdinalIgnoreCase))
+        {
+            var sb = new System.Text.StringBuilder();
+            void Probe(string name, Func<Window> factory)
+            {
+                try
+                {
+                    var w = factory();
+                    w.Show();
+                    w.UpdateLayout();
+                    var frame = new DispatcherFrame();
+                    Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => frame.Continue = false));
+                    Dispatcher.PushFrame(frame);
+
+                    var area = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea;
+                    bool onScreen = area.HasValue &&
+                        w.Left >= area.Value.Left - 2 && w.Top >= area.Value.Top - 2 &&
+                        w.Left + w.Width <= area.Value.Right + 2 && w.Top + w.Height <= area.Value.Bottom + 2;
+                    sb.AppendLine($"{name}: Visible={w.IsVisible} Left={w.Left:0} Top={w.Top:0} " +
+                        $"W={w.Width:0} H={w.Height:0} Actual={w.ActualWidth:0}x{w.ActualHeight:0} " +
+                        $"OnPrimary={onScreen}");
+                    try { w.Close(); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine($"FAIL {name}: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            Probe("HomeworkWindow", () => new HomeworkWindow());
+            Probe("MissingWindow", () => new MissingWindow());
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.poscheck.log"), sb.ToString()); }
+            catch { }
+            Shutdown(0);
+            return;
+        }
+
         // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
         // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
