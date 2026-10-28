@@ -1,0 +1,30 @@
+<Window x:Class="ClassBulletinApp.NotificationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="通知悬浮窗" WindowStyle="None" ResizeMode="CanResize"
+        MinWidth="220" MinHeight="44"
+        ShowInTaskbar="False" AllowsTransparency="True"
+        Background="Transparent" Loaded="Window_Loaded">
+    <Border x:Name="Bar" Background="{DynamicResource PrimaryDarkBrush}"
+            BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1.5"
+            CornerRadius="14" ClipToBounds="True"
+            MouseLeftButtonDown="Bar_MouseLeftButtonDown"
+            ToolTip="按住拖动可移动位置；拉窗口边沿可改变大小；双击可编辑通知 / 公告">
+        <Grid Margin="6,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Grid x:Name="MarqueeHost" Grid.Column="0" ClipToBounds="True">
+                <TextBlock x:Name="TxtMarquee" VerticalAlignment="Center" Foreground="#FFFFFF"
+                           FontWeight="Medium" TextWrapping="NoWrap" Padding="0,0,0,0">
+                    暂无通知
+                </TextBlock>
+            </Grid>
+            <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
+                    VerticalAlignment="Center" Margin="6,0,4,0" Padding="8,3" FontSize="12"
+                    Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
+        </Grid>
+    </Border>
+</Window>

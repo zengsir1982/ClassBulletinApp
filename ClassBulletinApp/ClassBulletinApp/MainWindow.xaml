@@ -1,0 +1,450 @@
+<Window x:Class="ClassBulletinApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClassBulletinApp"
+        Title="班级公布栏 · 控制面板" Height="900" Width="1400"
+        WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" KeyDown="Window_KeyDown">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="TabBtn" TargetType="Button">
+            <Setter Property="Margin" Value="6"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <!-- 顶层容器：DockPanel 主体 + 锁定覆盖层 -->
+        <DockPanel>
+            <!-- 顶部工具栏（精简：班级 / 独立周窗口） -->
+            <Border DockPanel.Dock="Top" Background="{DynamicResource PrimaryBrush}" Padding="14,10">
+                <DockPanel LastChildFill="True">
+                    <TextBlock Text="📋 班级公布栏" Foreground="White" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock x:Name="LblTeacher" Text="教师：" Foreground="White" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="14"/>
+                        <ComboBox x:Name="CbTeacher" Width="172" FontSize="14" Margin="0,0,14,0"
+                                  IsEditable="True" IsTextSearchEnabled="False"
+                                  TextBoxBase.TextChanged="CbTeacher_TextChanged"
+                                  SelectionChanged="CbTeacher_SelectionChanged"
+                                  LostFocus="CbTeacher_LostFocus"
+                                  ToolTip="可直接输入教师姓名查询筛选；选择后悬浮课表切换为该教师的个人课表"/>
+                        <TextBlock Text="班级：" Foreground="White" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="14"/>
+                        <ComboBox x:Name="CbClass" Width="150" FontSize="14" SelectionChanged="CbClass_SelectionChanged" Margin="0,0,8,0"
+                                  ToolTip="选择班级后悬浮课表切换为该班的课表"/>
+                        <TextBlock x:Name="TxtCurrentMode" Foreground="#FFE9A8" VerticalAlignment="Center" FontSize="13" Margin="6,0,0,0"/>
+                        <TextBlock Text="开学周" Foreground="White" VerticalAlignment="Center" Margin="20,0,6,0" FontSize="14"/>
+                        <DatePicker x:Name="DpSemester" Width="132" FontSize="13" VerticalAlignment="Center" SelectedDateFormat="Short"
+                                    SelectedDateChanged="DpSemester_SelectedDateChanged"
+                                    ToolTip="开学第一周星期一：用于计算「第几周」教学周，与学校开学时间对齐。"/>
+                        <CheckBox x:Name="ChkAutoStartTitle" Content="开机自启" Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="14"
+                                  Checked="ChkAutoStartTitle_Changed" Unchecked="ChkAutoStartTitle_Changed"
+                                  ToolTip="把本程序写入当前用户开机启动项"/>
+                    </WrapPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- 底部状态栏（常驻） -->
+            <Border DockPanel.Dock="Bottom" Background="#F5F7FA" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" Padding="14,8">
+                <TextBlock x:Name="TxtStatus" FontSize="14" Foreground="#C0392B" TextWrapping="Wrap"/>
+            </Border>
+
+            <!-- 主体：标签页归类 -->
+            <TabControl x:Name="MainTabs" Margin="10">
+                <!-- 课表：直接周视图（右键安排调代课；单击已安排格二次确认清除） -->
+                <TabItem Header="周课程表">
+                    <local:WeekView x:Name="WeekViewManage" Mode="Manage"/>
+                </TabItem>
+
+                <!-- 数据管理 -->
+                <TabItem Header="数据管理">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="640">
+                            <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
+                            <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
+                            <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportTemp_Click"/>
+                            <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportSingle_Click"/>
+                            <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportTeacher_Click"/>
+                            <Button x:Name="BtnClearOverrides" Content="清除全部临时调课 / 代课" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
+                            <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearImported_Click"/>
+                            <TextBlock Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <TextBlock Text="调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- 显示设置 -->
+                <TabItem Header="显示设置">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="860">
+                            <TextBlock Text="悬浮窗与展示" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
+                            <WrapPanel Orientation="Horizontal">
+                                <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                <Button x:Name="BtnToggleHw" Content="作业悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleHw_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                <Button x:Name="BtnToggleMs" Content="缺交悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleMs_Click" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                                <Button x:Name="BtnLayout" Content="布局设置" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"/>
+                                <Button x:Name="BtnFull" Content="全屏" Style="{StaticResource TabBtn}" Click="BtnFull_Click"/>
+                                <Button x:Name="BtnLock" Content="锁定" Style="{StaticResource TabBtn}" Click="BtnLock_Click"/>
+                                <Button x:Name="BtnHideTray" Content="隐藏到托盘" Style="{StaticResource TabBtn}" Click="BtnHideTray_Click"/>
+                                <Button x:Name="BtnSettings" Content="启动选项（全屏 / 锁定）" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"/>
+                            </WrapPanel>
+                            <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
+                                      FontSize="14" Foreground="#1F2A37" Margin="8,16,0,0" Click="ChkMaxHide_Click"/>
+                            <TextBlock Text="位置和大小不用进设置页调：按住悬浮课表的标题区拖动即可移动，鼠标移到窗口边沿出现双向箭头时拖动即可改变大小，松手自动记住。布局设置里只剩透明度、置顶、鼠标穿透与自动靠边隐藏；「把悬浮课表放回屏幕中央」可应付找不到窗口的情况。「置顶显示」为半透明常驻，隐藏按钮、标题双击、拖动调课均可正常操作；如需纯展示可在布局设置勾选「鼠标穿透」。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,8,0,0"/>
+                            <TextBlock Text="自动隐藏默认把窗口完全移出屏幕（不在屏幕上留任何边缘），只把鼠标移到 / 手指触到屏幕对应边沿时才平滑滑出；需要保留一条可点细边时，可在布局设置里把「露出像素」调成 1~48。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,4,0,0"/>
+                            <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,6,0,0"/>
+
+                            <!-- 主题配色 -->
+                            <TextBlock Text="界面主题" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,20,0,12"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="配色方案" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="CbTheme" Width="200" FontSize="14" SelectionChanged="CbTheme_SelectionChanged"/>
+                                <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,6" FontSize="13" Margin="12,0,0,0" Click="BtnThemeReset_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                            </StackPanel>
+                            <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单三张便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,14,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- 提醒设置（独立标签页） -->
+                <TabItem Header="提醒设置">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="780">
+                            <TextBlock Text="⏰ 上下课提醒" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                            <TextBlock Text="依据当前显示的班级 / 教师课表（含临时课表调 / 代安排）到点提醒；调休日按「显示日」的课表提醒。同一提醒每天只弹一次。上课 / 下课 / 放学各自独立设置，文案与语音均可自定义。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                            <CheckBox x:Name="ChkRemindEnabled" Content="启用上下课提醒（总开关）"
+                                      FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12" Click="RemindSetting_Changed"/>
+
+                            <TextBlock Text="文案占位符：{p}=节次　{s}=科目　{t}=时间(HH:mm)。可在下列框中自由改写。" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                            <!-- 上课提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkCsOn" Content="上课提醒（课前 / 上课）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtCsLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在上课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCsDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 下课提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkCeOn" Content="下课提醒（下课前 / 下课）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtCeLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在下课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtCeDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 放学提醒 -->
+                            <Border Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkAsOn" Content="放学提醒（当天最后一节结束后）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提前" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtAsLead" Width="56" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提前多少秒提醒；0 = 仅在下课时刻提醒"/>
+                                        <TextBlock Text="秒提醒（精确到秒）" FontSize="14" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="提示语·标题" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsTitle" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="提示语·详情" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsDetail" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="语音内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsVoice" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="弹幕内容" FontSize="13" VerticalAlignment="Center" Width="92"/>
+                                        <TextBox x:Name="TxtAsDanmaku" FontSize="14" Padding="6" Width="500" Background="White" BorderBrush="#D1D5DB" TextChanged="RemindSetting_TextChanged" ToolTip="留空则不向通知条推送弹幕"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <TextBlock Text="弹窗显示" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBox x:Name="TxtRemindSeconds" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center" TextChanged="RemindSetting_TextChanged" ToolTip="提醒窗口停留几秒后自动消失"/>
+                                <TextBlock Text="秒" FontSize="14" VerticalAlignment="Center" Margin="0,0,26,0"/>
+                                <CheckBox x:Name="ChkRemindSound" Content="提醒时播放提示音" FontSize="14" Click="RemindSetting_Changed"/>
+                            </StackPanel>
+
+                            <Border Background="#F4F8FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,14,0,0">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkRemindVoice" Content="🔊 语音播报（用系统语音朗读提醒内容）"
+                                              FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <TextBlock Text="音色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox x:Name="CbRemindVoice" Width="340" FontSize="14" SelectionChanged="RemindVoice_Selected" ToolTip="系统已安装的语音；可到 Windows「设置 → 时间和语言 → 语音」安装更多音色"/>
+                                        <Button x:Name="BtnVoiceTest" Content="试听" FontSize="13" Padding="12,4" Margin="10,0,0,0" Click="BtnVoiceTest_Click"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <TextBlock Text="语速" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Slider x:Name="SlVoiceRate" Minimum="-10" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True"
+                                                Width="240" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="TxtVoiceRate" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="音量" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Slider x:Name="SlVoiceVolume" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                                                Width="240" ValueChanged="RemindVoice_ValueChanged" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="TxtVoiceVolume" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                    </StackPanel>
+                                    <TextBlock Text="音色来自 Windows 自带语音合成（SAPI）。列表中列出系统已安装的全部语音（如 Microsoft Huihui 中文女声等），可从中选择多种音色；选「系统默认」时自动优先使用中文语音。若列表为空或没有中文语音，请到「设置 → 时间和语言 → 语音」安装中文语音包。"
+                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- 通知公告 -->
+                <TabItem Header="通知公告">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="640">
+                            <TextBlock Text="📢 通知 / 公告管理" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
+
+                            <!-- 通知条字体与背景：简单预设，选中即应用到顶部字幕条 -->
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="通知条字体与背景" FontSize="16" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <TextBlock Text="在下面选好字体 / 字号 / 字色 / 背景，顶部通知字幕条立即生效（对所有通知统一生效）。"
+                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,10"/>
+                                    <!-- 字体 / 字号 / 字色 / 背景 同一行排列，整齐美观 -->
+                                    <Grid Margin="0,6,0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                            <TextBlock Text="字体" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifFont" Width="140" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                            <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifSize" Width="72" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                            <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifText" Width="108" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="2">
+                                                            <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3" Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="背景" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <ComboBox x:Name="CbNotifBg" Width="118" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal" Margin="2">
+                                                            <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3" Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                            <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </Grid>
+                                    <!-- 实时预览：与顶部字幕条完全同一套字体 / 颜色 -->
+                                    <Border x:Name="NotifPreview" CornerRadius="10" Padding="12,8" Margin="0,4,0,0">
+                                        <TextBlock x:Name="NotifPreviewText" Text="预览：今天下午第 8 节后全校大扫除"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <StackPanel Margin="0,0,0,12">
+                                <TextBlock Text="新公告" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,8"/>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="标题（选填）" FontSize="14" Foreground="#4B5563"
+                                               VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                    <TextBox Grid.Column="1" x:Name="TxtNewTitle" FontSize="15" Padding="10" Background="White" BorderBrush="#D1D5DB"
+                                             ToolTip="标题会显示在内容前面，例如「通知」「紧急」"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="公告内容" FontSize="14" Foreground="#4B5563"
+                                               VerticalAlignment="Top" Margin="0,10,10,0"/>
+                                    <TextBox Grid.Column="1" x:Name="TxtNewContent" FontSize="14" Padding="10" Height="72" TextWrapping="Wrap" AcceptsReturn="True" Background="White" BorderBrush="#D1D5DB"
+                                             ToolTip="通知 / 公告内容：输入后点「添加通知」，顶部字幕条会滚动显示"/>
+                                </Grid>
+                                <DockPanel>
+                                    <Button x:Name="BtnAddNotice" Content="添加通知" Padding="12,7" FontSize="15" DockPanel.Dock="Left" Click="BtnAddNotice_Click"/>
+                                    <TextBlock Text="标题选填；内容支持多行。添加后立即在顶部字幕条滚动显示。" FontSize="12" Foreground="#9CA3AF"
+                                               VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                                </DockPanel>
+                            </StackPanel>
+                            <ItemsControl x:Name="NotificationsPanel">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" Foreground="#1F2A37"/>
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                                                        <Button Content="{Binding PinButtonText}" FontSize="12" Padding="10,3" Margin="0,0,6,0"
+                                                                Click="BtnPin_Click" Tag="{Binding Id}"/>
+                                                        <Button Content="删除" FontSize="12" Padding="10,3"
+                                                                Click="BtnDeleteNotice_Click" Tag="{Binding Id}"/>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Content}" FontSize="14" Foreground="#4B5563" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                                <TextBlock Text="{Binding CreatedText}" FontSize="11" Foreground="#B0B6BF" Margin="0,8,0,0"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <!-- 作业公示：只放预览 + 编辑按钮，内容 / 格式 / 主题都在弹窗里改 -->
+                <TabItem Header="作业公示">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="820">
+                            <TextBlock Text="📚 各科作业公示栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                            <TextBlock Text="内容、文字格式与主题风格都在弹窗里编辑：点下面的按钮打开编辑窗口，改完确定即保存，并自动同步到桌面便签与悬浮便签。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                            <!-- 预览：与桌面便签 / 悬浮便签同一套渲染，所见即所得 -->
+                            <WrapPanel>
+                                <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,14,14" Width="368">
+                                    <StackPanel>
+                                        <TextBlock Text="作业公示便签预览" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                        <Border Background="#F5F7FA" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                            <Image x:Name="ImgHwPreview" Stretch="Uniform" StretchDirection="DownOnly"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   ToolTip="当前作业公示便签的样子（含主题风格与文字格式）"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Background="White" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,14" Width="368">
+                                    <StackPanel>
+                                        <TextBlock Text="缺交作业名单便签预览" FontSize="15" FontWeight="Bold" Foreground="#C0392B"/>
+                                        <Border Background="#FFF6F5" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                            <Image x:Name="ImgMsPreview" Stretch="Uniform" StretchDirection="DownOnly"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   ToolTip="当前缺交名单便签的样子（含主题风格与文字格式）"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+                            </WrapPanel>
+
+                            <WrapPanel Margin="0,2,0,0">
+                                <Button x:Name="BtnEditHw" Content="＋ 添加 / 编辑作业公示" Padding="16,9" FontSize="15"
+                                        Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}"
+                                        Click="BtnEditHw_Click" Margin="0,0,12,10"
+                                        ToolTip="打开编辑窗口：科目、作业内容、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
+                                <Button x:Name="BtnEditMs" Content="＋ 增加 / 编辑缺交名单" Padding="16,9" FontSize="15"
+                                        Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B"
+                                        Click="BtnEditMs_Click" Margin="0,0,12,10"
+                                        ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
+                                <Button x:Name="BtnCustomNote" Content="＋ 新增 / 编辑自定义便签" Padding="16,9" FontSize="15"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnCustomNote_Click" Margin="0,0,12,10"
+                                        ToolTip="打开编辑窗口：可新建便签或选择已有便签，设置标题、内容、文字格式（加粗 / 字色 / 字号）与主题风格"/>
+                                <Button x:Name="BtnWpSettings" Content="🖱 桌面背景排版" Padding="16,9" FontSize="15" Margin="0,0,12,10"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnWpSettings_Click"
+                                        ToolTip="打开所见即所得排版：直接拖动便签调整位置、拉边框改大小"/>
+                            </WrapPanel>
+
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="显示与桌面背景" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <WrapPanel Margin="0,8,0,0">
+                                        <Button x:Name="BtnToggleHw2" Content="显示作业便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleHw_Click"
+                                                ToolTip="在屏幕上显示 / 隐藏作业公示悬浮便签"/>
+                                        <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"
+                                                ToolTip="在屏幕上显示 / 隐藏缺交名单悬浮便签"/>
+                                        <Button x:Name="BtnHwWp" Content="作业→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,10,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnHwWp_Click"
+                                                ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>
+                                        <Button x:Name="BtnMsWp" Content="缺交→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,0,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnMsWp_Click"
+                                                ToolTip="把缺交作业名单画到桌面壁纸上（位于所有窗口之下）"/>
+                                    </WrapPanel>
+                                    <TextBlock Text="提示：把鼠标移到便签上即可拖动摆放，拉便签边沿可改变大小；双击便签同样能打开编辑窗口。"
+                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+            </TabControl>
+        </DockPanel>
+
+        <!-- 防误触锁定覆盖层 -->
+        <Grid x:Name="LockOverlay" Visibility="Collapsed" Background="Transparent">
+            <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="24"
+                    Background="#33000000" CornerRadius="8" Padding="14,9">
+                <TextBlock Text="展示模式已锁定　·　按 Ctrl+L 解锁" Foreground="White" FontSize="16"/>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

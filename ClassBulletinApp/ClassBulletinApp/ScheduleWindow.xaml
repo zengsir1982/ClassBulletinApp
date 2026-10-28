@@ -1,0 +1,146 @@
+<Window x:Class="ClassBulletinApp.ScheduleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClassBulletinApp"
+        Title="课表悬浮窗" WindowStyle="None" ResizeMode="CanResize"
+        MinWidth="220" MinHeight="200"
+        ShowInTaskbar="False" AllowsTransparency="True"
+        Background="Transparent" Loaded="Window_Loaded"
+        PreviewMouseRightButtonDown="Window_PreviewMouseRightButtonDown"
+        PreviewMouseLeftButtonDown="Window_PreviewMouseLeftButtonDown"
+        PreviewMouseLeftButtonUp="Window_PreviewMouseLeftButtonUp"
+        PreviewMouseMove="Window_PreviewMouseMove"
+        PreviewTouchDown="Window_PreviewTouchDown"
+        PreviewTouchUp="Window_PreviewTouchUp"
+        LostMouseCapture="Window_LostMouseCapture">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <local:QlIconConverter x:Key="QlIcon"/>
+    </Window.Resources>
+    <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
+            Margin="0" Padding="0">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期；空白处按住可拖动整个窗口 -->
+            <Border x:Name="HeaderBar" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="14,9"
+                    ToolTip="按住空白处可拖动窗口；拖动窗口边沿可改变大小">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <!-- 班级/教师区：双击切换 -->
+                        <StackPanel x:Name="ClassHeader" Background="Transparent" Cursor="Hand"
+                                   MouseLeftButtonDown="ClassHeader_MouseLeftButtonDown"
+                                   ToolTip="双击此处可切换显示其他班级课表">
+                            <TextBlock x:Name="TxtClass" FontSize="23" FontWeight="Bold" Foreground="White"/>
+                        </StackPanel>
+                        <!-- 日期区：双击切换显示其他日期（调休上课） -->
+                        <StackPanel x:Name="DateHeader" Background="Transparent" Cursor="Hand" Margin="0,3,0,0"
+                                   MouseLeftButtonDown="DateHeader_MouseLeftButtonDown"
+                                   ToolTip="双击此处可切换显示其他日期（调休上课）">
+                            <TextBlock x:Name="TxtDate" FontSize="14" Foreground="#E3ECFB"/>
+                            <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" Margin="0,1,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
+                            VerticalAlignment="Top" Padding="8,3" FontSize="12"
+                            Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                            ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
+                </Grid>
+            </Border>
+
+            <!-- 课表滚动区（紧凑，减小内边距与字号，留出更多底部空间） -->
+            <ScrollViewer Grid.Row="1" Margin="10" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <ItemsControl x:Name="TodayPanel">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
+                                        CornerRadius="10" Padding="10" Margin="0,0,0,8"
+                                        Cursor="Hand">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="74"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding PeriodText}" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource PrimaryBrush}"/>
+                                            <TextBlock Text="{Binding TimeRange}" FontSize="11" Foreground="#9CA3AF" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1">
+                                            <ItemsControl ItemsSource="{Binding Lessons}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <StackPanel Margin="0,2">
+                                                            <Border Background="{Binding OverrideBadgeColor}" CornerRadius="4" Padding="5,1" Margin="0,0,0,5"
+                                                                    HorizontalAlignment="Left"
+                                                                    Visibility="{Binding IsOverridden, Converter={StaticResource BoolToVis}}"
+                                                                    ToolTip="{Binding OverrideNote}">
+                                                                <TextBlock Text="{Binding OverrideBadgeText}" Foreground="White" FontSize="10"/>
+                                                            </Border>
+                                                            <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}">
+                                                                <Run Text="{Binding Subject}"/>
+                                                                <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
+                                                            </TextBlock>
+                                                            <TextBlock FontSize="13" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
+                                                                       ToolTip="双击可切换到该教师 / 班级的课表">
+                                                                <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
+                                                                <Run Text="{Binding Teacher}"/>
+                                                                <Run Text="{Binding LocationText}" Foreground="#2E8B57"/>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- 底部应用快捷栏：常用软件 / 文件夹入口，点击直达；图标模式 + 大小可在「布局设置 → 课表」或右下「管理」里调 -->
+            <Border Grid.Row="2" Background="#F5F7FA" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+                    Padding="8,6">
+                <StackPanel>
+                    <TextBlock x:Name="TxtQlEmpty" Text="点击下方「＋」添加常用软件 / 文件夹"
+                               FontSize="11" Foreground="#9CA3AF" Margin="2,0,0,4"
+                               Visibility="Collapsed"/>
+                    <WrapPanel x:Name="QlWrap" Orientation="Horizontal"/>
+                    <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button x:Name="BtnAddFolder" Content="＋ 文件夹" Click="BtnAddFolder_Click" Padding="6,2" FontSize="11"
+                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                        <Button x:Name="BtnAddQl" Content="＋ 程序" Click="BtnAddQl_Click" Padding="6,2" FontSize="11" Margin="6,0,0,0"
+                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                        <Button x:Name="BtnQlManage" Content="管理" Click="BtnQlManage_Click" Padding="6,2" FontSize="11" Margin="6,0,0,0"
+                                Background="White" BorderBrush="#D1D5DB"
+                                ToolTip="管理快捷方式：增删、仅显示图标、调整图标大小"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- 最下方：一键把当天课表设为桌面背景（画到桌面壁纸，不遮挡任何操作） -->
+            <Border Grid.Row="3" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+                    CornerRadius="0,0,12,12" Padding="10,7">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
+                            Padding="10,4" FontSize="12" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            ToolTip="把「当天课表」画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与作业公示一起显示"/>
+                    <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="11"
+                               Foreground="#6B7280" TextTrimming="CharacterEllipsis"
+                               Text="当天课表可设为桌面背景（壁纸层显示）"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

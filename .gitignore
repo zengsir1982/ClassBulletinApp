@@ -1,0 +1,45 @@
+# ===== 构建产物 =====
+**/bin/
+**/obj/
+publish/
+*.user
+*.suo
+*.vspscc
+.vs/
+
+# ===== 第三方 / 安装包（非本工程源码） =====
+ClassIsland-master/
+ClassIsland-master.zip
+ClassIsland_app_windows_x64_selfContained_folder.zip
+innosetup-7.1.0-x64.exe
+installer/Output/
+
+# ===== 大体积安装包 / 压缩包 =====
+*.zip
+*.exe
+
+# ===== 发版产物（dist 下都是构建出来的大文件，不入库） =====
+dist/
+
+# ===== 本地项目数据（含记忆/缓存，勿提交） =====
+.workbuddy/
+
+# ===== OS / 编辑器 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+# 误建的空文件（Windows 保留名）
+nul
+# ===== 测试 / 导入用的电子表格一律不入库（含真实班级、教师姓名，避免数据泄漏）=====
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+# 误放在仓库根目录的工作日志
+2026-10-28.md
+
+# ===== 含令牌 / 密钥的本地文件，绝不入库 =====
+双仓发布地址.txt
+*令牌*
+*token*
+*.key

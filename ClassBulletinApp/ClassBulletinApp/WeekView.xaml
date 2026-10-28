@@ -1,0 +1,38 @@
+<UserControl x:Class="ClassBulletinApp.WeekView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ClassBulletinApp"
+             x:Name="Root">
+    <DockPanel LastChildFill="True">
+        <!-- 顶部工具栏 -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource PrimaryBrush}" Padding="12">
+            <DockPanel LastChildFill="True">
+                <TextBlock Text="📅 周课程表（拖拽调课）" Foreground="White" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="BtnPrevWeek" Content="上一周" Margin="4" Padding="10,5" FontSize="13" Click="BtnPrevWeek_Click"/>
+                    <Button x:Name="BtnThisWeek" Content="本周" Margin="4" Padding="10,5" FontSize="13" Click="BtnThisWeek_Click"/>
+                    <Button x:Name="BtnNextWeek" Content="下一周" Margin="4" Padding="10,5" FontSize="13" Click="BtnNextWeek_Click"/>
+                    <Button x:Name="BtnClearAll" Content="清除全部调课" Margin="4" Padding="10,5" FontSize="13" Click="BtnClearAll_Click" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- 周范围 -->
+        <Border DockPanel.Dock="Top" Background="#EEF3FB" Padding="8">
+            <TextBlock x:Name="TxtWeekRange" FontSize="14" Foreground="#1F2A37"/>
+        </Border>
+
+        <!-- 提示 -->
+        <TextBlock x:Name="TxtHint" DockPanel.Dock="Top" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="10,6"/>
+
+        <!-- 周表格（动态生成） -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+            <Grid x:Name="WeekGrid" Margin="10" MinWidth="900"/>
+        </ScrollViewer>
+
+        <!-- 状态栏 -->
+        <Border DockPanel.Dock="Bottom" Background="#F5F7FA" Padding="8">
+            <TextBlock x:Name="TxtStatus" FontSize="13" Foreground="#C0392B" TextWrapping="Wrap"/>
+        </Border>
+    </DockPanel>
+</UserControl>

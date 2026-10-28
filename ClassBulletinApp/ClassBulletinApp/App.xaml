@@ -1,0 +1,11 @@
+<Application x:Class="ClassBulletinApp.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:ClassBulletinApp">
+    <Application.Resources>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#2D6CDF"/>
+        <SolidColorBrush x:Key="PrimaryDarkBrush" Color="#1E4FA8"/>
+        <SolidColorBrush x:Key="PrimaryLightBrush" Color="#EAF1FD"/>
+        <SolidColorBrush x:Key="PrimaryBorderBrush" Color="#9DBDF0"/>
+    </Application.Resources>
+</Application>
