@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
 
       - name: 打免安装包
-        run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/ClassBulletinApp-${{ github.ref_name }}-免安装-win-x64.zip"
+        run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/ClassBulletinApp-${{ github.ref_name }}-portable-win-x64.zip"
         shell: pwsh
 
       - name: 编译安装版（runner 预装 Inno Setup 时）

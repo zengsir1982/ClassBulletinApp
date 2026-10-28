@@ -8,8 +8,8 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `ClassBulletinApp-1.0.0-安装版-win-x64.exe` | **安装版**（推荐）：双击安装，自动建开始菜单快捷方式，可选桌面图标 / 开机自启，可在「设置 → 应用」卸载 |
-| `ClassBulletinApp-1.0.0-免安装-win-x64.zip` | **免安装版**：解压即用，不写注册表、不需要管理员权限 |
+| `ClassBulletinApp-1.0.0-setup-win-x64.exe` | **安装版**（推荐）：双击安装，自动建开始菜单快捷方式，可选桌面图标 / 开机自启，可在「设置 → 应用」卸载 |
+| `ClassBulletinApp-1.0.0-portable-win-x64.zip` | **免安装版**：解压即用，不写注册表、不需要管理员权限 |
 
 两者均**自带 .NET 8 运行时**（64 位 Windows 10 及以上）。下载后请对照 `SHA256SUMS.txt` 核对。
 完整说明见仓库根目录的 `RELEASE_NOTES.md`；免安装包内也附了 `使用说明.txt`。
@@ -79,7 +79,7 @@ F:\dotnet8\dotnet.exe publish ClassBulletinApp\ClassBulletinApp\ClassBulletinApp
 
 :: 3) 安装版：用 Inno Setup 7 编译 installer\ClassBulletinApp.iss
 "D:\Program Files\Inno Setup 7\ISCC.exe" installer\ClassBulletinApp.iss
-::    产物落在 dist\ClassBulletinApp-<版本>-安装版-win-x64.exe
+::    产物落在 dist\ClassBulletinApp-<版本>-setup-win-x64.exe
 ```
 
 版本号统一写在 `ClassBulletinApp/ClassBulletinApp/ClassBulletinApp.csproj` 的 `<Version>`，
