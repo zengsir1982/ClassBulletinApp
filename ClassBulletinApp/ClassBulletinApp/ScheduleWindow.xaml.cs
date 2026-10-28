@@ -38,6 +38,12 @@ public partial class ScheduleWindow : Window
     // 常用快捷（悬浮课表下方自定义软件 / 文件夹入口）
     private System.Collections.ObjectModel.ObservableCollection<QuickLaunchItem> _ql = new();
 
+    /// <summary>快捷方式是否仅显示图标（不显示名称）。</summary>
+    private bool _qlIconOnly;
+
+    /// <summary>快捷方式图标大小（逻辑像素）。</summary>
+    private double _qlIconSize = 28;
+
     // 长按（触摸/鼠标左键按住）弹出编辑
     private DispatcherTimer? _pressTimer;
     private PeriodRow? _pressRow;
@@ -150,13 +156,96 @@ public partial class ScheduleWindow : Window
         TxtWpState.Text = msg;
     }
 
-    // ---------- 常用快捷（悬浮课表下方自定义软件 / 文件夹入口） ----------
+    // ---------- 常用快捷（悬浮课表底部应用栏：图标按钮，支持仅图标 + 可调大小） ----------
     private void LoadQuickLaunchers()
     {
+        var s = Store.LoadSettings();
         _ql = new System.Collections.ObjectModel.ObservableCollection<QuickLaunchItem>(
-            Store.LoadSettings().QuickLaunchers ?? new System.Collections.Generic.List<QuickLaunchItem>());
-        QuickLaunchPanel.ItemsSource = _ql;
-        UpdateQlEmpty();
+            s.QuickLaunchers ?? new System.Collections.Generic.List<QuickLaunchItem>());
+        _qlIconOnly = s.QlIconOnly;
+        _qlIconSize = s.QlIconSize > 0 ? s.QlIconSize : 28;
+        RenderQuickLaunchers();
+    }
+
+    /// <summary>按当前「仅图标 / 图标大小」把快捷方式渲染成底部应用栏（图标按钮 + 移除按钮）。</summary>
+    private void RenderQuickLaunchers()
+    {
+        if (QlWrap == null) return;
+        QlWrap.Children.Clear();
+        if (TxtQlEmpty != null)
+            TxtQlEmpty.Visibility = _ql.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var icon = (QlIconConverter)Resources["QlIcon"];
+        double size = _qlIconSize;
+        foreach (var item in _ql)
+        {
+            var border = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xE3, 0xE8, 0xEF)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Margin = new Thickness(0, 0, 6, 6)
+            };
+            var panel = new DockPanel { LastChildFill = false };
+
+            var open = new Button
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 3, 6, 3),
+                Tag = item,
+                ToolTip = item.Path
+            };
+            open.Click += QlItem_Click;
+
+            var img = new Image
+            {
+                Width = size,
+                Height = size,
+                Margin = new Thickness(0, 0, _qlIconOnly ? 0 : 5, 0),
+                Source = icon.Convert(item.Path, typeof(System.Windows.Media.ImageSource), null, null) as System.Windows.Media.ImageSource
+            };
+            if (_qlIconOnly)
+            {
+                open.Content = img;
+            }
+            else
+            {
+                var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                sp.Children.Add(img);
+                sp.Children.Add(new TextBlock
+                {
+                    Text = item.Name,
+                    FontSize = 13,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    MaxWidth = 120,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
+                open.Content = sp;
+            }
+            DockPanel.SetDock(open, Dock.Left);
+            panel.Children.Add(open);
+
+            var rm = new Button
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Content = "×",
+                FontSize = 13,
+                Width = 18,
+                Height = 18,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF)),
+                Tag = item,
+                ToolTip = "移除"
+            };
+            rm.Click += QlRemove_Click;
+            DockPanel.SetDock(rm, Dock.Right);
+            panel.Children.Add(rm);
+
+            border.Child = panel;
+            QlWrap.Children.Add(border);
+        }
     }
 
     private void UpdateQlEmpty()
@@ -190,7 +279,7 @@ public partial class ScheduleWindow : Window
         if (string.IsNullOrEmpty(name)) name = path;
         _ql.Add(new QuickLaunchItem { Name = name, Path = path, IsFolder = isFolder });
         SaveLaunchers();
-        UpdateQlEmpty();
+        RenderQuickLaunchers();
     }
 
     private void QlItem_Click(object sender, RoutedEventArgs e)
@@ -218,8 +307,18 @@ public partial class ScheduleWindow : Window
         {
             _ql.Remove(item);
             SaveLaunchers();
-            UpdateQlEmpty();
+            RenderQuickLaunchers();
         }
+    }
+
+    private void BtnQlManage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new QuickLaunchWindow { Owner = this, Topmost = true };
+            if (dlg.ShowDialog() == true) LoadQuickLaunchers();
+        }
+        catch { }
     }
 
     private void SaveLaunchers()

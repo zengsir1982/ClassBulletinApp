@@ -236,3 +236,47 @@ public class MissingBoard
     /// <summary>便签主题风格标识（见 HomeworkThemes.Presets）。</summary>
     public string Theme { get; set; } = "pink";
 }
+
+/// <summary>
+/// 自定义便签：用户自建的自由内容便签（如教师寄语、温馨提示等），可同时存在多张。
+/// 内容与作业 / 缺交便签无关，只有标题 + 自由文本 + 主题风格 + 锁定；
+/// 悬浮窗的摆放、置顶、锁定、是否显示都随便签一起持久化，便于独立管理。
+/// </summary>
+public class CustomNote
+{
+    /// <summary>便签唯一标识（用于定位悬浮窗 / 同步显示开关）。</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>便签标题（显示在顶部条）。</summary>
+    public string Title { get; set; } = "自定义便签";
+
+    /// <summary>便签正文（支持多行）。</summary>
+    public string Content { get; set; } = "";
+
+    /// <summary>便签主题风格标识（见 HomeworkThemes.Presets）。</summary>
+    public string Theme { get; set; } = "plain";
+
+    /// <summary>是否锁定（锁定后不能移动 / 缩放 / 编辑，防误操作）。</summary>
+    public bool Locked { get; set; }
+
+    /// <summary>最近更新时间。</summary>
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
+
+    /// <summary>悬浮窗左上角 X（逻辑像素，null = 首次打开自动居中）。</summary>
+    public double? Left { get; set; }
+
+    /// <summary>悬浮窗左上角 Y（逻辑像素）。</summary>
+    public double? Top { get; set; }
+
+    /// <summary>悬浮窗宽度（逻辑像素，0 = 默认宽度）。</summary>
+    public double? Width { get; set; }
+
+    /// <summary>悬浮窗高度（逻辑像素，0 = 默认高度）。</summary>
+    public double? Height { get; set; }
+
+    /// <summary>是否置顶显示。</summary>
+    public bool TopMost { get; set; } = true;
+
+    /// <summary>是否在屏幕上显示（控制面板 / 托盘可切换）。</summary>
+    public bool Visible { get; set; } = true;
+}

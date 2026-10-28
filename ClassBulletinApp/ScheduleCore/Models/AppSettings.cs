@@ -107,6 +107,21 @@ public class AppSettings
     /// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口。</summary>
     public System.Collections.Generic.List<QuickLaunchItem> QuickLaunchers { get; set; } = new();
 
+    /// <summary>常用快捷是否仅显示图标（不显示文字，更节省空间）。</summary>
+    public bool QlIconOnly { get; set; }
+
+    /// <summary>常用快捷图标大小（逻辑像素，16~48）。</summary>
+    public double QlIconSize { get; set; } = 28;
+
+    /// <summary>作业公示便签是否被锁定（锁定后不能移动 / 缩放 / 编辑，防误操作）。</summary>
+    public bool HwWinLocked { get; set; }
+
+    /// <summary>缺交作业名单便签是否被锁定。</summary>
+    public bool MsWinLocked { get; set; }
+
+    /// <summary>用户自建的自定义便签（教师寄语、通知等自由内容），可同时存在多张。</summary>
+    public System.Collections.Generic.List<CustomNote> CustomNotes { get; set; } = new();
+
     /// <summary>课表悬浮窗布局（位置 / 大小 / 透明度 / 置顶 / 穿透 / 靠边）。</summary>
     public PanelLayout ScheduleLayout { get; set; } = new()
     {

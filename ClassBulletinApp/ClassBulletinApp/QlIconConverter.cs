@@ -36,7 +36,7 @@ public class QlIconConverter : System.Windows.Data.IValueConverter
     [DllImport("gdi32.dll")]
     private static extern bool DeleteObject(IntPtr hObject);
 
-    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo? culture)
     {
         var path = value as string;
         if (string.IsNullOrWhiteSpace(path)) return null!;
@@ -83,6 +83,6 @@ public class QlIconConverter : System.Windows.Data.IValueConverter
         return null!;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo? culture)
         => throw new NotImplementedException();
 }

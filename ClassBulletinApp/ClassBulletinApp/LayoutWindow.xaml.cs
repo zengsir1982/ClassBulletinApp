@@ -186,6 +186,16 @@ public partial class LayoutWindow : Window
         AppEvents.RaiseLayoutChanged();
     }
 
+    private void BtnQlManage_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new QuickLaunchWindow { Owner = this };
+            dlg.ShowDialog();
+        }
+        catch { }
+    }
+
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         SyncControlsToSettings();

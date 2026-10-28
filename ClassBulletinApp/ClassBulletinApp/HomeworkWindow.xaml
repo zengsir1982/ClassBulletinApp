@@ -35,7 +35,7 @@
                 <StackPanel x:Name="ContentPanel"/>
             </ScrollViewer>
 
-            <!-- 底部：位置设置 + 置顶 + 桌面背景开关 -->
+            <!-- 底部：位置设置 + 置顶 + 锁定 + 桌面背景开关 -->
             <Border Grid.Row="2" Padding="10,6" BorderThickness="0,1,0,0"
                     BorderBrush="#22000000" Background="#12000000">
                 <DockPanel LastChildFill="True">
@@ -44,6 +44,9 @@
                     <Button x:Name="BtnTop" DockPanel.Dock="Left" Content="置顶" Click="BtnTop_Click"
                             Padding="8,3" FontSize="11" Margin="6,0,0,0"
                             ToolTip="切换置顶显示（置于所有窗口之上 / 普通层级）"/>
+                    <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
+                            Padding="8,3" FontSize="11" Margin="6,0,0,0"
+                            ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
                     <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
                             Padding="8,3" FontSize="11" Margin="6,0,0,0"
                             ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>

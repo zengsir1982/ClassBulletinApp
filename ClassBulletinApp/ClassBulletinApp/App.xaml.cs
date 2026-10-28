@@ -93,6 +93,9 @@ public partial class App : System.Windows.Application
                     "mainhw" => new MainWindow { InitialTabIndex = 5 },
                     "layout0" => new LayoutWindow { InitialTabIndex = 0 },
                     "layout1" => new LayoutWindow { InitialTabIndex = 1 },
+                    "quicklaunch" => new QuickLaunchWindow(),
+                    "customnoteedit" => new CustomNoteEditWindow(new ScheduleCore.Models.CustomNote()),
+                    "customnote" => new CustomNoteWindow(DiagCustomNoteId()),
                     _ => new LayoutWindow { InitialTabIndex = 2 }
                 };
                 w0.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -122,6 +125,7 @@ public partial class App : System.Windows.Application
             {
                 try { File.WriteAllText(shotLog, "FAIL " + ex); } catch { }
             }
+            CleanupDiagTempNote();
             Shutdown(0);
             return;
         }
@@ -192,11 +196,15 @@ public partial class App : System.Windows.Application
             Check("MissingEditWindow", () => new MissingEditWindow(Store.LoadMissingBoard()));
             Check("HomeworkEditWindow", () => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()));
             Check("BackdropEditorWindow", () => new BackdropEditorWindow());
+            Check("QuickLaunchWindow", () => new QuickLaunchWindow());
+            Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(new ScheduleCore.Models.CustomNote()));
+            Check("CustomNoteWindow", () => new CustomNoteWindow(DiagCustomNoteId()));
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
             }
             catch { }
+            CleanupDiagTempNote();
             Shutdown(0);
             return;
         }
@@ -273,6 +281,41 @@ public partial class App : System.Windows.Application
                 $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {kind}\n{ex}\n\n");
         }
         catch { }
+    }
+
+    /// <summary>
+    /// 诊断用：返回一个可用于构造 CustomNoteWindow 的便签 Id。
+    /// 若当前没有自定义便签，则临时写入一张并在 CleanupDiagTempNote 中移除，避免污染用户数据。
+    /// </summary>
+    private static string? _diagTempNoteId;
+
+    private static string DiagCustomNoteId()
+    {
+        var s = Store.LoadSettings();
+        if (s.CustomNotes.Count > 0) return s.CustomNotes[0].Id;
+        var note = new ScheduleCore.Models.CustomNote
+        {
+            Title = "界面检查临时便签",
+            Content = "（自动生成，仅用于界面检查）",
+            Theme = "plain"
+        };
+        s.CustomNotes.Add(note);
+        Store.SaveSettings(s);
+        _diagTempNoteId = note.Id;
+        return note.Id;
+    }
+
+    private static void CleanupDiagTempNote()
+    {
+        if (_diagTempNoteId == null) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.CustomNotes.RemoveAll(x => x.Id == _diagTempNoteId);
+            Store.SaveSettings(s);
+        }
+        catch { }
+        finally { _diagTempNoteId = null; }
     }
 
     /// <summary>日志超过 1MB 时只保留末尾 256KB，避免反复写日志把临时目录撑大。</summary>

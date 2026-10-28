@@ -34,6 +34,11 @@
                                         Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF"
                                         Click="BtnSchCenter_Click"
                                         ToolTip="窗口被拖到屏幕外或找不到时，点这里回到屏幕正中央"/>
+                                <Button x:Name="BtnQlManage" Content="管理应用快捷方式（图标 / 大小）"
+                                        Padding="12,7" FontSize="13" HorizontalAlignment="Left" Margin="10,0,0,0"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnQlManage_Click"
+                                        ToolTip="在悬浮课表底部添加常用软件 / 文件夹，设置仅显示图标与图标大小"/>
                             </StackPanel>
                         </Border>
 

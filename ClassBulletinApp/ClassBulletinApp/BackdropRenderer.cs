@@ -13,7 +13,6 @@ using Size = System.Windows.Size;
 using Color = System.Windows.Media.Color;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using VerticalAlignment = System.Windows.VerticalAlignment;
-using Orientation = System.Windows.Controls.Orientation;
 using FlowDirection = System.Windows.FlowDirection;
 using FontFamily = System.Windows.Media.FontFamily;
 using Brushes = System.Windows.Media.Brushes;
@@ -374,6 +373,14 @@ public static class BackdropRenderer
         return RenderCardBitmap(card, width, maxHeight);
     }
 
+    /// <summary>自定义便签预览图（与控制面板 / 悬浮便签同一套渲染）。</summary>
+    internal static BitmapSource RenderCustomNotePreview(CustomNote note, double width = 320, double maxHeight = 400)
+    {
+        double scale = Math.Max(0.35, width / 760.0);
+        var card = BuildCustomNoteCard(note, scale, v => Math.Max(11, v * scale));
+        return RenderCardBitmap(card, width, maxHeight);
+    }
+
     /// <summary>把一张便签卡片排版成指定宽度后渲染为位图（超出最大高度时裁切）。</summary>
     private static BitmapSource RenderCardBitmap(FrameworkElement card, double width, double maxHeight)
     {
@@ -541,6 +548,45 @@ public static class BackdropRenderer
             FontSize = ScaleFont(14),
             Foreground = new SolidColorBrush(muted),
             Margin = new Thickness(0, 12 * scale, 0, 0)
+        });
+
+        return Card(stack, scale, theme);
+    }
+
+    // ---------- 自定义便签（用户自建，仅标题 + 自由正文） ----------
+    internal static Border BuildCustomNoteCard(CustomNote note, double scale, Func<double, double> ScaleFont)
+    {
+        var theme = HomeworkThemes.Find(note.Theme);
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
+
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(note.Title) ? "自定义便签" : note.Title,
+            FontSize = ScaleFont(32),
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(titleColor),
+            Margin = new Thickness(0, 0, 0, 14 * scale),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(note.Content) ? "（暂无内容）" : note.Content,
+            FontSize = ScaleFont(18),
+            Foreground = new SolidColorBrush(fg),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 0)
+        });
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "更新于 " + note.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
+            FontSize = ScaleFont(14),
+            Foreground = new SolidColorBrush(muted),
+            Margin = new Thickness(0, 14 * scale, 0, 0)
         });
 
         return Card(stack, scale, theme);

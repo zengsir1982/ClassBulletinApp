@@ -26,6 +26,12 @@ public static class AppEvents
     /// <summary>缺交作业名单（独立便签）数据发生变化。</summary>
     public static event Action? MissingChanged;
 
+    /// <summary>
+    /// 自定义便签（用户自建便签）发生变化。
+    /// 参数为变化的便签 Id；传 null 表示「任意 / 全部」（如新增或删除便签时通知列表刷新）。
+    /// </summary>
+    public static event Action<string?>? CustomNoteChanged;
+
     /// <summary>「桌面背面」（当天课表 / 作业公示壁纸）开关或内容发生变化。</summary>
     public static event Action? BackdropChanged;
 
@@ -38,6 +44,7 @@ public static class AppEvents
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
     public static void RaiseHomeworkChanged() => HomeworkChanged?.Invoke();
     public static void RaiseMissingChanged() => MissingChanged?.Invoke();
+    public static void RaiseCustomNoteChanged(string? id = null) => CustomNoteChanged?.Invoke(id);
     public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
     public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);
 }

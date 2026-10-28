@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private System.Windows.Forms.ToolStripMenuItem? _miWp;
     private System.Windows.Forms.ToolStripMenuItem? _miWpHw;
     private System.Windows.Forms.ToolStripMenuItem? _miWpMs;
+    private System.Windows.Forms.ToolStripMenuItem? _miCustom;
 
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
@@ -91,6 +92,7 @@ public partial class MainWindow : Window
             ReloadNotes();
             ReloadHomework();
             ReloadMissing();
+            ReloadCustomNotes();
             ReloadNotifStyle();
             PopulateThemeCombo(settings.Theme);
             RefreshTeacherCombo();
@@ -118,6 +120,7 @@ public partial class MainWindow : Window
             AppEvents.BackdropChanged += UpdateMsWpButton;
             AppEvents.HomeworkChanged += ReloadHomework;
             AppEvents.MissingChanged += ReloadMissing;
+            AppEvents.CustomNoteChanged += OnCustomNoteChanged;
         }
         catch { }
 
@@ -132,6 +135,9 @@ public partial class MainWindow : Window
             if (settings.AutoShowNotification) ShowNotificationWin();
             if (settings.AutoShowHomework) ShowHomeworkWin();
             if (settings.AutoShowMissing) ShowMissingWin();
+            // 自定义便签：每张各自记住 Visible 开关，启动即恢复显示中的便签
+            foreach (var cn in settings.CustomNotes)
+                if (cn.Visible) ShowCustomNote(cn.Id);
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
@@ -560,6 +566,257 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---------- 自定义便签（用户自建自由内容） ----------
+    private readonly System.Collections.Generic.Dictionary<string, CustomNoteWindow> _customWins = new();
+
+    private void ReloadCustomNotes()
+    {
+        try
+        {
+            if (CustomNoteList == null) return;
+            CustomNoteList.Children.Clear();
+            var notes = Store.LoadSettings().CustomNotes ?? new System.Collections.Generic.List<CustomNote>();
+            if (notes.Count == 0)
+            {
+                CustomNoteList.Children.Add(new TextBlock
+                {
+                    Text = "（还没有自定义便签）",
+                    FontSize = 13,
+                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF)),
+                    Margin = new System.Windows.Thickness(2, 4, 0, 0)
+                });
+                return;
+            }
+
+            foreach (var n in notes)
+            {
+                var row = new DockPanel { LastChildFill = false, Margin = new System.Windows.Thickness(0, 0, 0, 8), VerticalAlignment = VerticalAlignment.Center };
+                var title = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(n.Title) ? "（未命名便签）" : n.Title,
+                    FontSize = 14,
+                    FontWeight = FontWeights.Bold,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 300
+                };
+                DockPanel.SetDock(title, Dock.Left);
+                row.Children.Add(title);
+
+                if (n.Locked)
+                {
+                    var lockIcon = new TextBlock { Text = "🔒", FontSize = 13, Margin = new System.Windows.Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                    DockPanel.SetDock(lockIcon, Dock.Left);
+                    row.Children.Add(lockIcon);
+                }
+
+                var del = new Button
+                {
+                    Content = "删除",
+                    FontSize = 12,
+                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
+                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFD, 0xE8, 0xE8)),
+                    BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xA0, 0xA0)),
+                    Tag = n.Id
+                };
+                del.Click += BtnDeleteCustom_Click;
+                DockPanel.SetDock(del, Dock.Right);
+                row.Children.Add(del);
+
+                var edit = new Button
+                {
+                    Content = "编辑",
+                    FontSize = 12,
+                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
+                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
+                    Background = System.Windows.Media.Brushes.White,
+                    BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xD1, 0xD5, 0xDB)),
+                    Tag = n.Id
+                };
+                edit.Click += BtnEditCustom_Click;
+                DockPanel.SetDock(edit, Dock.Right);
+                row.Children.Add(edit);
+
+                var toggle = new Button
+                {
+                    Content = n.Visible ? "隐藏" : "显示",
+                    FontSize = 12,
+                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
+                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
+                    Background = n.Visible
+                        ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+                        : System.Windows.Media.Brushes.White,
+                    Foreground = n.Visible ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black,
+                    Tag = n.Id
+                };
+                toggle.Click += BtnToggleCustom_Click;
+                DockPanel.SetDock(toggle, Dock.Right);
+                row.Children.Add(toggle);
+
+                CustomNoteList.Children.Add(row);
+            }
+        }
+        catch { }
+    }
+
+    private void BtnToggleCustom_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not string id) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            var n = s.CustomNotes.FirstOrDefault(x => x.Id == id);
+            if (n == null) return;
+            n.Visible = !n.Visible;
+            Store.SaveSettings(s);
+            if (n.Visible) ShowCustomNote(id); else HideCustomNote(id);
+            ReloadCustomNotes();
+            UpdateTrayCustomMenu();
+        }
+        catch (Exception ex) { TxtStatus.Text = "切换自定义便签失败：" + ex.Message; }
+    }
+
+    private void BtnEditCustom_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not string id) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            var note = s.CustomNotes.FirstOrDefault(x => x.Id == id);
+            if (note == null) return;
+            var dlg = new CustomNoteEditWindow(note);
+            if (dlg.ShowDialog() != true) return;
+            var saved = dlg.BuildNote();
+            var idx = s.CustomNotes.FindIndex(x => x.Id == id);
+            if (idx >= 0) s.CustomNotes[idx] = saved;
+            Store.SaveSettings(s);
+            AppEvents.RaiseCustomNoteChanged(id);
+            ReloadCustomNotes();
+            TxtStatus.Text = "自定义便签已保存：" + (string.IsNullOrWhiteSpace(saved.Title) ? "（未命名）" : saved.Title);
+        }
+        catch (Exception ex) { TxtStatus.Text = "编辑自定义便签失败：" + ex.Message; }
+    }
+
+    private void BtnDeleteCustom_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not string id) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            var note = s.CustomNotes.FirstOrDefault(x => x.Id == id);
+            if (note == null) return;
+            var name = string.IsNullOrWhiteSpace(note.Title) ? "这张便签" : "「" + note.Title + "」";
+            if (System.Windows.MessageBox.Show("确定删除" + name + "吗？此操作不可撤销。", "删除自定义便签",
+                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            s.CustomNotes.RemoveAll(x => x.Id == id);
+            Store.SaveSettings(s);
+            HideCustomNote(id, forceClose: true);
+            AppEvents.RaiseCustomNoteChanged();
+            ReloadCustomNotes();
+            UpdateTrayCustomMenu();
+            TxtStatus.Text = "已删除" + name;
+        }
+        catch (Exception ex) { TxtStatus.Text = "删除自定义便签失败：" + ex.Message; }
+    }
+
+    private void BtnAddCustom_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var note = new CustomNote { Title = "自定义便签", Content = "", Theme = "plain", Visible = true, UpdatedAt = DateTime.Now };
+            var s = Store.LoadSettings();
+            s.CustomNotes.Add(note);
+            Store.SaveSettings(s);
+            ShowCustomNote(note.Id);
+            ReloadCustomNotes();
+            UpdateTrayCustomMenu();
+            TxtStatus.Text = "已新增自定义便签（双击便签可编辑内容）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "新增自定义便签失败：" + ex.Message; }
+    }
+
+    private void ShowCustomNote(string id)
+    {
+        if (_customWins.TryGetValue(id, out var existing))
+        {
+            if (!existing.IsVisible) existing.Show();
+            FloatingHelper.ClampToScreen(existing);
+            FloatingHelper.BringToFront(existing);
+            return;
+        }
+        var win = new CustomNoteWindow(id);
+        win.Closed += (_, _) =>
+        {
+            _customWins.Remove(id);
+            var s = Store.LoadSettings();
+            var n = s.CustomNotes.FirstOrDefault(x => x.Id == id);
+            if (n != null) { n.Visible = false; Store.SaveSettings(s); }
+            ReloadCustomNotes();
+            UpdateTrayCustomMenu();
+        };
+        _customWins[id] = win;
+        win.Show();
+        FloatingHelper.ClampToScreen(win);
+        FloatingHelper.BringToFront(win);
+    }
+
+    private void HideCustomNote(string id, bool forceClose = false)
+    {
+        if (_customWins.TryGetValue(id, out var win))
+        {
+            if (forceClose) win.Close(); else win.Hide();
+            _customWins.Remove(id);
+        }
+    }
+
+    private void OnCustomNoteChanged(string? id)
+    {
+        // 浮动窗已各自刷新；此处仅同步控制面板列表与托盘菜单
+        try { ReloadCustomNotes(); } catch { }
+        UpdateTrayCustomMenu();
+    }
+
+    private void UpdateTrayCustomMenu()
+    {
+        try
+        {
+            if (_miCustom == null) return;
+            _miCustom.DropDownItems.Clear();
+            var notes = Store.LoadSettings().CustomNotes ?? new System.Collections.Generic.List<CustomNote>();
+            if (notes.Count == 0)
+            {
+                var none = new System.Windows.Forms.ToolStripMenuItem("（暂无自定义便签）") { Enabled = false };
+                _miCustom.DropDownItems.Add(none);
+                return;
+            }
+            foreach (var n in notes)
+            {
+                var label = (string.IsNullOrWhiteSpace(n.Title) ? "（未命名）" : n.Title) + (n.Visible ? " · 显示中" : " · 已隐藏");
+                var mi = new System.Windows.Forms.ToolStripMenuItem(label, null, (_, _) => ToggleCustomFromTray(n.Id));
+                mi.Checked = n.Visible;
+                _miCustom.DropDownItems.Add(mi);
+            }
+        }
+        catch { }
+    }
+
+    private void ToggleCustomFromTray(string id)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            var n = s.CustomNotes.FirstOrDefault(x => x.Id == id);
+            if (n == null) return;
+            n.Visible = !n.Visible;
+            Store.SaveSettings(s);
+            if (n.Visible) ShowCustomNote(id); else HideCustomNote(id);
+            ReloadCustomNotes();
+            UpdateTrayCustomMenu();
+        }
+        catch { }
+    }
+
     private void BtnLayout_Click(object sender, RoutedEventArgs e)
     {
         var w = new LayoutWindow { Owner = this };
@@ -639,6 +896,7 @@ public partial class MainWindow : Window
         _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背景", null, (_, _) => ToggleBackdropSchedule());
         _miWpHw = new System.Windows.Forms.ToolStripMenuItem("作业公示 → 桌面背景", null, (_, _) => ToggleBackdropHomework());
         _miWpMs = new System.Windows.Forms.ToolStripMenuItem("缺交名单 → 桌面背景", null, (_, _) => ToggleBackdropMissing());
+        _miCustom = new System.Windows.Forms.ToolStripMenuItem("自定义便签");
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
         menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
         {
@@ -646,12 +904,15 @@ public partial class MainWindow : Window
             new System.Windows.Forms.ToolStripSeparator(),
             _miWp, _miWpHw, _miWpMs,
             new System.Windows.Forms.ToolStripSeparator(),
+            _miCustom,
+            new System.Windows.Forms.ToolStripSeparator(),
             miExit
         });
-        menu.Opening += (_, _) => UpdateTrayBackdropText();
+        menu.Opening += (_, _) => { UpdateTrayBackdropText(); UpdateTrayCustomMenu(); };
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => ShowMainWindow();
         UpdateTrayBackdropText();
+        UpdateTrayCustomMenu();
     }
 
     /// <summary>同步托盘菜单中「当天课表 / 作业公示 → 桌面背景」的勾选状态。</summary>
@@ -762,6 +1023,8 @@ public partial class MainWindow : Window
         _notifWin?.Close();
         _hwWin?.Close();
         _msWin?.Close();
+        foreach (var kv in _customWins) try { kv.Value.Close(); } catch { }
+        _customWins.Clear();
         base.OnClosing(e);
     }
 

@@ -25,6 +25,9 @@ public partial class HomeworkWindow : Window
     private string _themeKey = "classic";
     private bool _loading;
 
+    /// <summary>是否锁定（锁定后不能移动 / 缩放 / 编辑，防止误操作）。</summary>
+    private bool _locked;
+
     /// <summary>本次是否因存档坐标失效而重新居中（是则立刻把修正后的位置写回，避免每次都重算）。</summary>
     private bool _recentered;
 
@@ -50,6 +53,8 @@ public partial class HomeworkWindow : Window
         Reload();
         UpdateTopButton();
         UpdateBackdropButton();
+        _locked = Store.LoadSettings().HwWinLocked;
+        UpdateLockButton();
 
         // 每次显示都再收一次屏（运行中改分辨率 / 拔显示器 / 改缩放后仍然看得见）
         IsVisibleChanged += (_, _) =>
@@ -79,6 +84,9 @@ public partial class HomeworkWindow : Window
     {
         if (msg == WM_NCHITTEST)
         {
+            // 锁定：整窗返回 HTCLIENT，禁止移动与拖拽缩放（按钮仍可点击）
+            if (_locked) { handled = true; return (IntPtr)HTCLIENT; }
+
             int lp = lParam.ToInt32();
             int sx = (short)(lp & 0xFFFF);
             int sy = (short)((lp >> 16) & 0xFFFF);
@@ -113,6 +121,7 @@ public partial class HomeworkWindow : Window
         // 双击便签 → 打开编辑对话框；同时吞掉系统默认的「最大化」
         if (msg == WM_NCLBUTTONDBLCLK)
         {
+            if (_locked) { handled = true; return IntPtr.Zero; }   // 锁定后禁止编辑
             handled = true;
             Dispatcher.BeginInvoke(new Action(OpenEditor));
             return IntPtr.Zero;
@@ -340,6 +349,31 @@ public partial class HomeworkWindow : Window
     }
 
     private void BtnHide_Click(object sender, RoutedEventArgs e) => Hide();
+
+    // ---------- 锁定 ----------
+    private void UpdateLockButton()
+    {
+        if (BtnLock == null) return;
+        bool locked = _locked;
+        BtnLock.Content = locked ? "🔒" : "🔓";
+        BtnLock.Background = locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnLock.Foreground = locked ? Brushes.White : Brushes.Black;
+        if (TxtHint != null)
+            TxtHint.Text = locked ? "已锁定：不能移动 / 缩放 / 编辑" : "拖动摆放 · 拉边沿改大小 · 双击编辑";
+    }
+
+    private void BtnLock_Click(object sender, RoutedEventArgs e)
+    {
+        _locked = !_locked;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.HwWinLocked = _locked;
+            Store.SaveSettings(s);
+        }
+        catch { }
+        UpdateLockButton();
+    }
 
     protected override void OnClosed(EventArgs e)
     {

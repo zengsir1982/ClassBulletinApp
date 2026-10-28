@@ -401,6 +401,18 @@
                                         ToolTip="打开所见即所得排版：直接拖动便签调整位置、拉边框改大小"/>
                             </WrapPanel>
 
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="自定义便签（教师寄语、温馨提示等自由内容）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <TextBlock Text="可新建多张便签，每张独立显示 / 锁定 / 主题；悬浮窗可拖动摆放、双击编辑。每张便签也能在屏幕上单独锁定，防止误操作。"
+                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                    <StackPanel x:Name="CustomNoteList" Margin="0,0,0,8"/>
+                                    <Button x:Name="BtnAddCustom" Content="＋ 新增自定义便签" Padding="14,8" FontSize="14" HorizontalAlignment="Left"
+                                            Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                            Click="BtnAddCustom_Click" ToolTip="新建一张自定义便签"/>
+                                </StackPanel>
+                            </Border>
+
                             <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,4,0,0">
                                 <StackPanel>
                                     <TextBlock Text="显示与桌面背景" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
