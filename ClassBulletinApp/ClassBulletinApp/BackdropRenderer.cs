@@ -120,7 +120,7 @@ public static class BackdropRenderer
 
     // ---------- 尺寸 / 定位 ----------
     /// <summary>便签宽度：固定大小模式用固定像素；否则按屏幕宽度比例。</summary>
-    private static double ResolveCardWidth(HomeworkWallpaperLayout lay, double width, double defRatio)
+    internal static double ResolveCardWidth(HomeworkWallpaperLayout lay, double width, double defRatio)
     {
         if (lay.UseFixedSize && lay.FixedWidth > 0)
             return Math.Clamp(lay.FixedWidth, 160, Math.Max(160, width - 40));
@@ -133,7 +133,7 @@ public static class BackdropRenderer
     /// 固定高度时：用 Viewbox（只缩小不放大）把内容整体等比缩放到便签内，
     /// 保证内容再长也完整显示在便签范围内，不溢出、不截断。
     /// </summary>
-    private static void Place(Canvas canvas, Border card, HomeworkWallpaperLayout lay,
+    internal static void Place(Canvas canvas, Border card, HomeworkWallpaperLayout lay,
         double width, double height, double defRatio = 0.4)
     {
         card.Width = ResolveCardWidth(lay, width, defRatio);
@@ -195,7 +195,7 @@ public static class BackdropRenderer
     }
 
     // ---------- 当天课表便签 ----------
-    private static Border BuildScheduleCard(TodayResult today, string title, string dateText, string weekText,
+    internal static Border BuildScheduleCard(TodayResult today, string title, string dateText, string weekText,
         double scale, Func<double, double> ScaleFont, double cardWidth, HomeworkTheme theme)
     {
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x23, 0x2A, 0x33));
@@ -372,7 +372,7 @@ public static class BackdropRenderer
         catch { return fallback; }
     }
 
-    private static Border BuildHomeworkCard(HomeworkBoard board, double scale, Func<double, double> ScaleFont)
+    internal static Border BuildHomeworkCard(HomeworkBoard board, double scale, Func<double, double> ScaleFont)
     {
         var theme = HomeworkThemes.Find(board.Theme);
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
@@ -438,7 +438,7 @@ public static class BackdropRenderer
     }
 
     // ---------- 缺交作业名单便签（独立） ----------
-    private static Border BuildMissingCard(MissingBoard board, double scale, Func<double, double> ScaleFont)
+    internal static Border BuildMissingCard(MissingBoard board, double scale, Func<double, double> ScaleFont)
     {
         var theme = HomeworkThemes.Find(board.Theme);
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));

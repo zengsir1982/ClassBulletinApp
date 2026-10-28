@@ -122,7 +122,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- 桌面背景（当天课表 + 作业公示 合成壁纸） -->
+            <!-- 桌面背景（当天课表 + 作业公示 + 缺交名单 合成壁纸） -->
             <TabItem Header="桌面背景">
                 <ScrollViewer Margin="10">
                     <StackPanel>
@@ -138,48 +138,23 @@
                         </WrapPanel>
                         <CheckBox x:Name="ChkWpOrigin" Content="使用系统原壁纸作为底图（取消则用浅色渐变底）" FontSize="14" Margin="12,6,0,0" Click="WpSetting_Changed"/>
 
-                        <TextBlock Text="当天课表便签" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,20,0,8"/>
+                        <!-- 所见即所得排版入口：替代原先的滑块调位置 / 大小 -->
+                        <Border Background="#EEF3FF" BorderBrush="#C9D6EC" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,14,0,4">
+                            <StackPanel>
+                                <TextBlock Text="便签位置 / 大小：所见即所得调整" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                <TextBlock Text="点击下方按钮，可在模拟屏幕上直接拖动便签调整位置、拖动四角 / 四边改变大小，比滑块更直观便捷。"
+                                           FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,10"/>
+                                <Button x:Name="BtnWpEdit" Content="🖱 打开所见即所得排版（拖动便签 / 拉边框改大小）"
+                                        Padding="14,9" FontSize="14" HorizontalAlignment="Left"
+                                        Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" Click="BtnWpEdit_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="当天课表便签" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,18,0,8"/>
                         <StackPanel Orientation="Horizontal" Margin="12,0,0,8">
                             <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
                             <ComboBox x:Name="CbWpSchTheme" Width="190" FontSize="14" ItemTemplate="{StaticResource ThemeItemTemplate}" SelectionChanged="WpSetting_Changed"/>
                             <TextBlock Text="（课表便签底色 / 文字 / 强调色，与悬浮窗风格统一）" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,0,0,10">
-                            <TextBlock Text="位置" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <ComboBox x:Name="CbWpSchAnchor" Width="120" FontSize="14" SelectedIndex="3" SelectionChanged="WpLayout_Changed">
-                                <ComboBoxItem Content="左上"/>
-                                <ComboBoxItem Content="中上"/>
-                                <ComboBoxItem Content="右上"/>
-                                <ComboBoxItem Content="左中"/>
-                                <ComboBoxItem Content="居中"/>
-                                <ComboBoxItem Content="右中"/>
-                                <ComboBoxItem Content="左下"/>
-                                <ComboBoxItem Content="中下"/>
-                                <ComboBoxItem Content="右下"/>
-                            </ComboBox>
-                            <TextBlock Text="宽度（占屏宽）" FontSize="14" VerticalAlignment="Center" Margin="22,0,10,0"/>
-                            <Slider x:Name="SlWpSchWidth" Minimum="0.18" Maximum="0.9" TickFrequency="0.02" IsSnapToTickEnabled="True" Width="170" ValueChanged="WpLayout_Changed"/>
-                            <TextBlock x:Name="TxtWpSchWidth" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <TextBlock Text="水平偏移（像素，向右为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,0,0,2"/>
-                        <Slider x:Name="SlWpSchX" Minimum="-900" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="WpLayout_Changed"/>
-                        <TextBlock x:Name="TxtWpSchX" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
-                        <TextBlock Text="垂直偏移（像素，向下为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,14,0,2"/>
-                        <Slider x:Name="SlWpSchY" Minimum="-700" Maximum="700" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="WpLayout_Changed"/>
-                        <TextBlock x:Name="TxtWpSchY" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
-
-                        <!-- 固定大小的课表便签：位置不随当天节次多少而漂移 -->
-                        <CheckBox x:Name="ChkSchFixed" Content="使用固定大小的课表便签（推荐：位置稳定，不随当天课程多少漂移）"
-                                  FontSize="14" Margin="12,10,0,2" Click="WpLayout_Changed"/>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定宽度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlWpSchFixedW" Minimum="220" Maximum="1200" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="WpLayout_Changed"/>
-                            <TextBlock x:Name="TxtWpSchFixedW" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定高度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlWpSchFixedH" Minimum="0" Maximum="1000" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="WpLayout_Changed"/>
-                            <TextBlock x:Name="TxtWpSchFixedH" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         </StackPanel>
 
                         <TextBlock Text="作业公示便签" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,20,0,8"/>
@@ -188,87 +163,12 @@
                             <ComboBox x:Name="CbWpHwTheme" Width="190" FontSize="14" ItemTemplate="{StaticResource ThemeItemTemplate}" SelectionChanged="WpHwTheme_Changed"/>
                             <TextBlock Text="（与作业便签 / 控制面板共用同一主题）" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,0,0,10">
-                            <TextBlock Text="位置" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <ComboBox x:Name="CbHwAnchor" Width="120" FontSize="14" SelectedIndex="5" SelectionChanged="HwLayout_Changed">
-                                <ComboBoxItem Content="左上"/>
-                                <ComboBoxItem Content="中上"/>
-                                <ComboBoxItem Content="右上"/>
-                                <ComboBoxItem Content="左中"/>
-                                <ComboBoxItem Content="居中"/>
-                                <ComboBoxItem Content="右中"/>
-                                <ComboBoxItem Content="左下"/>
-                                <ComboBoxItem Content="中下"/>
-                                <ComboBoxItem Content="右下"/>
-                            </ComboBox>
-                            <TextBlock Text="宽度（占屏宽）" FontSize="14" VerticalAlignment="Center" Margin="22,0,10,0"/>
-                            <Slider x:Name="SlHwWidth" Minimum="0.18" Maximum="0.9" TickFrequency="0.02" IsSnapToTickEnabled="True" Width="170" ValueChanged="HwLayout_Changed"/>
-                            <TextBlock x:Name="TxtHwWidth" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <TextBlock Text="水平偏移（像素，向右为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,0,0,2"/>
-                        <Slider x:Name="SlHwX" Minimum="-900" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="HwLayout_Changed"/>
-                        <TextBlock x:Name="TxtHwX" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
-                        <TextBlock Text="垂直偏移（像素，向下为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,14,0,2"/>
-                        <Slider x:Name="SlHwY" Minimum="-700" Maximum="700" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="HwLayout_Changed"/>
-                        <TextBlock x:Name="TxtHwY" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
 
-                        <!-- 固定大小的作业公示板：位置不随作业条数多少而漂移 -->
-                        <CheckBox x:Name="ChkHwFixed" Content="使用固定大小的作业公示板（推荐：位置稳定，不随作业多少漂移）"
-                                  FontSize="14" Margin="12,16,0,2" Click="HwLayout_Changed"/>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定宽度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlHwFixedW" Minimum="220" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="HwLayout_Changed"/>
-                            <TextBlock x:Name="TxtHwFixedW" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定高度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlHwFixedH" Minimum="0" Maximum="1000" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="HwLayout_Changed"/>
-                            <TextBlock x:Name="TxtHwFixedH" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <TextBlock Text="固定高度为 0 时高度随内容自适应；设为具体像素后便签高度固定，内容过多时自动等比缩小以完整放进便签内（不溢出、不截断）。"
-                                   FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="12,4,0,0"/>
-
-                        <!-- 缺交作业名单便签（独立） -->
                         <TextBlock Text="缺交作业名单便签（独立）" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,20,0,8"/>
                         <StackPanel Orientation="Horizontal" Margin="12,0,0,8">
                             <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
                             <ComboBox x:Name="CbWpMsTheme" Width="190" FontSize="14" ItemTemplate="{StaticResource ThemeItemTemplate}" SelectionChanged="WpHwTheme_Changed"/>
                             <TextBlock Text="（与缺交便签共用同一主题）" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,0,0,10">
-                            <TextBlock Text="位置" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <ComboBox x:Name="CbMsAnchor" Width="120" FontSize="14" SelectedIndex="8" SelectionChanged="MsLayout_Changed">
-                                <ComboBoxItem Content="左上"/>
-                                <ComboBoxItem Content="中上"/>
-                                <ComboBoxItem Content="右上"/>
-                                <ComboBoxItem Content="左中"/>
-                                <ComboBoxItem Content="居中"/>
-                                <ComboBoxItem Content="右中"/>
-                                <ComboBoxItem Content="左下"/>
-                                <ComboBoxItem Content="中下"/>
-                                <ComboBoxItem Content="右下"/>
-                            </ComboBox>
-                            <TextBlock Text="宽度（占屏宽）" FontSize="14" VerticalAlignment="Center" Margin="22,0,10,0"/>
-                            <Slider x:Name="SlMsWidth" Minimum="0.18" Maximum="0.9" TickFrequency="0.02" IsSnapToTickEnabled="True" Width="170" ValueChanged="MsLayout_Changed"/>
-                            <TextBlock x:Name="TxtMsWidth" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <TextBlock Text="水平偏移（像素，向右为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,0,0,2"/>
-                        <Slider x:Name="SlMsX" Minimum="-900" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="MsLayout_Changed"/>
-                        <TextBlock x:Name="TxtMsX" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
-                        <TextBlock Text="垂直偏移（像素，向下为正）" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" Margin="12,14,0,2"/>
-                        <Slider x:Name="SlMsY" Minimum="-700" Maximum="700" TickFrequency="10" IsSnapToTickEnabled="True" Width="520" HorizontalAlignment="Left" Margin="12,0,0,0" ValueChanged="MsLayout_Changed"/>
-                        <TextBlock x:Name="TxtMsY" FontSize="12" Foreground="#6B7280" Margin="12,0,0,0"/>
-                        <CheckBox x:Name="ChkMsFixed" Content="使用固定大小的缺交名单便签（推荐：位置稳定，不随名单条数漂移）"
-                                  FontSize="14" Margin="12,10,0,2" Click="MsLayout_Changed"/>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定宽度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlMsFixedW" Minimum="220" Maximum="900" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="MsLayout_Changed"/>
-                            <TextBlock x:Name="TxtMsFixedW" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="12,6,0,2">
-                            <TextBlock Text="固定高度" FontSize="13" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                            <Slider x:Name="SlMsFixedH" Minimum="0" Maximum="1000" TickFrequency="10" IsSnapToTickEnabled="True" Width="300" HorizontalAlignment="Left" ValueChanged="MsLayout_Changed"/>
-                            <TextBlock x:Name="TxtMsFixedH" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
@@ -276,7 +176,7 @@
                             <Button x:Name="BtnClearWp" Content="清除（恢复原壁纸）" Padding="16,9" FontSize="15" Margin="12,0,0,0" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearWp_Click"/>
                         </StackPanel>
                         <TextBlock x:Name="TxtWpStatus" FontSize="12" Foreground="#6B7280" Margin="10,8,0,0" TextWrapping="Wrap"/>
-                        <TextBlock Text="提示：应用后调整上面的位置 / 宽度 / 主题会自动重绘；课表内容变化、跨天也会自动更新。开启「固定大小」后便签尺寸不变、位置稳定，内容过多时会自动等比缩小以完整显示。悬浮课表 / 作业便签 / 缺交便签底部与任务栏图标右键菜单都能一键开关各自在桌面背景上的显示。"
+                        <TextBlock Text="提示：应用后课表内容变化、跨天会自动更新；悬浮课表 / 作业便签 / 缺交便签底部与任务栏图标右键菜单都能一键开关各自在桌面背景上的显示。便签的位置与大小请在上方「所见即所得排版」里拖动调整。"
                                    FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,10,0,0"/>
                     </StackPanel>
                 </ScrollViewer>

@@ -73,6 +73,46 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--editor-shot <输出png> 打开「所见即所得排版」窗口并截图后退出（供自动化核对渲染效果）
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--editor-shot", StringComparison.OrdinalIgnoreCase))
+        {
+            string shotLog = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.editorshot.log");
+            try
+            {
+                var w = new BackdropEditorWindow
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 40,
+                    Top = 40
+                };
+                w.Show();
+                w.UpdateLayout();
+
+                var frame = new DispatcherFrame();
+                Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => frame.Continue = false));
+                Dispatcher.PushFrame(frame);
+
+                var root = (FrameworkElement)w.Content;
+                int pw = Math.Max(1, (int)Math.Ceiling(root.ActualWidth));
+                int ph = Math.Max(1, (int)Math.Ceiling(root.ActualHeight));
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    pw, ph, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb.Render(root);
+
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                using (var fs = File.Create(e.Args[1])) enc.Save(fs);
+
+                File.WriteAllText(shotLog, $"OK {pw}x{ph}");
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(shotLog, "FAIL " + ex); } catch { }
+            }
+            Shutdown(0);
+            return;
+        }
+
         // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
         // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
@@ -98,12 +138,27 @@ public partial class App : System.Windows.Application
             Check("MissingWindow", () => new MissingWindow());
             Check("MissingEditWindow", () => new MissingEditWindow(Store.LoadMissingBoard()));
             Check("HomeworkEditWindow", () => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()));
+            Check("BackdropEditorWindow", () => new BackdropEditorWindow());
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
             }
             catch { }
             Shutdown(0);
+            return;
+        }
+
+        // 诊断：--editor-open 直接打开「所见即所得排版」窗口（便于自动化交互测试 / 单独调试排版）
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--editor-open", StringComparison.OrdinalIgnoreCase))
+        {
+            var win0 = new BackdropEditorWindow
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 100,
+                Top = 60
+            };
+            MainWindow = win0;
+            win0.Show();
             return;
         }
 

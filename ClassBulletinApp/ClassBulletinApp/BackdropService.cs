@@ -271,7 +271,7 @@ public static class BackdropService
     }
 
     // ---------- 内容构建 ----------
-    private static (TodayResult Res, string Title, string DateText, string WeekText)? BuildToday(AppSettings s)
+    internal static (TodayResult Res, string Title, string DateText, string WeekText)? BuildToday(AppSettings s)
     {
         bool teacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
         var sf = teacher ? Store.LoadTeacherSchedule() : Store.LoadSchedule();

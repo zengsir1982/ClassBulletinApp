@@ -198,22 +198,8 @@ public partial class LayoutWindow : Window
             FillThemeCombo(CbWpSchTheme, b.ScheduleTheme);
             FillThemeCombo(CbWpHwTheme, Store.LoadHomework()?.Theme);
             FillThemeCombo(CbWpMsTheme, Store.LoadMissingBoard().Theme);
-
-            var sl = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
-            FillAnchorCombo(CbWpSchAnchor, sl.Anchor, 3);
-            SlWpSchWidth.Value = Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, SlWpSchWidth.Minimum, SlWpSchWidth.Maximum);
-            SlWpSchX.Value = Math.Clamp(sl.OffsetX, SlWpSchX.Minimum, SlWpSchX.Maximum);
-            SlWpSchY.Value = Math.Clamp(sl.OffsetY, SlWpSchY.Minimum, SlWpSchY.Maximum);
-            ChkSchFixed.IsChecked = sl.UseFixedSize;
-            SlWpSchFixedW.Value = Math.Clamp(sl.FixedWidth <= 0 ? 460 : sl.FixedWidth, SlWpSchFixedW.Minimum, SlWpSchFixedW.Maximum);
-            SlWpSchFixedH.Value = Math.Clamp(sl.FixedHeight, SlWpSchFixedH.Minimum, SlWpSchFixedH.Maximum);
-
-            ApplyHwLayoutToUi(b.HomeworkLayout ?? Store.LoadHomework()?.Layout);
-            ApplyMsLayoutToUi(b.MissingLayout);
         }
         finally { _hwReady = ready; }
-        UpdateWpLabels();
-        UpdateMsLabels();
     }
 
     /// <summary>填充便签主题下拉（带色块预览），并选中当前主题。</summary>
@@ -239,116 +225,6 @@ public partial class LayoutWindow : Window
         return i >= 0 && i < HomeworkThemes.Presets.Count ? HomeworkThemes.Presets[i].Key : fallback;
     }
 
-    private static void FillAnchorCombo(System.Windows.Controls.ComboBox cb, string? anchor, int fallback)
-    {
-        int idx = Array.IndexOf(HwAnchors, (anchor ?? "").Trim());
-        if (idx < 0)
-        {
-            idx = (anchor ?? "").Trim() switch
-            {
-                "Left" => 3, "Right" => 5, "Top" => 1, "Bottom" => 7, "Center" => 4, _ => fallback
-            };
-        }
-        cb.SelectedIndex = Math.Clamp(idx, 0, HwAnchors.Length - 1);
-    }
-
-    private static string ComboAnchor(System.Windows.Controls.ComboBox cb, string fallback)
-        => cb.SelectedIndex >= 0 && cb.SelectedIndex < HwAnchors.Length ? HwAnchors[cb.SelectedIndex] : fallback;
-
-    private void ApplyHwLayoutToUi(HomeworkWallpaperLayout? lay)
-    {
-        bool ready = _hwReady;
-        _hwReady = false;
-        try
-        {
-            FillAnchorCombo(CbHwAnchor, lay?.Anchor, 5);
-            SlHwX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlHwX.Minimum, SlHwX.Maximum);
-            SlHwY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlHwY.Minimum, SlHwY.Maximum);
-            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
-            SlHwWidth.Value = Math.Clamp(ratio, SlHwWidth.Minimum, SlHwWidth.Maximum);
-            ChkHwFixed.IsChecked = lay?.UseFixedSize == true;
-            SlHwFixedW.Value = Math.Clamp(lay?.FixedWidth ?? 420, SlHwFixedW.Minimum, SlHwFixedW.Maximum);
-            SlHwFixedH.Value = Math.Clamp(lay?.FixedHeight ?? 0, SlHwFixedH.Minimum, SlHwFixedH.Maximum);
-        }
-        finally { _hwReady = ready; }
-        UpdateHwLabels();
-    }
-
-    private HomeworkWallpaperLayout CurrentHwLayout() => new()
-    {
-        Anchor = ComboAnchor(CbHwAnchor, "MiddleRight"),
-        OffsetX = SlHwX.Value,
-        OffsetY = SlHwY.Value,
-        WidthRatio = SlHwWidth.Value,
-        UseFixedSize = ChkHwFixed.IsChecked == true,
-        FixedWidth = SlHwFixedW.Value,
-        FixedHeight = SlHwFixedH.Value
-    };
-
-    private HomeworkWallpaperLayout CurrentWpScheduleLayout() => new()
-    {
-        Anchor = ComboAnchor(CbWpSchAnchor, "MiddleLeft"),
-        OffsetX = SlWpSchX.Value,
-        OffsetY = SlWpSchY.Value,
-        WidthRatio = SlWpSchWidth.Value,
-        UseFixedSize = ChkSchFixed.IsChecked == true,
-        FixedWidth = SlWpSchFixedW.Value,
-        FixedHeight = SlWpSchFixedH.Value
-    };
-
-    private void ApplyMsLayoutToUi(HomeworkWallpaperLayout? lay)
-    {
-        bool ready = _hwReady;
-        _hwReady = false;
-        try
-        {
-            FillAnchorCombo(CbMsAnchor, lay?.Anchor, 8);
-            SlMsX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlMsX.Minimum, SlMsX.Maximum);
-            SlMsY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlMsY.Minimum, SlMsY.Maximum);
-            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
-            SlMsWidth.Value = Math.Clamp(ratio, SlMsWidth.Minimum, SlMsWidth.Maximum);
-            ChkMsFixed.IsChecked = lay?.UseFixedSize == true;
-            SlMsFixedW.Value = Math.Clamp(lay?.FixedWidth ?? 420, SlMsFixedW.Minimum, SlMsFixedW.Maximum);
-            SlMsFixedH.Value = Math.Clamp(lay?.FixedHeight ?? 360, SlMsFixedH.Minimum, SlMsFixedH.Maximum);
-        }
-        finally { _hwReady = ready; }
-        UpdateMsLabels();
-    }
-
-    private HomeworkWallpaperLayout CurrentMsLayout() => new()
-    {
-        Anchor = ComboAnchor(CbMsAnchor, "BottomRight"),
-        OffsetX = SlMsX.Value,
-        OffsetY = SlMsY.Value,
-        WidthRatio = SlMsWidth.Value,
-        UseFixedSize = ChkMsFixed.IsChecked == true,
-        FixedWidth = SlMsFixedW.Value,
-        FixedHeight = SlMsFixedH.Value
-    };
-
-    private void HwLayout_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_hwReady) return;
-        UpdateHwLabels();
-        ScheduleWpSave();
-        ScheduleWpRepaint();
-    }
-
-    private void WpLayout_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_hwReady) return;
-        UpdateWpLabels();
-        ScheduleWpSave();
-        ScheduleWpRepaint();
-    }
-
-    private void MsLayout_Changed(object sender, RoutedEventArgs e)
-    {
-        if (!_hwReady) return;
-        UpdateMsLabels();
-        ScheduleWpSave();
-        ScheduleWpRepaint();
-    }
 
     /// <summary>作业 / 缺交便签的主题下拉：主题存在各自内容文件里，切换后立即落盘并通知其他窗口刷新。</summary>
     private void WpHwTheme_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -386,38 +262,6 @@ public partial class LayoutWindow : Window
         TxtWpStatus.Text = "桌面背景内容已更新" + (BackdropService.IsApplied() ? "，正在重绘壁纸…" : "，点「应用到桌面背景」即可生效。");
     }
 
-    private void UpdateHwLabels()
-    {
-        if (SlHwX == null || SlHwY == null || SlHwWidth == null) return;
-        if (TxtHwX != null) TxtHwX.Text = $"{SlHwX.Value:0} 像素";
-        if (TxtHwY != null) TxtHwY.Text = $"{SlHwY.Value:0} 像素";
-        if (TxtHwWidth != null) TxtHwWidth.Text = $"{SlHwWidth.Value:0%}";
-        if (TxtHwFixedW != null) TxtHwFixedW.Text = $"{SlHwFixedW.Value:0} 像素";
-        if (TxtHwFixedH != null)
-            TxtHwFixedH.Text = SlHwFixedH.Value <= 0 ? "随内容自适应" : $"{SlHwFixedH.Value:0} 像素";
-    }
-
-    private void UpdateWpLabels()
-    {
-        if (SlWpSchX == null || SlWpSchY == null || SlWpSchWidth == null) return;
-        if (TxtWpSchX != null) TxtWpSchX.Text = $"{SlWpSchX.Value:0} 像素";
-        if (TxtWpSchY != null) TxtWpSchY.Text = $"{SlWpSchY.Value:0} 像素";
-        if (TxtWpSchWidth != null) TxtWpSchWidth.Text = $"{SlWpSchWidth.Value:0%}";
-        if (TxtWpSchFixedW != null) TxtWpSchFixedW.Text = $"{SlWpSchFixedW.Value:0} 像素";
-        if (TxtWpSchFixedH != null)
-            TxtWpSchFixedH.Text = SlWpSchFixedH.Value <= 0 ? "随内容自适应" : $"{SlWpSchFixedH.Value:0} 像素";
-    }
-
-    private void UpdateMsLabels()
-    {
-        if (SlMsX == null || SlMsY == null || SlMsWidth == null) return;
-        if (TxtMsX != null) TxtMsX.Text = $"{SlMsX.Value:0} 像素";
-        if (TxtMsY != null) TxtMsY.Text = $"{SlMsY.Value:0} 像素";
-        if (TxtMsWidth != null) TxtMsWidth.Text = $"{SlMsWidth.Value:0%}";
-        if (TxtMsFixedW != null) TxtMsFixedW.Text = $"{SlMsFixedW.Value:0} 像素";
-        if (TxtMsFixedH != null)
-            TxtMsFixedH.Text = SlMsFixedH.Value <= 0 ? "随内容自适应" : $"{SlMsFixedH.Value:0} 像素";
-    }
 
     private void ScheduleWpSave()
     {
@@ -434,7 +278,8 @@ public partial class LayoutWindow : Window
     /// <summary>把界面当前的桌面背景设置写入设置文件。
     /// 注意：必须写入本窗口的内存对象 _s（而不是重新 LoadSettings 得到的副本），
     /// 否则「应用到桌面背景」触发的 BackdropChanged → ReloadBackdropUi 会拿旧的 _s 回写界面，
-    /// 导致刚调好的水平 / 垂直偏移被弹回默认值。</summary>
+    /// 导致刚调好的内容 / 主题被弹回旧值。
+    /// 位置与大小由「所见即所得排版」窗口（BackdropEditorWindow）维护，这里不再改写它们的 Layout。</summary>
     private void SaveWpSettings()
     {
         try
@@ -446,20 +291,43 @@ public partial class LayoutWindow : Window
             s.Backdrop.ShowMissing = ChkWpMissing.IsChecked == true;
             s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
             s.Backdrop.ScheduleTheme = SelectedThemeKey(CbWpSchTheme, "blue");
-            s.Backdrop.ScheduleLayout = CurrentWpScheduleLayout();
-            s.Backdrop.HomeworkLayout = CurrentHwLayout();
-            s.Backdrop.MissingLayout = CurrentMsLayout();
             Store.SaveSettings(s);
-
-            // 作业内容文件里也写一份布局，保证老入口 / 其他窗口读到的位置一致
-            var board = Store.LoadHomework();
-            if (board != null)
-            {
-                board.Layout = s.Backdrop.HomeworkLayout;
-                Store.SaveHomework(board);
-            }
         }
         catch { }
+    }
+
+    /// <summary>打开「所见即所得」排版窗口：在模拟屏幕上直接拖动便签调整位置、拉四角 / 四边改变大小。</summary>
+    private void BtnWpEdit_Click(object sender, RoutedEventArgs e)
+    {
+        SaveWpSettings();   // 先把勾选 / 主题落盘，编辑器读到的就是最新状态
+
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true && ChkWpMissing.IsChecked != true)
+        {
+            TxtWpStatus.Text = "请先勾选要显示的便签（当天课表 / 作业公示 / 缺交作业名单），再打开排版窗口。";
+            return;
+        }
+
+        bool saved = false;
+        try
+        {
+            var w = new BackdropEditorWindow { Owner = this };
+            saved = w.ShowDialog() == true;
+        }
+        catch (Exception ex)
+        {
+            TxtWpStatus.Text = "打不开排版窗口：" + ex.Message;
+            return;
+        }
+
+        _s.Backdrop = Store.LoadSettings().Backdrop;   // 编辑器已落盘，重新读回最新布局
+        ReloadBackdropUi();
+
+        if (!saved)
+        {
+            TxtWpStatus.Text = "已取消，便签位置 / 大小保持不变。";
+            return;
+        }
+        TxtWpStatus.Text = "便签位置与大小已保存" + (BackdropService.IsApplied() ? "，壁纸已重绘。" : "，点「应用到桌面背景」即可生效。");
     }
 
     private void ScheduleWpRepaint()

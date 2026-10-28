@@ -328,8 +328,10 @@ public partial class MissingWindow : Window
 
     private void OpenLayoutWindow()
     {
-        try { new LayoutWindow { InitialTabIndex = 2 }.Show(); }
+        // 「位置」直接进入所见即所得排版：在模拟屏幕上拖动便签定位、拉四边改大小
+        try { new BackdropEditorWindow { Owner = this }.ShowDialog(); }
         catch { }
+        AppEvents.RaiseBackdropChanged();
     }
 
     private void BtnHide_Click(object sender, RoutedEventArgs e) => Hide();
