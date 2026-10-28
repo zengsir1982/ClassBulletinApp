@@ -1,0 +1,45 @@
+name: 发布 Windows 安装包
+
+# 触发方式：推送形如 v1.0.0 的标签时自动构建并把产物挂到 GitHub Release
+# （Gitee 不会执行本文件；Gitee 那边按 发布指南.md 手动上传同样两个文件即可）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 发布自包含 win-x64
+        run: dotnet publish ClassBulletinApp/ClassBulletinApp/ClassBulletinApp.csproj -c Release -r win-x64 --self-contained -o dist/portable
+
+      - name: 打免安装包
+        run: Compress-Archive -Path dist/portable/* -DestinationPath dist/ClassBulletinApp-${{ github.ref_name }}-免安装-win-x64.zip
+        shell: pwsh
+
+      - name: 生成校验值
+        run: |
+          Get-ChildItem dist -File -Include *.zip,*.exe -Recurse |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } |
+            Out-File -Encoding utf8 dist/SHA256SUMS.txt
+        shell: pwsh
+
+      - name: 发布到 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" --title "班级公布栏 ${{ github.ref_name }}" --notes-file RELEASE_NOTES.md
+          gh release upload "${{ github.ref_name }}" dist/*.zip dist/*.exe dist/SHA256SUMS.txt --clobber
+        shell: pwsh

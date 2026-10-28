@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
         var s = Store.LoadSettings();
         ChkFullscreen.IsChecked = s.LaunchFullscreen;
         ChkLocked.IsChecked = s.LaunchLocked;
+        TxtVersion.Text = "班级公布栏 " + AppInfo.VersionText;
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)

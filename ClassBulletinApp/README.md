@@ -2,7 +2,17 @@
 
 为教室多媒体屏幕设计的**班级公布栏**：导入全校总课程表 Excel → 选择班级 → 自动显示该班**当日课表**（含当前课高亮、单双周课标注、临时调课覆盖）→ 显示**通知/公告**。
 
-技术栈：.NET 8 + WPF（Windows 10 桌面应用）。
+技术栈：.NET 8 + WPF（Windows 10 桌面应用）。当前版本：**v1.0.0**。
+
+## 下载（v1.0.0）
+
+| 文件 | 说明 |
+| --- | --- |
+| `ClassBulletinApp-1.0.0-安装版-win-x64.exe` | **安装版**（推荐）：双击安装，自动建开始菜单快捷方式，可选桌面图标 / 开机自启，可在「设置 → 应用」卸载 |
+| `ClassBulletinApp-1.0.0-免安装-win-x64.zip` | **免安装版**：解压即用，不写注册表、不需要管理员权限 |
+
+两者均**自带 .NET 8 运行时**（64 位 Windows 10 及以上）。下载后请对照 `SHA256SUMS.txt` 核对。
+完整说明见仓库根目录的 `RELEASE_NOTES.md`；免安装包内也附了 `使用说明.txt`。
 
 ## 功能一览
 - 导入全校总课程表（xlsx），自动识别各班与每天 8 节课、大课间、眼保健操，解析科目 / 教师 / 地点 / 单双周 / 调代课标记。
@@ -57,6 +67,24 @@ F:\dotnet8\dotnet.exe restore
 F:\dotnet8\dotnet.exe build ClassBulletinApp\ClassBulletinApp.csproj -c Release
 F:\dotnet8\dotnet.exe run --project ParserTest   :: 验证解析结果
 ```
+
+### 发版（打 1.0.0 这种包）
+
+```bat
+:: 1) 自包含发布到 dist\portable
+F:\dotnet8\dotnet.exe publish ClassBulletinApp\ClassBulletinApp\ClassBulletinApp.csproj ^
+    -c Release -r win-x64 --self-contained -o dist\portable
+
+:: 2) 免安装包：把 dist\portable 整个目录压成 zip
+
+:: 3) 安装版：用 Inno Setup 7 编译 installer\ClassBulletinApp.iss
+"D:\Program Files\Inno Setup 7\ISCC.exe" installer\ClassBulletinApp.iss
+::    产物落在 dist\ClassBulletinApp-<版本>-安装版-win-x64.exe
+```
+
+版本号统一写在 `ClassBulletinApp/ClassBulletinApp/ClassBulletinApp.csproj` 的 `<Version>`，
+安装包脚本里的 `MyAppVersion` 与标签（如 `v1.0.0`）保持三者一致。
+双仓（Gitee + GitHub）发布流程见仓库根目录的 `发布指南.md`。
 
 ## 如何导入课表
 1. 启动程序，点击右上角「导入课表」。
