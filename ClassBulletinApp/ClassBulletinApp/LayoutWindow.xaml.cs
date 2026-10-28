@@ -170,17 +170,19 @@ public partial class LayoutWindow : Window
         SyncControlsToSettings();
         Store.SaveSettings(_s);
         AppEvents.RaiseLayoutChanged();
-        DialogResult = true;
+        // 注意：本窗口既可能以 ShowDialog 打开（可设 DialogResult），也可能由便签「位置」按钮以 Show 打开，
+        // 后者设 DialogResult 会抛异常，因此这里容错处理。
+        try { DialogResult = true; } catch (InvalidOperationException) { }
         Close();
     }
 
     private void BtnCancel_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        try { DialogResult = false; } catch (InvalidOperationException) { }
         Close();
     }
 
-    // ---------- 桌面背景（当天课表 + 作业公示 合成壁纸） ----------
+    // ---------- 桌面背景（当天课表 + 作业公示 + 缺交名单 合成壁纸） ----------
     private void ReloadBackdropUi()
     {
         var b = _s.Backdrop ?? new BackdropSettings();
@@ -190,18 +192,51 @@ public partial class LayoutWindow : Window
         {
             ChkWpSchedule.IsChecked = b.ShowSchedule;
             ChkWpHomework.IsChecked = b.ShowHomework;
+            ChkWpMissing.IsChecked = b.ShowMissing;
             ChkWpOrigin.IsChecked = b.UseOriginWallpaper;
+
+            FillThemeCombo(CbWpSchTheme, b.ScheduleTheme);
+            FillThemeCombo(CbWpHwTheme, Store.LoadHomework()?.Theme);
+            FillThemeCombo(CbWpMsTheme, Store.LoadMissingBoard().Theme);
 
             var sl = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
             FillAnchorCombo(CbWpSchAnchor, sl.Anchor, 3);
             SlWpSchWidth.Value = Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, SlWpSchWidth.Minimum, SlWpSchWidth.Maximum);
             SlWpSchX.Value = Math.Clamp(sl.OffsetX, SlWpSchX.Minimum, SlWpSchX.Maximum);
             SlWpSchY.Value = Math.Clamp(sl.OffsetY, SlWpSchY.Minimum, SlWpSchY.Maximum);
+            ChkSchFixed.IsChecked = sl.UseFixedSize;
+            SlWpSchFixedW.Value = Math.Clamp(sl.FixedWidth <= 0 ? 460 : sl.FixedWidth, SlWpSchFixedW.Minimum, SlWpSchFixedW.Maximum);
+            SlWpSchFixedH.Value = Math.Clamp(sl.FixedHeight, SlWpSchFixedH.Minimum, SlWpSchFixedH.Maximum);
 
             ApplyHwLayoutToUi(b.HomeworkLayout ?? Store.LoadHomework()?.Layout);
+            ApplyMsLayoutToUi(b.MissingLayout);
         }
         finally { _hwReady = ready; }
         UpdateWpLabels();
+        UpdateMsLabels();
+    }
+
+    /// <summary>填充便签主题下拉（带色块预览），并选中当前主题。</summary>
+    private static void FillThemeCombo(System.Windows.Controls.ComboBox cb, string? key)
+    {
+        if (cb.ItemsSource == null)
+        {
+            cb.ItemsSource = HomeworkThemes.Presets
+                .Select(t => new
+                {
+                    t.Name,
+                    Background = (System.Windows.Media.Brush)ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White)
+                })
+                .ToList();
+        }
+        cb.SelectedIndex = HomeworkThemes.IndexOf(key);
+    }
+
+    /// <summary>取主题下拉当前选中的主题标识。</summary>
+    private static string SelectedThemeKey(System.Windows.Controls.ComboBox cb, string fallback)
+    {
+        int i = cb.SelectedIndex;
+        return i >= 0 && i < HomeworkThemes.Presets.Count ? HomeworkThemes.Presets[i].Key : fallback;
     }
 
     private static void FillAnchorCombo(System.Windows.Controls.ComboBox cb, string? anchor, int fallback)
@@ -255,7 +290,40 @@ public partial class LayoutWindow : Window
         Anchor = ComboAnchor(CbWpSchAnchor, "MiddleLeft"),
         OffsetX = SlWpSchX.Value,
         OffsetY = SlWpSchY.Value,
-        WidthRatio = SlWpSchWidth.Value
+        WidthRatio = SlWpSchWidth.Value,
+        UseFixedSize = ChkSchFixed.IsChecked == true,
+        FixedWidth = SlWpSchFixedW.Value,
+        FixedHeight = SlWpSchFixedH.Value
+    };
+
+    private void ApplyMsLayoutToUi(HomeworkWallpaperLayout? lay)
+    {
+        bool ready = _hwReady;
+        _hwReady = false;
+        try
+        {
+            FillAnchorCombo(CbMsAnchor, lay?.Anchor, 8);
+            SlMsX.Value = Math.Clamp(lay?.OffsetX ?? 0, SlMsX.Minimum, SlMsX.Maximum);
+            SlMsY.Value = Math.Clamp(lay?.OffsetY ?? 0, SlMsY.Minimum, SlMsY.Maximum);
+            double ratio = (lay?.WidthRatio ?? 0) <= 0 ? 0.4 : lay!.WidthRatio;
+            SlMsWidth.Value = Math.Clamp(ratio, SlMsWidth.Minimum, SlMsWidth.Maximum);
+            ChkMsFixed.IsChecked = lay?.UseFixedSize == true;
+            SlMsFixedW.Value = Math.Clamp(lay?.FixedWidth ?? 420, SlMsFixedW.Minimum, SlMsFixedW.Maximum);
+            SlMsFixedH.Value = Math.Clamp(lay?.FixedHeight ?? 360, SlMsFixedH.Minimum, SlMsFixedH.Maximum);
+        }
+        finally { _hwReady = ready; }
+        UpdateMsLabels();
+    }
+
+    private HomeworkWallpaperLayout CurrentMsLayout() => new()
+    {
+        Anchor = ComboAnchor(CbMsAnchor, "BottomRight"),
+        OffsetX = SlMsX.Value,
+        OffsetY = SlMsY.Value,
+        WidthRatio = SlMsWidth.Value,
+        UseFixedSize = ChkMsFixed.IsChecked == true,
+        FixedWidth = SlMsFixedW.Value,
+        FixedHeight = SlMsFixedH.Value
     };
 
     private void HwLayout_Changed(object sender, RoutedEventArgs e)
@@ -272,6 +340,42 @@ public partial class LayoutWindow : Window
         UpdateWpLabels();
         ScheduleWpSave();
         ScheduleWpRepaint();
+    }
+
+    private void MsLayout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_hwReady) return;
+        UpdateMsLabels();
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+    }
+
+    /// <summary>作业 / 缺交便签的主题下拉：主题存在各自内容文件里，切换后立即落盘并通知其他窗口刷新。</summary>
+    private void WpHwTheme_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!_hwReady) return;
+        try
+        {
+            if (ReferenceEquals(sender, CbWpHwTheme))
+            {
+                var board = Store.LoadHomework() ?? new HomeworkBoard();
+                board.Theme = SelectedThemeKey(CbWpHwTheme, "classic");
+                Store.SaveHomework(board);
+                AppEvents.RaiseHomeworkChanged();
+            }
+            else if (ReferenceEquals(sender, CbWpMsTheme))
+            {
+                var mb = Store.LoadMissingBoard();
+                mb.Theme = SelectedThemeKey(CbWpMsTheme, "pink");
+                Store.SaveMissingBoard(mb);
+                AppEvents.RaiseMissingChanged();
+            }
+        }
+        catch { }
+
+        ScheduleWpSave();
+        ScheduleWpRepaint();
+        AppEvents.RaiseBackdropChanged();
     }
 
     private void WpSetting_Changed(object sender, RoutedEventArgs e)
@@ -299,6 +403,20 @@ public partial class LayoutWindow : Window
         if (TxtWpSchX != null) TxtWpSchX.Text = $"{SlWpSchX.Value:0} 像素";
         if (TxtWpSchY != null) TxtWpSchY.Text = $"{SlWpSchY.Value:0} 像素";
         if (TxtWpSchWidth != null) TxtWpSchWidth.Text = $"{SlWpSchWidth.Value:0%}";
+        if (TxtWpSchFixedW != null) TxtWpSchFixedW.Text = $"{SlWpSchFixedW.Value:0} 像素";
+        if (TxtWpSchFixedH != null)
+            TxtWpSchFixedH.Text = SlWpSchFixedH.Value <= 0 ? "随内容自适应" : $"{SlWpSchFixedH.Value:0} 像素";
+    }
+
+    private void UpdateMsLabels()
+    {
+        if (SlMsX == null || SlMsY == null || SlMsWidth == null) return;
+        if (TxtMsX != null) TxtMsX.Text = $"{SlMsX.Value:0} 像素";
+        if (TxtMsY != null) TxtMsY.Text = $"{SlMsY.Value:0} 像素";
+        if (TxtMsWidth != null) TxtMsWidth.Text = $"{SlMsWidth.Value:0%}";
+        if (TxtMsFixedW != null) TxtMsFixedW.Text = $"{SlMsFixedW.Value:0} 像素";
+        if (TxtMsFixedH != null)
+            TxtMsFixedH.Text = SlMsFixedH.Value <= 0 ? "随内容自适应" : $"{SlMsFixedH.Value:0} 像素";
     }
 
     private void ScheduleWpSave()
@@ -325,9 +443,12 @@ public partial class LayoutWindow : Window
             s.Backdrop ??= new BackdropSettings();
             s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
             s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
+            s.Backdrop.ShowMissing = ChkWpMissing.IsChecked == true;
             s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
+            s.Backdrop.ScheduleTheme = SelectedThemeKey(CbWpSchTheme, "blue");
             s.Backdrop.ScheduleLayout = CurrentWpScheduleLayout();
             s.Backdrop.HomeworkLayout = CurrentHwLayout();
+            s.Backdrop.MissingLayout = CurrentMsLayout();
             Store.SaveSettings(s);
 
             // 作业内容文件里也写一份布局，保证老入口 / 其他窗口读到的位置一致
@@ -358,9 +479,9 @@ public partial class LayoutWindow : Window
     private void BtnApplyWp_Click(object sender, RoutedEventArgs e)
     {
         SaveWpSettings();
-        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true)
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true && ChkWpMissing.IsChecked != true)
         {
-            TxtWpStatus.Text = "请至少勾选「当天课表」或「作业公示」其中一项。";
+            TxtWpStatus.Text = "请至少勾选「当天课表」「作业公示」「缺交作业名单」其中一项。";
             return;
         }
         BackdropService.Apply(silent: false, out string msg);
@@ -376,6 +497,7 @@ public partial class LayoutWindow : Window
             s.Backdrop ??= new BackdropSettings();
             s.Backdrop.ShowSchedule = false;
             s.Backdrop.ShowHomework = false;
+            s.Backdrop.ShowMissing = false;
             Store.SaveSettings(s);
 
             BackdropService.Clear();

@@ -21,7 +21,8 @@ public partial class MainWindow : Window
     private ScheduleWindow? _schWin;
     private NotificationWindow? _notifWin;
     private HomeworkWindow? _hwWin;
-    private bool _schOn, _notOn, _hwOn;
+    private MissingWindow? _msWin;
+    private bool _schOn, _notOn, _hwOn, _msOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
     // 教师个人课表下拉（支持输入姓名查询）
@@ -35,6 +36,7 @@ public partial class MainWindow : Window
     private bool _maxActive;
     private System.Windows.Forms.ToolStripMenuItem? _miWp;
     private System.Windows.Forms.ToolStripMenuItem? _miWpHw;
+    private System.Windows.Forms.ToolStripMenuItem? _miWpMs;
 
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
@@ -79,6 +81,7 @@ public partial class MainWindow : Window
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
             ReloadHomework();
+            ReloadMissing();
             PopulateThemeCombo(settings.Theme);
             RefreshTeacherCombo();
             UpdateModeIndicator();
@@ -102,7 +105,9 @@ public partial class MainWindow : Window
         {
             BackdropService.Start();
             AppEvents.BackdropChanged += UpdateTrayBackdropText;
+            AppEvents.BackdropChanged += UpdateMsWpButton;
             AppEvents.HomeworkChanged += ReloadHomework;
+            AppEvents.MissingChanged += ReloadMissing;
         }
         catch { }
 
@@ -116,6 +121,7 @@ public partial class MainWindow : Window
             if (settings.AutoShowSchedule) ShowScheduleWin();
             if (settings.AutoShowNotification) ShowNotificationWin();
             if (settings.AutoShowHomework) ShowHomeworkWin();
+            if (settings.AutoShowMissing) ShowMissingWin();
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
@@ -187,11 +193,32 @@ public partial class MainWindow : Window
         UpdateToggleLabels();
     }
 
+    private void ShowMissingWin()
+    {
+        if (_msWin == null)
+        {
+            _msWin = new MissingWindow();
+            _msWin.Closed += (_, _) => { _msWin = null; _msOn = false; UpdateToggleLabels(); };
+        }
+        _msWin.Show();
+        _msOn = true;
+        UpdateToggleLabels();
+    }
+
+    private void HideMissingWin()
+    {
+        _msWin?.Hide();
+        _msOn = false;
+        UpdateToggleLabels();
+    }
+
     private void UpdateToggleLabels()
     {
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
         if (BtnToggleHw != null) BtnToggleHw.Content = _hwOn ? "作业悬浮：开" : "作业悬浮：关";
+        if (BtnToggleMs != null) BtnToggleMs.Content = _msOn ? "缺交悬浮：开" : "缺交悬浮：关";
+        if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
         UpdateModeIndicator();
     }
 
@@ -449,6 +476,111 @@ public partial class MainWindow : Window
         if (_hwOn) HideHomeworkWin(); else ShowHomeworkWin();
     }
 
+    private void BtnToggleMs_Click(object sender, RoutedEventArgs e)
+    {
+        if (_msOn) HideMissingWin(); else ShowMissingWin();
+    }
+
+    // ---------- 缺交作业名单（独立便签） ----------
+    private void ReloadMissing()
+    {
+        try
+        {
+            var mb = Store.LoadMissingBoard();   // 首次调用会从 homework.json 迁移旧缺交数据
+            LoadMsThemeCombo(mb.Theme);
+            UpdateMsWpButton();
+        }
+        catch { }
+    }
+
+    private void LoadMsThemeCombo(string? currentTheme)
+    {
+        if (CbMsTheme == null) return;
+        if (CbMsTheme.ItemsSource == null)
+        {
+            CbMsTheme.ItemsSource = HomeworkThemes.Presets
+                .Select(t => new
+                {
+                    t.Name,
+                    Background = (System.Windows.Media.Brush)ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White)
+                })
+                .ToList();
+        }
+        CbMsTheme.SelectedIndex = HomeworkThemes.IndexOf(currentTheme);
+    }
+
+    private void CbMsTheme_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (CbMsTheme == null || CbMsTheme.SelectedIndex < 0) return;
+        int idx = CbMsTheme.SelectedIndex;
+        if (idx >= HomeworkThemes.Presets.Count) return;
+        try
+        {
+            var mb = Store.LoadMissingBoard();
+            mb.Theme = HomeworkThemes.Presets[idx].Key;
+            Store.SaveMissingBoard(mb);
+
+            if (Store.LoadSettings().Backdrop?.ShowMissing == true)
+                BackdropService.Apply(silent: true, out _);
+
+            AppEvents.RaiseMissingChanged();
+            AppEvents.RaiseBackdropChanged();
+            TxtStatus.Text = "缺交名单主题已切换为「" + HomeworkThemes.Presets[idx].Name + "」";
+        }
+        catch { }
+    }
+
+    private void BtnEditMs_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new MissingEditWindow(Store.LoadMissingBoard());
+            if (dlg.ShowDialog() != true) return;
+
+            var saved = dlg.BuildBoard();
+            Store.SaveMissingBoard(saved);
+            if (Store.LoadSettings().Backdrop?.ShowMissing == true)
+                BackdropService.Apply(silent: true, out _);
+
+            ReloadMissing();
+            AppEvents.RaiseMissingChanged();
+            AppEvents.RaiseBackdropChanged();
+            TxtStatus.Text = "缺交作业名单已更新（共 " + saved.Items.Count + " 条记录）";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "打开缺交名单编辑失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>同步「缺交名单 → 桌面背景」按钮状态。</summary>
+    private void UpdateMsWpButton()
+    {
+        if (BtnMsWp == null) return;
+        bool on = (Store.LoadSettings().Backdrop ?? new BackdropSettings()).ShowMissing;
+        BtnMsWp.Content = on ? "桌面背景：开" : "桌面背景：关";
+        BtnMsWp.Background = on
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+            : System.Windows.Media.Brushes.White;
+        BtnMsWp.Foreground = on ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black;
+    }
+
+    private void BtnMsWp_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            BackdropService.ToggleMissing(out string msg);
+            TxtStatus.Text = msg;
+            UpdateMsWpButton();
+            UpdateTrayBackdropText();
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换缺交名单桌面背景失败：" + ex.Message;
+        }
+    }
+
     private void BtnLayout_Click(object sender, RoutedEventArgs e)
     {
         var w = new LayoutWindow { Owner = this };
@@ -524,14 +656,16 @@ public partial class MainWindow : Window
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
         var miHw = new System.Windows.Forms.ToolStripMenuItem("作业悬浮：开/关", null, (_, _) => BtnToggleHw_Click(this, new RoutedEventArgs()));
+        var miMs = new System.Windows.Forms.ToolStripMenuItem("缺交悬浮：开/关", null, (_, _) => BtnToggleMs_Click(this, new RoutedEventArgs()));
         _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背景", null, (_, _) => ToggleBackdropSchedule());
         _miWpHw = new System.Windows.Forms.ToolStripMenuItem("作业公示 → 桌面背景", null, (_, _) => ToggleBackdropHomework());
+        _miWpMs = new System.Windows.Forms.ToolStripMenuItem("缺交名单 → 桌面背景", null, (_, _) => ToggleBackdropMissing());
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
         menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
         {
-            miPanel, miSch, miNot, miHw,
+            miPanel, miSch, miNot, miHw, miMs,
             new System.Windows.Forms.ToolStripSeparator(),
-            _miWp, _miWpHw,
+            _miWp, _miWpHw, _miWpMs,
             new System.Windows.Forms.ToolStripSeparator(),
             miExit
         });
@@ -561,10 +695,34 @@ public partial class MainWindow : Window
                 _miWpHw.Text = b.ShowHomework ? "作业公示 → 桌面背景（开）" : "作业公示 → 桌面背景（关）";
                 _miWpHw.ToolTipText = b.ShowHomework
                     ? "点击关闭：从桌面背景移除作业公示"
-                    : "点击开启：把作业公示（含缺交名单）画到桌面壁纸上";
+                    : "点击开启：把作业公示画到桌面壁纸上";
+            }
+            if (_miWpMs != null)
+            {
+                _miWpMs.Checked = b.ShowMissing;
+                _miWpMs.Text = b.ShowMissing ? "缺交名单 → 桌面背景（开）" : "缺交名单 → 桌面背景（关）";
+                _miWpMs.ToolTipText = b.ShowMissing
+                    ? "点击关闭：从桌面背景移除缺交作业名单"
+                    : "点击开启：把缺交作业名单便签画到桌面壁纸上";
             }
         }
         catch { }
+    }
+
+    private void ToggleBackdropMissing()
+    {
+        try
+        {
+            BackdropService.ToggleMissing(out string msg);
+            TxtStatus.Text = msg;
+            UpdateTrayBackdropText();
+            UpdateMsWpButton();
+            AppEvents.RaiseBackdropChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换桌面背景失败：" + ex.Message;
+        }
     }
 
     private void ToggleBackdropHomework()
@@ -623,6 +781,8 @@ public partial class MainWindow : Window
         _tray?.Dispose();
         _schWin?.Close();
         _notifWin?.Close();
+        _hwWin?.Close();
+        _msWin?.Close();
         base.OnClosing(e);
     }
 
@@ -1207,6 +1367,7 @@ public partial class MainWindow : Window
                 SizeLevel = x.SizeLevel
             })
             .ToList(),
+        Missing = Store.LoadHomework()?.Missing ?? new(),   // 缺交名单已独立存储，原样带回避免覆盖丢失
         UpdatedAt = DateTime.Now,
         Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()
     };

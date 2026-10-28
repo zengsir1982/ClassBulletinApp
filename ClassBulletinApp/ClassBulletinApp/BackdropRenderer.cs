@@ -21,23 +21,27 @@ using Brushes = System.Windows.Media.Brushes;
 namespace ClassBulletinApp;
 
 /// <summary>
-/// 「桌面背面」渲染器：把「当天课表」与「作业公示」绘制成一张与屏幕等大的 PNG，用作桌面壁纸。
-/// 两块卡片的位置 / 宽度各自独立（九宫格锚点 + 像素偏移 + 宽度比例），可只显示其中一块。
-/// 底图优先使用系统原壁纸（铺满裁切），读不到时回退为浅色渐变。
+/// 「桌面背面」渲染器：把「当天课表」「作业公示」「缺交作业名单」三张便签绘制成一张与屏幕等大的 PNG，用作桌面壁纸。
+/// 每张便签的便签主题、位置 / 大小（九宫格锚点 + 像素偏移 + 宽度比例或固定像素）各自独立，可只显示其中任意几张。
+/// 固定大小时内容按比例缩小以完整放进便签内（不溢出、不截断）；底图优先使用系统原壁纸（铺满裁切），读不到时回退为浅色渐变。
 /// </summary>
 public static class BackdropRenderer
 {
+    /// <summary>卡片内边距（以 1080 高度为基准比例缩放），供构建与内容自适应共用。</summary>
+    private const double PAD_BASE = 36;
+
     /// <summary>
     /// 生成桌面背面壁纸。
     /// </summary>
-    /// <param name="today">当天课表（可为 null，此时不画课表卡片）。</param>
-    /// <param name="title">课表卡标题（班级名 / 教师名）。</param>
-    /// <param name="subtitle">课表卡副标题（日期 + 周次 + 星期）。</param>
+    /// <param name="today">当天课表（可为 null，此时不画课表便签）。</param>
+    /// <param name="title">课表便签标题（班级名 / 教师名）。</param>
+    /// <param name="subtitle">课表便签副标题（日期 + 周次 + 星期）。</param>
     /// <param name="homework">作业公示内容（可为 null）。</param>
+    /// <param name="missing">缺交作业名单（可为 null）。</param>
     /// <param name="b">桌面背面设置。</param>
     /// <param name="backgroundPath">系统原壁纸路径（可为空）。</param>
     public static string RenderToPng(TodayResult? today, string title, string dateText, string weekText,
-        HomeworkBoard? homework, BackdropSettings b, int width, int height,
+        HomeworkBoard? homework, MissingBoard? missing, BackdropSettings b, int width, int height,
         string? backgroundPath, string outPath)
     {
         double scale = height / 1080.0;
@@ -55,17 +59,24 @@ public static class BackdropRenderer
 
         if (b.ShowSchedule && today != null && today.Rows.Count > 0)
         {
-            var sl = b.ScheduleLayout;
-            double ratio = sl == null ? 0.38 : Math.Clamp(sl.WidthRatio <= 0 ? 0.38 : sl.WidthRatio, 0.18, 0.95);
-            double cardW = width * ratio;
-            var card = BuildScheduleCard(today, title, dateText, weekText, scale, ScaleFont, cardW);
-            Place(canvas, card, b.ScheduleLayout, width, height, scale);
+            var lay = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
+            var theme = HomeworkThemes.Find(b.ScheduleTheme);
+            var card = BuildScheduleCard(today, title, dateText, weekText, scale, ScaleFont,
+                ResolveCardWidth(lay, width, 0.38), theme);
+            Place(canvas, card, lay, width, height, 0.38);
         }
 
         if (b.ShowHomework && homework != null)
         {
+            var lay = b.HomeworkLayout ?? new HomeworkWallpaperLayout();
             var card = BuildHomeworkCard(homework, scale, ScaleFont);
-            Place(canvas, card, b.HomeworkLayout ?? new HomeworkWallpaperLayout(), width, height, scale);
+            Place(canvas, card, lay, width, height);
+        }
+
+        if (b.ShowMissing && missing != null)
+        {
+            var card = BuildMissingCard(missing, scale, ScaleFont);
+            Place(canvas, card, b.MissingLayout ?? new HomeworkWallpaperLayout(), width, height);
         }
 
         root.Measure(new Size(width, height));
@@ -107,22 +118,56 @@ public static class BackdropRenderer
         }
     }
 
-    // ---------- 卡片定位 ----------
-    private static void Place(Canvas canvas, FrameworkElement card, HomeworkWallpaperLayout lay,
-        double width, double height, double scale)
+    // ---------- 尺寸 / 定位 ----------
+    /// <summary>便签宽度：固定大小模式用固定像素；否则按屏幕宽度比例。</summary>
+    private static double ResolveCardWidth(HomeworkWallpaperLayout lay, double width, double defRatio)
     {
-        // 固定大小模式：宽高用固定像素，卡片位置不再随作业条数多少而漂移，定位更稳定
         if (lay.UseFixedSize && lay.FixedWidth > 0)
-            card.Width = Math.Clamp(lay.FixedWidth, 120, Math.Max(120, width - 40));
-        else
-            card.Width = width * Math.Clamp(lay.WidthRatio <= 0 ? 0.4 : lay.WidthRatio, 0.18, 0.95);
+            return Math.Clamp(lay.FixedWidth, 160, Math.Max(160, width - 40));
+        double ratio = lay.WidthRatio <= 0 ? defRatio : lay.WidthRatio;
+        return width * Math.Clamp(ratio, 0.12, 0.95);
+    }
 
-        card.Measure(new Size(card.Width, double.PositiveInfinity));
-        card.Height = (lay.UseFixedSize && lay.FixedHeight > 0)
-            ? Math.Clamp(lay.FixedHeight, 120, Math.Max(120, height - 40))
-            : card.DesiredSize.Height;
+    /// <summary>
+    /// 给便签定位并加入画布。
+    /// 固定高度时：用 Viewbox（只缩小不放大）把内容整体等比缩放到便签内，
+    /// 保证内容再长也完整显示在便签范围内，不溢出、不截断。
+    /// </summary>
+    private static void Place(Canvas canvas, Border card, HomeworkWallpaperLayout lay,
+        double width, double height, double defRatio = 0.4)
+    {
+        card.Width = ResolveCardWidth(lay, width, defRatio);
+
+        double padX = card.Padding.Left + card.Padding.Right;
+        double innerW = Math.Max(80, card.Width - padX);
+
+        if (lay.UseFixedSize && lay.FixedHeight > 0 && card.Child is FrameworkElement content)
+        {
+            card.Height = Math.Clamp(lay.FixedHeight, 120, Math.Max(120, height - 40));
+            // 内容宽度固定为便签内宽：文字按此宽度折行，再整体缩放到便签高度内
+            content.Width = innerW;
+            card.Child = null;   // 先断开原父子关系，否则 content 无法再挂到 Viewbox 下
+            card.Child = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                StretchDirection = StretchDirection.DownOnly,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = content
+            };
+        }
+
+        // 高度自适应时先量出实际高度，才能按锚点（中 / 下）正确摆放
+        double cardH = card.Height;
+        if (double.IsNaN(cardH) || cardH <= 0)
+        {
+            card.Measure(new Size(card.Width, double.PositiveInfinity));
+            cardH = card.DesiredSize.Height;
+            card.Height = cardH;
+        }
 
         AnchorOf(lay.Anchor, out string hAlign, out string vAlign);
+        double scale = height / 1080.0;
         double baseM = 60 * scale;
         double ox = lay.OffsetX * scale;
         double oy = lay.OffsetY * scale;
@@ -136,30 +181,36 @@ public static class BackdropRenderer
         double y = vAlign switch
         {
             "Top" => baseM + oy,
-            "Center" => (height - card.Height) / 2 + oy,
-            _ => height - baseM - card.Height + oy
+            "Center" => (height - cardH) / 2 + oy,
+            _ => height - baseM - cardH + oy
         };
 
-        // 允许偏移把卡片推到屏幕外，但保留至少 40 像素可见，避免"设了位置却看不见"
+        // 允许偏移把便签推到屏幕外，但保留至少 40 像素可见，避免"设了位置却看不见"
         x = Math.Clamp(x, -card.Width + 40, width - 40);
-        y = Math.Clamp(y, -card.Height + 40, height - 40);
+        y = Math.Clamp(y, -cardH + 40, height - 40);
 
         Canvas.SetLeft(card, x);
         Canvas.SetTop(card, y);
         canvas.Children.Add(card);
     }
 
-    // ---------- 课表卡片 ----------
+    // ---------- 当天课表便签 ----------
     private static Border BuildScheduleCard(TodayResult today, string title, string dateText, string weekText,
-        double scale, Func<double, double> ScaleFont, double cardWidth)
+        double scale, Func<double, double> ScaleFont, double cardWidth, HomeworkTheme theme)
     {
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x23, 0x2A, 0x33));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0x9C, 0xA3, 0xAF));
+        var border = ParseHwColor(theme.BorderColor, Color.FromRgb(0xDC, 0xE3, 0xF1));
+
         var stack = new StackPanel();
 
         var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16 * scale) };
         string titleText = string.IsNullOrWhiteSpace(title) ? "当天课表" : title;
 
-        // 标题：按卡片实际宽度自适应字号（窄卡片自动缩小，宽卡片可更大），避免溢出或过小
-        double pad = 36 * scale;
+        // 标题：按便签实际宽度自适应字号（窄便签自动缩小，宽便签可更大），避免溢出或过小
+        double pad = PAD_BASE * scale;
         double availW = Math.Max(80, cardWidth - 2 * pad);
         var titleFamily = new FontFamily("Microsoft YaHei");
         double titleSize = FitFontSize(titleText, availW, 42 * scale, 22 * scale, 56 * scale, titleFamily);
@@ -170,16 +221,16 @@ public static class BackdropRenderer
             FontSize = titleSize,
             FontFamily = titleFamily,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = new SolidColorBrush(titleColor),
             TextWrapping = TextWrapping.NoWrap,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
 
-        // 分隔线：标题与日期/周次之间留一道浅色横线，视觉分组更清爽
+        // 分隔线：标题与日期/周次之间留一道主题色横线，视觉分组更清爽
         head.Children.Add(new Border
         {
             Height = 2 * scale,
-            Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xE3, 0xF1)),
+            Background = BrushOf(border),
             Margin = new Thickness(0, 12 * scale, 0, 12 * scale)
         });
 
@@ -188,21 +239,17 @@ public static class BackdropRenderer
         {
             Text = dateText ?? "",
             FontSize = ScaleFont(20),
-            Foreground = new SolidColorBrush(Color.FromRgb(0x4A, 0x55, 0x68)),
+            Foreground = BrushOf(fg, 0xD0),
             Margin = new Thickness(0, 0, 0, 6 * scale),
             TextWrapping = TextWrapping.Wrap
         });
 
-        // 第几周 · 星期几（单独一行，主题色 + 浅色胶囊底，醒目美观）
-        var weekWrap = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 0)
-        };
+        // 第几周 · 星期几（单独一行，主题色 + 浅色胶囊底）
+        var weekWrap = new StackPanel { Orientation = Orientation.Horizontal };
         var weekPill = new Border
         {
             CornerRadius = new CornerRadius(8 * scale),
-            Background = new SolidColorBrush(Color.FromArgb(0x33, 0x2D, 0x6C, 0xDF)),
+            Background = BrushOf(accent, 0x2E),
             Padding = new Thickness(12 * scale, 4 * scale, 12 * scale, 4 * scale)
         };
         weekPill.Child = new TextBlock
@@ -210,7 +257,7 @@ public static class BackdropRenderer
             Text = weekText ?? "",
             FontSize = ScaleFont(19),
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA8))
+            Foreground = new SolidColorBrush(accent)
         };
         weekWrap.Children.Add(weekPill);
         head.Children.Add(weekWrap);
@@ -229,7 +276,7 @@ public static class BackdropRenderer
                 Text = string.IsNullOrWhiteSpace(row.PeriodText) ? "" : row.PeriodText,
                 FontSize = ScaleFont(19),
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
+                Foreground = new SolidColorBrush(accent)
             });
             if (!string.IsNullOrWhiteSpace(row.TimeRange))
             {
@@ -237,7 +284,7 @@ public static class BackdropRenderer
                 {
                     Text = row.TimeRange,
                     FontSize = ScaleFont(14),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF))
+                    Foreground = new SolidColorBrush(muted)
                 });
             }
             Grid.SetColumn(left, 0);
@@ -252,9 +299,7 @@ public static class BackdropRenderer
                 Text = empty ? "—" : lesson!.Subject,
                 FontSize = ScaleFont(22),
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(empty
-                    ? Color.FromRgb(0xC0, 0xC6, 0xCF)
-                    : Color.FromRgb(0x23, 0x2A, 0x33)),
+                Foreground = new SolidColorBrush(empty ? muted : fg),
                 TextWrapping = TextWrapping.Wrap
             });
 
@@ -273,9 +318,9 @@ public static class BackdropRenderer
                     {
                         Text = sub,
                         FontSize = ScaleFont(15),
-                        Foreground = new SolidColorBrush(lesson.IsOverridden
-                            ? Color.FromRgb(0xE6, 0x7E, 0x22)
-                            : Color.FromRgb(0x55, 0x60, 0x70)),
+                        Foreground = lesson.IsOverridden
+                            ? BrushOf(ParseHwColor(theme.MissingColor, Color.FromRgb(0xE6, 0x7E, 0x22)))
+                            : BrushOf(fg, 0xB8),
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 2 * scale, 0, 0)
                     });
@@ -293,16 +338,16 @@ public static class BackdropRenderer
             {
                 Text = "今日休息，无课程安排",
                 FontSize = ScaleFont(20),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x7B, 0x3F))
+                Foreground = new SolidColorBrush(muted)
             });
         }
 
-        return Card(stack, scale);
+        return Card(stack, scale, theme);
     }
 
-    // ---------- 作业卡片 ----------
+    // ---------- 作业公示便签 ----------
 
-    /// <summary>解析作业文本颜色（#RRGGBB）；为空或非法时返回默认色。</summary>
+    /// <summary>解析文本颜色（#RRGGBB）；为空或非法时返回默认色。</summary>
     private static Color ParseHwColor(string? hex, Color fallback)
     {
         if (string.IsNullOrWhiteSpace(hex)) return fallback;
@@ -324,7 +369,6 @@ public static class BackdropRenderer
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
         var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
         var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
-        var missingColor = ParseHwColor(theme.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
@@ -373,43 +417,6 @@ public static class BackdropRenderer
             }
         }
 
-        // 缺交作业名单：醒目红色区块，便于一眼看到谁还没交
-        if (board.Missing != null && board.Missing.Any(m => !string.IsNullOrWhiteSpace(m.Students)))
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = "缺交作业名单",
-                FontSize = ScaleFont(26),
-                FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(missingColor),
-                Margin = new Thickness(0, 16 * scale, 0, 8 * scale)
-            });
-            foreach (var m in board.Missing)
-            {
-                if (string.IsNullOrWhiteSpace(m.Students)) continue;
-                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8 * scale) };
-                string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
-                row.Children.Add(new TextBlock
-                {
-                    Text = label,
-                    FontSize = ScaleFont(18),
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(missingColor),
-                    TextWrapping = TextWrapping.Wrap
-                });
-                row.Children.Add(new TextBlock
-                {
-                    Text = m.Students,
-                    FontSize = ScaleFont(HwTextStyle.SizeOf(m.SizeLevel)),
-                    FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
-                    Foreground = new SolidColorBrush(ParseHwColor(m.Color, fg)),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 2 * scale, 0, 0)
-                });
-                stack.Children.Add(row);
-            }
-        }
-
         stack.Children.Add(new TextBlock
         {
             Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
@@ -421,22 +428,96 @@ public static class BackdropRenderer
         return Card(stack, scale, theme);
     }
 
-    /// <summary>带透明度的纯色画刷（用于卡片底色等）。</summary>
-    private static SolidColorBrush BrushOf(Color c, byte alpha = 0xFF)
-        => new SolidColorBrush(Color.FromArgb(alpha, c.R, c.G, c.B));
+    // ---------- 缺交作业名单便签（独立） ----------
+    private static Border BuildMissingCard(MissingBoard board, double scale, Func<double, double> ScaleFont)
+    {
+        var theme = HomeworkThemes.Find(board.Theme);
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0xC0, 0x39, 0x2B));
+        var missingColor = ParseHwColor(theme.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
-    /// <summary>卡片外框：传入 theme 时按便签主题配色（与悬浮便签观感一致）。</summary>
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(board.Title) ? "缺交作业名单" : board.Title,
+            FontSize = ScaleFont(32),
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(titleColor),
+            Margin = new Thickness(0, 0, 0, 14 * scale),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var items = (board.Items ?? new List<MissingHomeworkItem>())
+            .Where(m => !string.IsNullOrWhiteSpace(m.Students) || !string.IsNullOrWhiteSpace(m.Subject))
+            .ToList();
+
+        if (items.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "（无人缺交）",
+                FontSize = ScaleFont(20),
+                Foreground = new SolidColorBrush(muted)
+            });
+        }
+        else
+        {
+            foreach (var m in items)
+            {
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
+                string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
+                row.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    FontSize = ScaleFont(19),
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(missingColor),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                if (!string.IsNullOrWhiteSpace(m.Students))
+                {
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = m.Students,
+                        FontSize = ScaleFont(HwTextStyle.SizeOf(m.SizeLevel)),
+                        FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
+                        Foreground = new SolidColorBrush(ParseHwColor(m.Color, fg)),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 2 * scale, 0, 0)
+                    });
+                }
+                stack.Children.Add(row);
+            }
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
+            FontSize = ScaleFont(14),
+            Foreground = new SolidColorBrush(muted),
+            Margin = new Thickness(0, 12 * scale, 0, 0)
+        });
+
+        return Card(stack, scale, theme);
+    }
+
+    /// <summary>带透明度的纯色画刷（用于便签底色 / 半透明文字等）。</summary>
+    private static SolidColorBrush BrushOf(Color c, byte alpha = 0xFF)
+        => new(Color.FromArgb(alpha, c.R, c.G, c.B));
+
+    /// <summary>便签外框：按便签主题配色（与悬浮便签观感一致）。</summary>
     private static Border Card(StackPanel content, double scale, HomeworkTheme? theme = null) => new()
     {
         CornerRadius = new CornerRadius(18 * scale),
         Background = theme == null
-            ? BrushOf(Color.FromRgb(0xFF, 0xFF, 0xFF), 0xF4)
-            : BrushOf(ParseHwColor(theme.Background, Color.FromRgb(0xFF, 0xFF, 0xFF)), 0xF6),
+            ? BrushOf(Color.FromRgb(0xFF, 0xFF, 0xFF), 0xF6)
+            : BrushOf(ParseHwColor(theme.Background, Color.FromRgb(0xFF, 0xFF, 0xFF)), 0xF7),
         BorderBrush = theme == null
             ? new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC))
             : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC9, 0xD6, 0xEC))),
         BorderThickness = new Thickness(2 * scale),
-        Padding = new Thickness(36 * scale),
+        Padding = new Thickness(PAD_BASE * scale),
         HorizontalAlignment = HorizontalAlignment.Left,
         VerticalAlignment = VerticalAlignment.Top,
         Effect = new System.Windows.Media.Effects.DropShadowEffect

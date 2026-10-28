@@ -36,6 +36,40 @@ public partial class App : System.Windows.Application
 
         base.OnStartup(e);
 
+        // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
+        // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
+        {
+            var sb = new System.Text.StringBuilder();
+            void Check(string name, Func<Window> factory)
+            {
+                try
+                {
+                    var w = factory();
+                    sb.AppendLine("OK   " + name);
+                    try { w.Close(); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine("FAIL " + name + " :: " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+
+            Check("MainWindow", () => new MainWindow());
+            Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });
+            Check("HomeworkWindow", () => new HomeworkWindow());
+            Check("MissingWindow", () => new MissingWindow());
+            Check("MissingEditWindow", () => new MissingEditWindow(Store.LoadMissingBoard()));
+            Check("HomeworkEditWindow", () => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()));
+            try
+            {
+                File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
+            }
+            catch { }
+            Shutdown(0);
+            return;
+        }
+
         // 应用用户选择的主题配色（标题栏 / 按钮 / 强调色）
         try { ThemeManager.Apply(Store.LoadSettings().Theme); }
         catch { }

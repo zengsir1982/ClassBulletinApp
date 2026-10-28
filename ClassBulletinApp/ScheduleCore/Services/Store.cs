@@ -18,6 +18,7 @@ public static class Store
     static string SettingsPath => Path.Combine(AppDir, "settings.json");
     static string OverridesPath => Path.Combine(AppDir, "overrides.json");
     static string HomeworkPath => Path.Combine(AppDir, "homework.json");
+    static string MissingPath => Path.Combine(AppDir, "missing.json");
 
     static JsonSerializerOptions Opt => new()
     {
@@ -61,6 +62,46 @@ public static class Store
     {
         if (!File.Exists(HomeworkPath)) return null;
         return JsonSerializer.Deserialize<HomeworkBoard>(File.ReadAllText(HomeworkPath), Opt);
+    }
+
+    public static void SaveMissingBoard(MissingBoard board)
+    {
+        Ensure();
+        File.WriteAllText(MissingPath, JsonSerializer.Serialize(board, Opt));
+    }
+
+    /// <summary>
+    /// 读取「缺交作业名单」独立便签数据。首次调用（还没有 missing.json）时，
+    /// 自动把旧版 homework.json 里的 Missing 列表迁移过来，迁移后清空旧字段避免两处重复。
+    /// </summary>
+    public static MissingBoard LoadMissingBoard()
+    {
+        if (File.Exists(MissingPath))
+        {
+            try
+            {
+                var loaded = JsonSerializer.Deserialize<MissingBoard>(File.ReadAllText(MissingPath), Opt);
+                if (loaded != null) return loaded;
+            }
+            catch { }
+            return new MissingBoard();
+        }
+
+        var board = new MissingBoard();
+        try
+        {
+            var hw = LoadHomework();
+            if (hw?.Missing is { Count: > 0 })
+            {
+                board.Items = hw.Missing;
+                board.UpdatedAt = hw.UpdatedAt;
+                hw.Missing = new();
+                File.WriteAllText(HomeworkPath, JsonSerializer.Serialize(hw, Opt));
+            }
+        }
+        catch { }
+        SaveMissingBoard(board);
+        return board;
     }
 
     public static void SaveNotifications(List<Notification> list)

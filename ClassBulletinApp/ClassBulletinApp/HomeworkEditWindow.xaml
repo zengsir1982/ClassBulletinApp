@@ -57,7 +57,6 @@
                         <TextBlock x:Name="PreviewTitle" Text="各科作业公示" FontSize="16" FontWeight="Bold" Foreground="#8D6E00"/>
                         <TextBlock x:Name="PreviewSubject" Text="【示例科目】" FontSize="13" FontWeight="Bold" Foreground="#A17400" Margin="0,6,0,0"/>
                         <TextBlock x:Name="PreviewBody" Text="示例：完成练习册 P32 第 1-8 题" FontSize="13" Foreground="#4A3F1A" Margin="0,2,0,0"/>
-                        <TextBlock x:Name="PreviewMissing" Text="缺交：张三、李四" FontSize="13" Foreground="#C0392B" Margin="0,6,0,0"/>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -110,42 +109,10 @@
                 </ItemsControl>
 
                 <DockPanel LastChildFill="False" Margin="0,4,0,8">
-                    <TextBlock Text="缺交作业名单" FontSize="16" FontWeight="Bold" Foreground="#C0392B" VerticalAlignment="Center"/>
-                    <Button x:Name="BtnAddMiss" DockPanel.Dock="Right" Content="＋ 添加记录" Click="BtnAddMiss_Click" Padding="10,4" FontSize="13"
-                            Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                    <TextBlock Text="缺交作业名单已独立为单独的便签" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
                 </DockPanel>
-                <ItemsControl x:Name="MissItems">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
-                                <StackPanel>
-                                    <DockPanel LastChildFill="True">
-                                        <Button DockPanel.Dock="Right" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelMiss_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                                        <TextBox Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" FontSize="13" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" ToolTip="科目（留空表示通用）"/>
-                                    </DockPanel>
-                                    <TextBox Style="{StaticResource HwStyledBox}" Text="{Binding Students, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,6,0,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="52" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="缺交学生姓名：每行一个或用逗号 / 顿号分隔"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <ToggleButton Content="B" FontWeight="Bold" Padding="8,2" FontSize="12" IsChecked="{Binding Bold, Mode=TwoWay}" ToolTip="加粗"/>
-                                        <ComboBox Width="94" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedValuePath="Tag" SelectedValue="{Binding Color, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="文字颜色">
-                                            <ComboBoxItem Content="默认墨色" Tag=""/>
-                                            <ComboBoxItem Content="红色" Tag="#C0392B"/>
-                                            <ComboBoxItem Content="蓝色" Tag="#2D6CDF"/>
-                                            <ComboBoxItem Content="绿色" Tag="#1E8E3E"/>
-                                            <ComboBoxItem Content="橙色" Tag="#E07B00"/>
-                                            <ComboBoxItem Content="紫色" Tag="#7B3FBF"/>
-                                        </ComboBox>
-                                        <ComboBox Width="74" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedIndex="{Binding SizeLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="文字大小">
-                                            <ComboBoxItem Content="标准"/>
-                                            <ComboBoxItem Content="小"/>
-                                            <ComboBoxItem Content="大"/>
-                                            <ComboBoxItem Content="特大"/>
-                                        </ComboBox>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <TextBlock Text="缺交名单可在控制面板「作业公示」页的「缺交作业名单」区块、或独立的缺交便签（双击）中编辑：支持独立主题、独立桌面便签位置与固定大小，作业条数再多也不会把它挤出可视区域。"
+                           FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
             </StackPanel>
         </ScrollViewer>
 

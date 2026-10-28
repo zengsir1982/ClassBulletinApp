@@ -16,11 +16,11 @@ namespace ClassBulletinApp;
 /// <summary>
 /// 作业公示编辑对话框：集中修改「内容 / 格式 / 主题风格」。
 /// 便签悬浮窗双击、控制面板作业标签都可打开它；确定后保存并同步桌面背景。
+/// 缺交作业名单已独立为 <see cref="MissingEditWindow"/> / <see cref="MissingWindow"/>。
 /// </summary>
 public partial class HomeworkEditWindow : Window
 {
     private readonly ObservableCollection<HomeworkItem> _items = new();
-    private readonly ObservableCollection<MissingHomeworkItem> _miss = new();
     private string _theme = "classic";
 
     /// <summary>供下拉使用的主题选项（携带已解析好的画刷，避免 XAML 里做类型转换）。</summary>
@@ -41,10 +41,8 @@ public partial class HomeworkEditWindow : Window
 
         foreach (var it in board.Items ?? new()) _items.Add(Clone(it));
         if (_items.Count == 0) _items.Add(new HomeworkItem());
-        foreach (var m in board.Missing ?? new()) _miss.Add(Clone(m));
 
         HwItems.ItemsSource = _items;
-        MissItems.ItemsSource = _miss;
 
         CbTheme.ItemsSource = HomeworkThemes.Presets
             .Select(t => new ThemeOption
@@ -65,12 +63,6 @@ public partial class HomeworkEditWindow : Window
         Bold = x.Bold, Color = x.Color, SizeLevel = x.SizeLevel
     };
 
-    private static MissingHomeworkItem Clone(MissingHomeworkItem m) => new()
-    {
-        Subject = m.Subject, Students = m.Students,
-        Bold = m.Bold, Color = m.Color, SizeLevel = m.SizeLevel
-    };
-
     // ---------- 主题 ----------
     private void CbTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -88,7 +80,6 @@ public partial class HomeworkEditWindow : Window
         PreviewTitle.Foreground = ThemeHelper.Brush(t.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
         PreviewSubject.Foreground = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
         PreviewBody.Foreground = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
-        PreviewMissing.Foreground = ThemeHelper.Brush(t.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
     }
 
     // ---------- 增删 ----------
@@ -97,13 +88,7 @@ public partial class HomeworkEditWindow : Window
     private void BtnDelHw_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as System.Windows.Controls.Button)?.Tag is HomeworkItem it) _items.Remove(it);
-    }
-
-    private void BtnAddMiss_Click(object sender, RoutedEventArgs e) => _miss.Add(new MissingHomeworkItem());
-
-    private void BtnDelMiss_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as System.Windows.Controls.Button)?.Tag is MissingHomeworkItem m) _miss.Remove(m);
+        if (_items.Count == 0) _items.Add(new HomeworkItem());
     }
 
     // ---------- 结果 ----------
@@ -122,17 +107,7 @@ public partial class HomeworkEditWindow : Window
                 SizeLevel = x.SizeLevel
             })
             .ToList(),
-        Missing = _miss
-            .Where(m => !string.IsNullOrWhiteSpace(m.Subject) || !string.IsNullOrWhiteSpace(m.Students))
-            .Select(m => new MissingHomeworkItem
-            {
-                Subject = (m.Subject ?? "").Trim(),
-                Students = (m.Students ?? "").Trim(),
-                Bold = m.Bold,
-                Color = m.Color ?? "",
-                SizeLevel = m.SizeLevel
-            })
-            .ToList(),
+        Missing = Store.LoadHomework()?.Missing ?? new(),   // 缺交名单已独立存储，这里原样带回避免覆盖丢失
         Theme = _theme,
         UpdatedAt = DateTime.Now,
         Layout = Store.LoadSettings().Backdrop?.HomeworkLayout ?? new HomeworkWallpaperLayout()

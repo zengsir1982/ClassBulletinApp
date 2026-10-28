@@ -10,8 +10,8 @@ using ScheduleCore.Services;
 namespace ClassBulletinApp;
 
 /// <summary>
-/// 桌面背面服务：把「当天课表」与「作业公示」合成一张壁纸应用到桌面背景，
-/// 并在课表 / 作业内容变化、跨天时自动重绘（仅在实际已应用时才自动刷新，避免误改壁纸）。
+/// 桌面背面服务：把「当天课表」「作业公示」「缺交作业名单」三张便签合成一张壁纸应用到桌面背景，
+/// 并在课表 / 作业 / 名单内容变化、跨天时自动重绘（仅在实际已应用时才自动刷新，避免误改壁纸）。
 /// </summary>
 public static class BackdropService
 {
@@ -22,13 +22,13 @@ public static class BackdropService
     private static bool _busy;
     private static bool _started;
 
-    /// <summary>当前设置是否要求显示任一内容（课表 / 作业）。</summary>
+    /// <summary>当前设置是否要求显示任一内容（课表 / 作业 / 缺交名单）。</summary>
     public static bool IsContentEnabled
     {
         get
         {
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
-            return b.ShowSchedule || b.ShowHomework;
+            return b.ShowSchedule || b.ShowHomework || b.ShowMissing;
         }
     }
 
@@ -84,7 +84,7 @@ public static class BackdropService
             else if (b.HomeworkLayout != null && board != null)
                 board.Layout = b.HomeworkLayout;
 
-            if (!b.ShowSchedule && !b.ShowHomework)
+            if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing)
             {
                 Clear();
                 message = "已关闭全部内容，桌面壁纸已恢复。";
@@ -114,8 +114,11 @@ public static class BackdropService
 
             string? origin = string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper;
 
+            var missing = b.ShowMissing ? Store.LoadMissingBoard() : null;
+
             Directory.CreateDirectory(Store.AppDir);
-            BackdropRenderer.RenderToPng(today, title, dateText, weekText, b.ShowHomework ? board : null, b,
+            BackdropRenderer.RenderToPng(today, title, dateText, weekText,
+                b.ShowHomework ? board : null, missing, b,
                 screen.Bounds.Width, screen.Bounds.Height, origin, OutputPath);
 
             // 首次应用前记录系统原壁纸，便于「清除」恢复
@@ -128,9 +131,13 @@ public static class BackdropService
             Store.SaveSettings(s);
             WallpaperHelper.SetWallpaper(OutputPath);
             _lastSignature = ComputeSignature();
-            message = "已应用到桌面背景（" +
-                      (b.ShowSchedule && b.ShowHomework ? "当天课表 + 作业公示" :
-                       b.ShowSchedule ? "仅当天课表" : "仅作业公示") + "）。";
+            message = "已应用到桌面背景（" + string.Join(" + ",
+                          new[]
+                          {
+                              b.ShowSchedule ? "当天课表" : null,
+                              b.ShowHomework ? "作业公示" : null,
+                              b.ShowMissing ? "缺交名单" : null
+                          }.Where(x => x != null)) + "）。";
             return true;
         }
         catch (Exception ex)
@@ -188,13 +195,34 @@ public static class BackdropService
         s.Backdrop ??= new BackdropSettings();
         bool turnOn = !s.Backdrop.ShowHomework;
         s.Backdrop.ShowHomework = turnOn;
-        // 只切换「作业公示」这一项：当天课表是否一起显示由「显示设置」里的桌面背景区块独立控制
+        // 只切换「作业公示」这一项：当天课表 / 缺交名单是否一起显示由各自开关独立控制
         Store.SaveSettings(s);
 
         bool ok = Apply(silent: false, out message);
         if (!ok && turnOn)
         {
             s.Backdrop.ShowHomework = !turnOn;
+            Store.SaveSettings(s);
+        }
+        return ok;
+    }
+
+    /// <summary>
+    /// 缺交名单便签底部 / 托盘菜单：一键开关「缺交作业名单显示在桌面背景」。
+    /// 翻转 Backdrop.ShowMissing 并按当前设置重绘。
+    /// </summary>
+    public static bool ToggleMissing(out string message)
+    {
+        var s = Store.LoadSettings();
+        s.Backdrop ??= new BackdropSettings();
+        bool turnOn = !s.Backdrop.ShowMissing;
+        s.Backdrop.ShowMissing = turnOn;
+        Store.SaveSettings(s);
+
+        bool ok = Apply(silent: false, out message);
+        if (!ok && turnOn)
+        {
+            s.Backdrop.ShowMissing = !turnOn;
             Store.SaveSettings(s);
         }
         return ok;
@@ -228,7 +256,9 @@ public static class BackdropService
             }
 
             BackdropRenderer.RenderToPng(today, title, dateText, weekText,
-                b.ShowHomework ? board : null, b, width, height,
+                b.ShowHomework ? board : null,
+                b.ShowMissing ? Store.LoadMissingBoard() : null,
+                b, width, height,
                 string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath);
             message = "已生成桌面背景预览图：" + outPath;
             return true;
@@ -269,7 +299,7 @@ public static class BackdropService
             var sb = new StringBuilder();
             sb.Append(s.ScheduleKind).Append('|').Append(s.SelectedClass).Append('|')
               .Append(s.SelectedTeacher).Append('|').Append(BoardBuilder.ResolveDisplayDate(s).ToString("yyyyMMdd"))
-              .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework);
+              .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing);
 
             if (b.ShowSchedule)
             {
@@ -282,8 +312,11 @@ public static class BackdropService
                         foreach (var l in r.Lessons)
                             sb.Append(l.Subject).Append(',').Append(l.Teacher).Append(',').Append(l.OverrideBadgeText);
                     }
-                    sb.Append("|L").Append(b.ScheduleLayout?.Anchor).Append(b.ScheduleLayout?.OffsetX)
-                      .Append(b.ScheduleLayout?.OffsetY).Append(b.ScheduleLayout?.WidthRatio);
+                    var slay = b.ScheduleLayout;
+                    sb.Append("|L").Append(slay?.Anchor).Append(slay?.OffsetX)
+                      .Append(slay?.OffsetY).Append(slay?.WidthRatio)
+                      .Append(slay?.UseFixedSize).Append(slay?.FixedWidth).Append(slay?.FixedHeight)
+                      .Append("|ST").Append(b.ScheduleTheme);
                 }
             }
 
@@ -297,15 +330,26 @@ public static class BackdropService
                     foreach (var it in board.Items)
                         sb.Append('#').Append(it.Subject).Append(',').Append(it.Content)
                           .Append('~').Append(it.Bold).Append(it.Color).Append(it.SizeLevel);
-                    foreach (var m in board.Missing)
-                        sb.Append('@').Append(m.Subject).Append(',').Append(m.Students)
-                          .Append('~').Append(m.Bold).Append(m.Color).Append(m.SizeLevel);
                 }
                 var hwLay = b.HomeworkLayout ?? board?.Layout;
                 sb.Append("|H").Append(hwLay?.Anchor).Append(hwLay?.OffsetX)
                   .Append(hwLay?.OffsetY).Append(hwLay?.WidthRatio)
                   .Append(hwLay?.UseFixedSize).Append(hwLay?.FixedWidth).Append(hwLay?.FixedHeight)
                   .Append("|T").Append(board?.Theme);
+            }
+
+            if (b.ShowMissing)
+            {
+                var mb = Store.LoadMissingBoard();
+                sb.Append('|').Append(mb.Title).Append(mb.UpdatedAt.Ticks).Append("|MT").Append(mb.Theme);
+                foreach (var m in mb.Items)
+                    sb.Append('@').Append(m.Subject).Append(',').Append(m.Students)
+                      .Append('~').Append(m.Bold).Append(m.Color).Append(m.SizeLevel);
+
+                var mlay = b.MissingLayout;
+                sb.Append("|M").Append(mlay?.Anchor).Append(mlay?.OffsetX)
+                  .Append(mlay?.OffsetY).Append(mlay?.WidthRatio)
+                  .Append(mlay?.UseFixedSize).Append(mlay?.FixedWidth).Append(mlay?.FixedHeight);
             }
 
             return sb.ToString();

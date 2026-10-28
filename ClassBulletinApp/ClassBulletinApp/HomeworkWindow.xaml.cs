@@ -45,6 +45,7 @@ public partial class HomeworkWindow : Window
     {
         RestorePlacement();
         Reload();
+        UpdateTopButton();
         UpdateBackdropButton();
 
         AppEvents.HomeworkChanged += OnHomeworkChanged;
@@ -132,6 +133,8 @@ public partial class HomeworkWindow : Window
                     Top = Math.Max(0, area.Value.Top + 40);
                 }
             }
+
+            Topmost = s.HwWinTopMost;
         }
         catch { }
         finally { _loading = false; }
@@ -205,7 +208,6 @@ public partial class HomeworkWindow : Window
     {
         var t = HomeworkThemes.Find(_themeKey);
         var accent = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
-        var missing = ThemeHelper.Brush(t.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
         var muted = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x9C, 0xA3, 0xAF));
         var fg = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
 
@@ -245,37 +247,7 @@ public partial class HomeworkWindow : Window
             }
         }
 
-        var miss = (board.Missing ?? new()).Where(m => !string.IsNullOrWhiteSpace(m.Students)).ToList();
-        if (miss.Count > 0)
-        {
-            ContentPanel.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 8), Background = muted });
-            ContentPanel.Children.Add(new TextBlock
-            {
-                Text = "缺交作业名单", FontSize = 15, FontWeight = FontWeights.Bold,
-                Foreground = missing, Margin = new Thickness(0, 0, 0, 6)
-            });
-            foreach (var m in miss)
-            {
-                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
-                string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
-                row.Children.Add(new TextBlock
-                {
-                    Text = label, FontSize = 13, FontWeight = FontWeights.Bold,
-                    Foreground = missing, TextWrapping = TextWrapping.Wrap
-                });
-                row.Children.Add(new TextBlock
-                {
-                    Text = m.Students,
-                    FontSize = HwTextStyle.SizeOf(m.SizeLevel) - 4,
-                    FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
-                    Foreground = string.IsNullOrWhiteSpace(m.Color) ? fg : ThemeHelper.Brush(m.Color, Color.FromRgb(0x33, 0x3B, 0x47)),
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 2, 0, 0)
-                });
-                ContentPanel.Children.Add(row);
-            }
-        }
-
+        // 缺交作业名单已独立为单独便签（见「缺交」便签 / 控制面板「缺交作业名单」），此处只显示作业本体
         ContentPanel.Children.Add(new TextBlock
         {
             Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
@@ -331,6 +303,29 @@ public partial class HomeworkWindow : Window
     {
         try { new LayoutWindow { InitialTabIndex = 2 }.Show(); }
         catch { }
+    }
+
+    // ---------- 置顶 ----------
+    private void UpdateTopButton()
+    {
+        if (BtnTop == null) return;
+        bool top = Topmost;
+        BtnTop.Content = top ? "已置顶" : "置顶";
+        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
+    }
+
+    private void BtnTop_Click(object sender, RoutedEventArgs e)
+    {
+        Topmost = !Topmost;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.HwWinTopMost = Topmost;
+            Store.SaveSettings(s);
+        }
+        catch { }
+        UpdateTopButton();
     }
 
     private void BtnHide_Click(object sender, RoutedEventArgs e) => Hide();

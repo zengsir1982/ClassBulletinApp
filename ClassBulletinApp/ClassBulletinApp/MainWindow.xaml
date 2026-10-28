@@ -83,6 +83,7 @@
                                 <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                                 <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                                 <Button x:Name="BtnToggleHw" Content="作业悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleHw_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                <Button x:Name="BtnToggleMs" Content="缺交悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleMs_Click" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
                                 <Button x:Name="BtnLayout" Content="布局设置" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"/>
                                 <Button x:Name="BtnFull" Content="全屏" Style="{StaticResource TabBtn}" Click="BtnFull_Click"/>
                                 <Button x:Name="BtnLock" Content="锁定" Style="{StaticResource TabBtn}" Click="BtnLock_Click"/>
@@ -105,7 +106,7 @@
                                 <ComboBox x:Name="CbTheme" Width="200" FontSize="14" SelectionChanged="CbTheme_SelectionChanged"/>
                                 <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,6" FontSize="13" Margin="12,0,0,0" Click="BtnThemeReset_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                             </StackPanel>
-                            <TextBlock Text="桌面背景（当天课表 + 作业公示）的位置与显示设置，已移到「布局设置」对话框的「桌面背景」标签页；点击上方「布局设置」即可调整。"
+                            <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单三张便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,14,0,0"/>
                         </StackPanel>
                     </ScrollViewer>
@@ -333,6 +334,38 @@
                                 <Button x:Name="BtnSaveHw" Content="保存并应用到桌面背景" Padding="14,8" FontSize="15" Margin="12,0,0,0" Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnSaveHw_Click"/>
                                 <Button x:Name="BtnClearHw" Content="清除（恢复原壁纸）" Padding="14,8" FontSize="15" Margin="12,0,0,0" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearHw_Click"/>
                             </StackPanel>
+
+                            <!-- 缺交作业名单：独立便签（独立主题 / 独立桌面便签 / 独立悬浮窗） -->
+                            <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10"
+                                    Padding="14" Margin="0,22,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="🚫 缺交作业名单（独立便签）" FontSize="17" FontWeight="Bold" Foreground="#C0392B"/>
+                                    <TextBlock Text="缺交名单已从作业公示中独立出来：拥有自己的主题风格、悬浮便签与桌面背景便签；开启固定大小后位置不随名单条数漂移，内容过多会自动缩小以完整显示。"
+                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,10"/>
+                                    <WrapPanel Orientation="Horizontal">
+                                        <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <ComboBox x:Name="CbMsTheme" Width="180" FontSize="14" SelectionChanged="CbMsTheme_Changed" Margin="0,0,12,8">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal" Margin="2">
+                                                        <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
+                                                                   Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button x:Name="BtnEditMs" Content="编辑名单与格式…" Padding="14,7" FontSize="14" Margin="0,0,12,8"
+                                                Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnEditMs_Click"
+                                                ToolTip="修改缺交科目 / 学生姓名、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
+                                        <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="14,7" FontSize="14" Margin="0,0,12,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"/>
+                                        <Button x:Name="BtnMsWp" Content="桌面背景：关" Padding="14,7" FontSize="14" Margin="0,0,0,8"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnMsWp_Click"
+                                                ToolTip="把缺交作业名单画到桌面壁纸上（位于所有窗口之下）"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

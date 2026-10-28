@@ -51,6 +51,27 @@ public class AppSettings
     /// <summary>作业公示便签的高度。</summary>
     public double? HwWinHeight { get; set; }
 
+    /// <summary>作业公示便签是否置顶显示（默认置顶，教室展示用）。</summary>
+    public bool HwWinTopMost { get; set; } = true;
+
+    /// <summary>启动后是否自动弹出缺交作业名单便签。</summary>
+    public bool AutoShowMissing { get; set; } = true;
+
+    /// <summary>缺交作业名单便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
+    public double? MsWinLeft { get; set; }
+
+    /// <summary>缺交作业名单便签固定摆放的左上角 Y。</summary>
+    public double? MsWinTop { get; set; }
+
+    /// <summary>缺交作业名单便签的宽度。</summary>
+    public double? MsWinWidth { get; set; }
+
+    /// <summary>缺交作业名单便签的高度。</summary>
+    public double? MsWinHeight { get; set; }
+
+    /// <summary>缺交作业名单便签是否置顶显示。</summary>
+    public bool MsWinTopMost { get; set; } = true;
+
     /// <summary>启动后是否自动弹出教师个人课表悬浮窗。</summary>
     public bool AutoShowTeacher { get; set; }
 

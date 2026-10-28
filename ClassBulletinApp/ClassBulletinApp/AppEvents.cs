@@ -20,8 +20,11 @@ public static class AppEvents
     /// <summary>通知 / 公告数据发生变化。</summary>
     public static event Action? NotificationChanged;
 
-    /// <summary>作业公示（各科作业 / 缺交名单）数据发生变化。</summary>
+    /// <summary>作业公示（各科作业）数据发生变化。</summary>
     public static event Action? HomeworkChanged;
+
+    /// <summary>缺交作业名单（独立便签）数据发生变化。</summary>
+    public static event Action? MissingChanged;
 
     /// <summary>「桌面背面」（当天课表 / 作业公示壁纸）开关或内容发生变化。</summary>
     public static event Action? BackdropChanged;
@@ -34,6 +37,7 @@ public static class AppEvents
         => LayoutChanged?.Invoke(schedule, notification);
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
     public static void RaiseHomeworkChanged() => HomeworkChanged?.Invoke();
+    public static void RaiseMissingChanged() => MissingChanged?.Invoke();
     public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
     public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);
 }

@@ -200,14 +200,17 @@ public class MissingHomeworkItem
     public int SizeLevel { get; set; }
 }
 
-/// <summary>作业公示栏内容：标题 + 各科目作业 + 缺交作业名单 + 主题风格 + 桌面背景摆放位置。</summary>
+/// <summary>作业公示栏内容：标题 + 各科目作业 + 主题风格 + 桌面背景摆放位置。</summary>
 public class HomeworkBoard
 {
     public string Title { get; set; } = "各科作业公示";
     public List<HomeworkItem> Items { get; set; } = new();
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
-    /// <summary>缺交作业名单（可按科目登记未交学生）。</summary>
+    /// <summary>
+    /// 旧版缺交作业名单（已独立为 MissingBoard，单独悬浮便签 + 单独桌面便签）。
+    /// 保留字段仅为兼容老数据：首次读取 missing.json 时会自动迁移过去，此后不再参与渲染。
+    /// </summary>
     public List<MissingHomeworkItem> Missing { get; set; } = new();
 
     /// <summary>便签主题风格标识（见 HomeworkThemes.Presets），为空时为经典便签黄。</summary>
@@ -215,4 +218,21 @@ public class HomeworkBoard
 
     /// <summary>作为桌面壁纸时的显示位置与大小。</summary>
     public HomeworkWallpaperLayout Layout { get; set; } = new();
+}
+
+/// <summary>
+/// 缺交作业名单（独立便签）：拥有独立的主题风格、独立的悬浮便签与独立的桌面背景便签，
+/// 不再挤在作业公示卡片里，避免作业条数变化时把它顶出可视区域。
+/// </summary>
+public class MissingBoard
+{
+    public string Title { get; set; } = "缺交作业名单";
+
+    /// <summary>各科目缺交记录（科目可留空表示通用）。</summary>
+    public List<MissingHomeworkItem> Items { get; set; } = new();
+
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
+
+    /// <summary>便签主题风格标识（见 HomeworkThemes.Presets）。</summary>
+    public string Theme { get; set; } = "pink";
 }
