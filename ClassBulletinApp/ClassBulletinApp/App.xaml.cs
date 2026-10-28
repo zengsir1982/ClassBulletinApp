@@ -73,6 +73,50 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--shot <layout|editor|homeworkedit|missingedit> <输出png> 打开指定窗口并截图后退出
+        if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--shot", StringComparison.OrdinalIgnoreCase))
+        {
+            string shotLog = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.editorshot.log");
+            try
+            {
+                Window w0 = e.Args[1].ToLowerInvariant() switch
+                {
+                    "editor" => new BackdropEditorWindow(),
+                    "homeworkedit" => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()),
+                    "missingedit" => new MissingEditWindow(Store.LoadMissingBoard()),
+                    _ => new LayoutWindow { InitialTabIndex = 2 }
+                };
+                w0.WindowStartupLocation = WindowStartupLocation.Manual;
+                w0.Left = 40;
+                w0.Top = 40;
+                w0.Show();
+                w0.UpdateLayout();
+
+                var frame0 = new DispatcherFrame();
+                Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => frame0.Continue = false));
+                Dispatcher.PushFrame(frame0);
+
+                var root0 = (FrameworkElement)w0.Content;
+                int pw0 = Math.Max(1, (int)Math.Ceiling(root0.ActualWidth));
+                int ph0 = Math.Max(1, (int)Math.Ceiling(root0.ActualHeight));
+                var rtb0 = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                    pw0, ph0, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                rtb0.Render(root0);
+
+                var enc0 = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc0.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb0));
+                using (var fs0 = File.Create(e.Args[2])) enc0.Save(fs0);
+
+                File.WriteAllText(shotLog, $"OK {pw0}x{ph0} ({e.Args[1]})");
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(shotLog, "FAIL " + ex); } catch { }
+            }
+            Shutdown(0);
+            return;
+        }
+
         // 诊断：--editor-shot <输出png> 打开「所见即所得排版」窗口并截图后退出（供自动化核对渲染效果）
         if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--editor-shot", StringComparison.OrdinalIgnoreCase))
         {

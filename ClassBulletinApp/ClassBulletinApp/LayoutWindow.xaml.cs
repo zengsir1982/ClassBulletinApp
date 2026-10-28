@@ -10,8 +10,20 @@ public partial class LayoutWindow : Window
 {
     private readonly AppSettings _s;
 
-    /// <summary>打开时默认选中的标签页下标（0=课表悬浮窗，1=通知悬浮窗，2=桌面背景）。</summary>
-    public int InitialTabIndex { get; set; } = 0;
+    private int _initialTabIndex;
+    /// <summary>打开时默认选中的标签页下标（0=课表悬浮窗，1=通知悬浮窗，2=桌面背景）。
+    /// 必须用属性 setter 生效：以 `new LayoutWindow { InitialTabIndex = 2 }` 形式创建时，
+    /// 初始化器是在构造函数之后才赋值的，构ctor 里读到的永远是旧值（曾经的隐藏 bug）。</summary>
+    public int InitialTabIndex
+    {
+        get => _initialTabIndex;
+        set
+        {
+            _initialTabIndex = value;
+            if (MainTabs != null && MainTabs.Items.Count > 0)
+                MainTabs.SelectedIndex = Math.Clamp(value, 0, MainTabs.Items.Count - 1);
+        }
+    }
 
     private bool _hwReady;
     private DispatcherTimer? _wpSaveTimer;
@@ -33,7 +45,6 @@ public partial class LayoutWindow : Window
         ReloadBackdropUi();
         _hwReady = true;
         AppEvents.BackdropChanged += OnBackdropChanged;
-        MainTabs.SelectedIndex = Math.Clamp(InitialTabIndex, 0, MainTabs.Items.Count - 1);
     }
 
     private void OnBackdropChanged() => ReloadBackdropUi();

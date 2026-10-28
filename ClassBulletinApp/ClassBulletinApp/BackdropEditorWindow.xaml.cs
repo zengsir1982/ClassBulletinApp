@@ -66,6 +66,15 @@ public partial class BackdropEditorWindow : Window
     public BackdropEditorWindow()
     {
         InitializeComponent();
+
+        // 小屏（如 1366×768）适配：窗口尺寸不超过工作区，保证预览区与底部按钮都可见
+        var wa = SystemParameters.WorkArea;
+        if (wa.Width > 0 && wa.Height > 0)
+        {
+            Width = Math.Max(760, Math.Min(Width, wa.Width - 40));
+            Height = Math.Max(520, Math.Min(Height, wa.Height - 32));
+        }
+
         _s = Store.LoadSettings();
         var b = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
         _W = b.Width;
