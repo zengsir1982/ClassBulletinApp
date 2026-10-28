@@ -253,6 +253,15 @@ public class CustomNote
     /// <summary>便签正文（支持多行）。</summary>
     public string Content { get; set; } = "";
 
+    /// <summary>正文是否加粗。</summary>
+    public bool Bold { get; set; }
+
+    /// <summary>正文颜色（#RRGGBB；空表示随主题正文色）。</summary>
+    public string Color { get; set; } = "";
+
+    /// <summary>正文字号档位：0=标准 1=小 2=大 3=特大（与作业公示共用 HwTextStyle）。</summary>
+    public int SizeLevel { get; set; }
+
     /// <summary>便签主题风格标识（见 HomeworkThemes.Presets）。</summary>
     public string Theme { get; set; } = "plain";
 

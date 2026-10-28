@@ -569,95 +569,13 @@ public partial class MainWindow : Window
     // ---------- 自定义便签（用户自建自由内容） ----------
     private readonly System.Collections.Generic.Dictionary<string, CustomNoteWindow> _customWins = new();
 
+    /// <summary>
+    /// 同步自定义便签状态。入口只有一个「＋ 新增 / 编辑自定义便签」按钮，
+    /// 新建 / 选择 / 删除都在编辑窗口内完成，所以这里只负责刷新托盘菜单与可见窗口。
+    /// </summary>
     private void ReloadCustomNotes()
     {
-        try
-        {
-            if (CustomNoteList == null) return;
-            CustomNoteList.Children.Clear();
-            var notes = Store.LoadSettings().CustomNotes ?? new System.Collections.Generic.List<CustomNote>();
-            if (notes.Count == 0)
-            {
-                CustomNoteList.Children.Add(new TextBlock
-                {
-                    Text = "（还没有自定义便签）",
-                    FontSize = 13,
-                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9C, 0xA3, 0xAF)),
-                    Margin = new System.Windows.Thickness(2, 4, 0, 0)
-                });
-                return;
-            }
-
-            foreach (var n in notes)
-            {
-                var row = new DockPanel { LastChildFill = false, Margin = new System.Windows.Thickness(0, 0, 0, 8), VerticalAlignment = VerticalAlignment.Center };
-                var title = new TextBlock
-                {
-                    Text = string.IsNullOrWhiteSpace(n.Title) ? "（未命名便签）" : n.Title,
-                    FontSize = 14,
-                    FontWeight = FontWeights.Bold,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    MaxWidth = 300
-                };
-                DockPanel.SetDock(title, Dock.Left);
-                row.Children.Add(title);
-
-                if (n.Locked)
-                {
-                    var lockIcon = new TextBlock { Text = "🔒", FontSize = 13, Margin = new System.Windows.Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-                    DockPanel.SetDock(lockIcon, Dock.Left);
-                    row.Children.Add(lockIcon);
-                }
-
-                var del = new Button
-                {
-                    Content = "删除",
-                    FontSize = 12,
-                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
-                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFD, 0xE8, 0xE8)),
-                    BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0xA0, 0xA0)),
-                    Tag = n.Id
-                };
-                del.Click += BtnDeleteCustom_Click;
-                DockPanel.SetDock(del, Dock.Right);
-                row.Children.Add(del);
-
-                var edit = new Button
-                {
-                    Content = "编辑",
-                    FontSize = 12,
-                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
-                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
-                    Background = System.Windows.Media.Brushes.White,
-                    BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xD1, 0xD5, 0xDB)),
-                    Tag = n.Id
-                };
-                edit.Click += BtnEditCustom_Click;
-                DockPanel.SetDock(edit, Dock.Right);
-                row.Children.Add(edit);
-
-                var toggle = new Button
-                {
-                    Content = n.Visible ? "隐藏" : "显示",
-                    FontSize = 12,
-                    Padding = new System.Windows.Thickness(10, 3, 10, 3),
-                    Margin = new System.Windows.Thickness(8, 0, 0, 0),
-                    Background = n.Visible
-                        ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
-                        : System.Windows.Media.Brushes.White,
-                    Foreground = n.Visible ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black,
-                    Tag = n.Id
-                };
-                toggle.Click += BtnToggleCustom_Click;
-                DockPanel.SetDock(toggle, Dock.Right);
-                row.Children.Add(toggle);
-
-                CustomNoteList.Children.Add(row);
-            }
-        }
-        catch { }
+        try { UpdateTrayCustomMenu(); } catch { }
     }
 
     private void BtnToggleCustom_Click(object sender, RoutedEventArgs e)
@@ -677,73 +595,85 @@ public partial class MainWindow : Window
         catch (Exception ex) { TxtStatus.Text = "切换自定义便签失败：" + ex.Message; }
     }
 
-    private void BtnEditCustom_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as Button)?.Tag is not string id) return;
-        try
-        {
-            var s = Store.LoadSettings();
-            var note = s.CustomNotes.FirstOrDefault(x => x.Id == id);
-            if (note == null) return;
-            var dlg = new CustomNoteEditWindow(note);
-            if (dlg.ShowDialog() != true) return;
-            var saved = dlg.BuildNote();
-            var idx = s.CustomNotes.FindIndex(x => x.Id == id);
-            if (idx >= 0) s.CustomNotes[idx] = saved;
-            Store.SaveSettings(s);
-            AppEvents.RaiseCustomNoteChanged(id);
-            ReloadCustomNotes();
-            TxtStatus.Text = "自定义便签已保存：" + (string.IsNullOrWhiteSpace(saved.Title) ? "（未命名）" : saved.Title);
-        }
-        catch (Exception ex) { TxtStatus.Text = "编辑自定义便签失败：" + ex.Message; }
-    }
-
-    private void BtnDeleteCustom_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as Button)?.Tag is not string id) return;
-        try
-        {
-            var s = Store.LoadSettings();
-            var note = s.CustomNotes.FirstOrDefault(x => x.Id == id);
-            if (note == null) return;
-            var name = string.IsNullOrWhiteSpace(note.Title) ? "这张便签" : "「" + note.Title + "」";
-            if (System.Windows.MessageBox.Show("确定删除" + name + "吗？此操作不可撤销。", "删除自定义便签",
-                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-            s.CustomNotes.RemoveAll(x => x.Id == id);
-            Store.SaveSettings(s);
-            HideCustomNote(id, forceClose: true);
-            AppEvents.RaiseCustomNoteChanged();
-            ReloadCustomNotes();
-            UpdateTrayCustomMenu();
-            TxtStatus.Text = "已删除" + name;
-        }
-        catch (Exception ex) { TxtStatus.Text = "删除自定义便签失败：" + ex.Message; }
-    }
-
-    private void BtnAddCustom_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 「＋ 新增 / 编辑自定义便签」：单一入口。
+    /// 还没有便签时先新建一张并立即打开编辑窗口（此时便签窗口临时取消置顶，避免挡住对话框）；
+    /// 已有便签时直接打开编辑窗口，可在窗口内切换 / 新建 / 删除。
+    /// </summary>
+    private void BtnCustomNote_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var note = new CustomNote { Title = "自定义便签", Content = "", Theme = "plain", Visible = true, UpdatedAt = DateTime.Now };
             var s = Store.LoadSettings();
-            s.CustomNotes.Add(note);
-            Store.SaveSettings(s);
-            ShowCustomNote(note.Id);
+            s.CustomNotes ??= new System.Collections.Generic.List<CustomNote>();
+
+            CustomNote? target = null;
+            bool isNew = s.CustomNotes.Count == 0;
+            if (isNew)
+            {
+                target = new CustomNote
+                {
+                    Title = "自定义便签",
+                    Content = "",
+                    Theme = "plain",
+                    Visible = true,
+                    UpdatedAt = DateTime.Now
+                };
+                s.CustomNotes.Add(target);
+                Store.SaveSettings(s);
+            }
+            else
+            {
+                target = s.CustomNotes.FirstOrDefault();
+            }
+            if (target == null) return;
+
+            // 先把便签窗口显示出来，再临时取消置顶，保证编辑对话框在最前面
+            var win = ShowCustomNote(target.Id);
+            if (win != null) win.Topmost = false;
+
+            var dlg = new CustomNoteEditWindow(target.Id) { Owner = this };
+            bool ok = dlg.ShowDialog() == true;
+
+            // 恢复置顶状态（按便签自身设置）
+            if (win != null)
+            {
+                var after = Store.LoadSettings().CustomNotes.FirstOrDefault(x => x.Id == target.Id);
+                win.Topmost = after?.TopMost ?? true;
+            }
+
+            var s2 = Store.LoadSettings();
+            // 取消新建且内容仍为空：回收这张空便签，避免留下空白窗口
+            if (!ok && isNew)
+            {
+                var n = s2.CustomNotes.FirstOrDefault(x => x.Id == target.Id);
+                if (n != null && string.IsNullOrWhiteSpace(n.Content) && string.IsNullOrWhiteSpace(n.Title))
+                {
+                    s2.CustomNotes.RemoveAll(x => x.Id == target.Id);
+                    Store.SaveSettings(s2);
+                    HideCustomNote(target.Id, forceClose: true);
+                }
+            }
+
+            // 编辑窗口里可能新建了其它便签：把需要显示的都显示出来
+            foreach (var n in Store.LoadSettings().CustomNotes)
+                if (n.Visible && !_customWins.ContainsKey(n.Id)) ShowCustomNote(n.Id);
+
             ReloadCustomNotes();
-            UpdateTrayCustomMenu();
-            TxtStatus.Text = "已新增自定义便签（双击便签可编辑内容）。";
+            TxtStatus.Text = ok ? "自定义便签已保存。" : "";
         }
-        catch (Exception ex) { TxtStatus.Text = "新增自定义便签失败：" + ex.Message; }
+        catch (Exception ex) { TxtStatus.Text = "自定义便签操作失败：" + ex.Message; }
     }
 
-    private void ShowCustomNote(string id)
+    /// <summary>显示指定自定义便签的悬浮窗，返回该窗口（便于临时调整置顶）。</summary>
+    private CustomNoteWindow? ShowCustomNote(string id)
     {
         if (_customWins.TryGetValue(id, out var existing))
         {
             if (!existing.IsVisible) existing.Show();
             FloatingHelper.ClampToScreen(existing);
             FloatingHelper.BringToFront(existing);
-            return;
+            return existing;
         }
         var win = new CustomNoteWindow(id);
         win.Closed += (_, _) =>
@@ -759,6 +689,7 @@ public partial class MainWindow : Window
         win.Show();
         FloatingHelper.ClampToScreen(win);
         FloatingHelper.BringToFront(win);
+        return win;
     }
 
     private void HideCustomNote(string id, bool forceClose = false)

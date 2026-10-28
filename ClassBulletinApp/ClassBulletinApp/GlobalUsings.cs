@@ -4,3 +4,5 @@
 global using Button = System.Windows.Controls.Button;
 global using Image = System.Windows.Controls.Image;
 global using Orientation = System.Windows.Controls.Orientation;
+// MessageBox 同理：只有 App.xaml.cs 用 WinForms 版，且是「System.Windows.Forms.MessageBox」全限定写法。
+global using MessageBox = System.Windows.MessageBox;

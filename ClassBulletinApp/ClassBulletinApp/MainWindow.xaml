@@ -402,6 +402,10 @@
                                         Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B"
                                         Click="BtnEditMs_Click" Margin="0,0,12,10"
                                         ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
+                                <Button x:Name="BtnCustomNote" Content="＋ 新增 / 编辑自定义便签" Padding="16,9" FontSize="15"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnCustomNote_Click" Margin="0,0,12,10"
+                                        ToolTip="打开编辑窗口：可新建便签或选择已有便签，设置标题、内容、文字格式（加粗 / 字色 / 字号）与主题风格"/>
                                 <Button x:Name="BtnWpSettings" Content="🖱 桌面背景排版" Padding="16,9" FontSize="15" Margin="0,0,12,10"
                                         Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
                                         Click="BtnWpSettings_Click"
@@ -409,18 +413,6 @@
                             </WrapPanel>
 
                             <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,16,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="自定义便签（教师寄语、温馨提示等自由内容）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
-                                    <TextBlock Text="可新建多张便签，每张独立显示 / 锁定 / 主题；悬浮窗可拖动摆放、双击编辑。每张便签也能在屏幕上单独锁定，防止误操作。"
-                                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,8"/>
-                                    <StackPanel x:Name="CustomNoteList" Margin="0,0,0,8"/>
-                                    <Button x:Name="BtnAddCustom" Content="＋ 新增自定义便签" Padding="14,8" FontSize="14" HorizontalAlignment="Left"
-                                            Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                                            Click="BtnAddCustom_Click" ToolTip="新建一张自定义便签"/>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,4,0,0">
                                 <StackPanel>
                                     <TextBlock Text="显示与桌面背景" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
                                     <WrapPanel Margin="0,8,0,0">

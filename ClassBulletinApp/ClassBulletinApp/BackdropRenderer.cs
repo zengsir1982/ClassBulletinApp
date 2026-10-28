@@ -572,11 +572,15 @@ public static class BackdropRenderer
             TextWrapping = TextWrapping.Wrap
         });
 
+        var bodyColor = string.IsNullOrWhiteSpace(note.Color)
+            ? fg
+            : ParseHwColor(note.Color, Color.FromRgb(0x33, 0x3B, 0x47));
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(note.Content) ? "（暂无内容）" : note.Content,
-            FontSize = ScaleFont(18),
-            Foreground = new SolidColorBrush(fg),
+            FontSize = ScaleFont(18) + (HwTextStyle.SizeOf(note.SizeLevel) - HwTextStyle.SizeOf(0)) * scale,
+            FontWeight = note.Bold ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(bodyColor),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 0)
         });

@@ -222,9 +222,11 @@ public static class FloatingHelper
 
     /// <summary>
     /// 窗口是否贴近某条屏幕边（逻辑像素）。用于「拖动到屏幕边沿自动开启自动隐藏」：
-    /// 贴边=开，离边=关。取四条边的间隙最小值与阈值比较。
-    /// <para>注意全宽 / 全高窗口（如顶部通知条）：它左右恒为 0，若仍按四边取最小则永远判为贴边，
-    /// 「拖离边沿自动关闭」就失效。故铺满某个方向时，该方向的距离不参与判定。</para>
+    /// 贴边=开，离边=关。取参与判定的各边间隙最小值与阈值比较。
+    /// <para>某个方向必须是「还有足够活动空间」才参与判定，否则会误判：
+    /// ① 顶部通知条横向铺满，左右间隙恒为 0；② 课表悬浮窗很高（几近满屏高），
+    /// 纵向怎么放都离上下边很近。这两种情况若仍四边取最小，就会永远判为贴边，
+    /// 「拖离边沿自动关闭」就失效。故该方向剩余空间不足（≤ 3×阈值）时忽略该方向。</para>
     /// </summary>
     public static bool IsNearEdge(Window w, double threshold = EdgeAutoHideThreshold)
     {
@@ -237,12 +239,14 @@ public static class FloatingHelper
             double dt = w.Top - a.Top;
             double db = a.Bottom - (w.Top + w.Height);
 
-            bool fullW = w.Width >= a.Width - 8;
-            bool fullH = w.Height >= a.Height - 8;
+            // 该方向还能自由活动（剩余空间 > 3 倍阈值）时，才拿这一方向的距离来判定
+            bool useH = (a.Width - w.Width) > threshold * 3;
+            bool useV = (a.Height - w.Height) > threshold * 3;
+
             double min;
-            if (fullW && fullH) min = 0;                      // 铺满整屏：始终算贴边
-            else if (fullW) min = Math.Min(dt, db);           // 横向铺满：只看上下
-            else if (fullH) min = Math.Min(dl, dr);           // 纵向铺满：只看左右
+            if (!useH && !useV) min = 0;                        // 几乎铺满整屏：始终算贴边
+            else if (!useH) min = Math.Min(dt, db);             // 只能上下动：只看上下
+            else if (!useV) min = Math.Min(dl, dr);             // 只能左右动：只看左右
             else min = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
             return min <= threshold;
         }

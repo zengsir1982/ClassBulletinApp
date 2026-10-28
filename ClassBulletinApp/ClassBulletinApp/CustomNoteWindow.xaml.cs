@@ -231,11 +231,16 @@ public partial class CustomNoteWindow : Window
         ContentPanel.Children.Clear();
 
         string body = string.IsNullOrWhiteSpace(_note.Content) ? "（暂无内容，双击添加）" : _note.Content;
+        // 格式设置：加粗 / 字色（空=随主题正文色）/ 字号档位（与作业公示共用 HwTextStyle）
+        var bodyBrush = string.IsNullOrWhiteSpace(_note.Color)
+            ? fg
+            : ThemeHelper.Brush(_note.Color, Color.FromRgb(0x33, 0x3B, 0x47));
         ContentPanel.Children.Add(new TextBlock
         {
             Text = body,
-            FontSize = 15,
-            Foreground = fg,
+            FontSize = HwTextStyle.SizeOf(_note.SizeLevel) - 4,
+            FontWeight = _note.Bold ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = bodyBrush,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 0)
         });
@@ -255,19 +260,21 @@ public partial class CustomNoteWindow : Window
         if (_note == null) return;
         try
         {
-            var dlg = new CustomNoteEditWindow(_note);
-            if (dlg.ShowDialog() != true) return;
+            // 编辑期间临时取消置顶，避免便签盖住编辑对话框
+            bool wasTop = Topmost;
+            Topmost = false;
 
-            var saved = dlg.BuildNote();
-            var s = Store.LoadSettings();
-            int idx = s.CustomNotes.FindIndex(x => x.Id == _noteId);
-            if (idx >= 0) s.CustomNotes[idx] = saved;
-            Store.SaveSettings(s);
-            _note = saved;
+            var dlg = new CustomNoteEditWindow(_note);
+            bool ok = dlg.ShowDialog() == true;
+
+            Topmost = ok ? (_note.TopMost) : wasTop;
+
+            _note = Store.LoadSettings().CustomNotes.FirstOrDefault(x => x.Id == _noteId);
+            if (_note == null) { Close(); return; }
 
             Reload();
             UpdateTopButton();
-            _locked = saved.Locked;
+            _locked = _note.Locked;
             UpdateLockButton();
             AppEvents.RaiseCustomNoteChanged(_noteId);
         }

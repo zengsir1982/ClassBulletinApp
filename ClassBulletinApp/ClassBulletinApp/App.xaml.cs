@@ -94,7 +94,7 @@ public partial class App : System.Windows.Application
                     "layout0" => new LayoutWindow { InitialTabIndex = 0 },
                     "layout1" => new LayoutWindow { InitialTabIndex = 1 },
                     "quicklaunch" => new QuickLaunchWindow(),
-                    "customnoteedit" => new CustomNoteEditWindow(new ScheduleCore.Models.CustomNote()),
+                    "customnoteedit" => new CustomNoteEditWindow(DiagCustomNoteId()),
                     "customnote" => new CustomNoteWindow(DiagCustomNoteId()),
                     _ => new LayoutWindow { InitialTabIndex = 2 }
                 };
@@ -197,7 +197,7 @@ public partial class App : System.Windows.Application
             Check("HomeworkEditWindow", () => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()));
             Check("BackdropEditorWindow", () => new BackdropEditorWindow());
             Check("QuickLaunchWindow", () => new QuickLaunchWindow());
-            Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(new ScheduleCore.Models.CustomNote()));
+            Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(DiagCustomNoteId()));
             Check("CustomNoteWindow", () => new CustomNoteWindow(DiagCustomNoteId()));
             try
             {
