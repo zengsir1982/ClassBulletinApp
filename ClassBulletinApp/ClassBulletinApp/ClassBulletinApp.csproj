@@ -8,11 +8,12 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>ClassBulletinApp</AssemblyName>
     <RootNamespace>ClassBulletinApp</RootNamespace>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
 
     <!-- 版本信息：发版时只需改这里 -->
-    <Version>1.0.1</Version>
-    <AssemblyVersion>1.0.1.0</AssemblyVersion>
-    <FileVersion>1.0.1.0</FileVersion>
+    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
     <Company>东凤中学</Company>
     <Product>班级公布栏</Product>
     <Title>班级公布栏</Title>

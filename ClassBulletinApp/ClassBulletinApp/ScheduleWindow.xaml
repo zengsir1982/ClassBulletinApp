@@ -129,12 +129,18 @@
                 </StackPanel>
             </Border>
 
-            <!-- 最下方：一键把当天课表设为桌面背景（画到桌面壁纸，不遮挡任何操作） -->
+            <!-- 最下方：锁定（左侧） + 位置 / 桌面背景（右侧，位置在桌面背景右边）。置顶由标题栏「自动隐藏 / 置顶显示」统一控制，避免两个置顶按钮冲突 -->
             <Border Grid.Row="3" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,12,12" Padding="10,7">
                 <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
+                            Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
+                    <Button x:Name="BtnPos" DockPanel.Dock="Right" Content="位置" Click="BtnPos_Click"
+                            Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            ToolTip="调整课表在桌面背景上的位置与大小（所见即所得，与作业 / 缺交便签同一排版窗口）"/>
                     <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
-                            Padding="10,4" FontSize="12" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
                             ToolTip="把「当天课表」画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与作业公示一起显示"/>
                     <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="11"
                                Foreground="#6B7280" TextTrimming="CharacterEllipsis"

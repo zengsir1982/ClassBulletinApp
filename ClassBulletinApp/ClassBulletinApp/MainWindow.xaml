@@ -436,6 +436,50 @@
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
+
+                <!-- 用户中心：修改用户名与密码 -->
+                <TabItem Header="用户中心">
+                    <ScrollViewer Margin="14">
+                        <StackPanel MaxWidth="560">
+                            <TextBlock Text="👤 用户中心" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                            <TextBlock Text="登录后可在此修改用户名、密码（默认 admin / 000），并设置电子邮箱、手机号码与密保问题，便于忘记密码时找回。当「用户名」设置为某个班级名时，下次启动将默认显示该班课表。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,0,14">
+                                <StackPanel>
+                                    <TextBlock Text="当前用户名" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtCurUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" IsReadOnly="True" Margin="0,0,0,12"/>
+                                    <TextBlock Text="新用户名" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtNewUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <TextBlock Text="新密码（留空表示不修改）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <PasswordBox x:Name="TxtNewPwd" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <TextBlock Text="确认新密码" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <PasswordBox x:Name="TxtNewPwd2" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <TextBlock Text="电子邮箱（用于找回密码，可留空）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtEmail" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <TextBlock Text="手机号码（用于找回密码，可留空）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtPhone" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <TextBlock Text="密保问题（用于找回密码，可选）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="CbSecQuestion" FontSize="14" Padding="6" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12">
+                                        <ComboBoxItem Content="（不设密保问题）"/>
+                                        <ComboBoxItem Content="您母亲的姓名是？"/>
+                                        <ComboBoxItem Content="您父亲的姓名是？"/>
+                                        <ComboBoxItem Content="您就读的第一所学校的名称？"/>
+                                        <ComboBoxItem Content="您最喜欢的老师是谁？"/>
+                                        <ComboBoxItem Content="您的出生城市是？"/>
+                                        <ComboBoxItem Content="您宠物的名字是？"/>
+                                    </ComboBox>
+                                    <TextBlock Text="密保答案（设置了密保问题时填写）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                    <TextBox x:Name="TxtSecAnswer" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                    <Button x:Name="BtnSaveUser" Content="保存修改" Padding="14,8" FontSize="15" HorizontalAlignment="Left"
+                                            Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" Click="BtnSaveUser_Click"/>
+                                    <TextBlock x:Name="TxtUserMsg" FontSize="13" Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="提示：修改后立即生效并保存；以「游客」身份进入时不保存任何改动。"
+                                       FontSize="13" Foreground="#9CA3AF" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
             </TabControl>
         </DockPanel>
 

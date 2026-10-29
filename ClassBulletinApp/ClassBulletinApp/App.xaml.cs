@@ -190,6 +190,8 @@ public partial class App : System.Windows.Application
             }
 
             Check("MainWindow", () => new MainWindow());
+            Check("LoginWindow", () => new LoginWindow());
+            Check("RetrievePasswordWindow", () => new RetrievePasswordWindow());
             Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });
             Check("HomeworkWindow", () => new HomeworkWindow());
             Check("MissingWindow", () => new MissingWindow());
@@ -226,6 +228,28 @@ public partial class App : System.Windows.Application
         // 应用用户选择的主题配色（标题栏 / 按钮 / 强调色）
         try { ThemeManager.Apply(Store.LoadSettings().Theme); }
         catch { }
+
+        // 登录：未登录（关闭登录窗）直接退出；游客模式不持久化任何数据
+        try
+        {
+            var login = new LoginWindow();
+            if (login.ShowDialog() != true) { Shutdown(0); return; }
+            Store.EnablePersistence = !login.IsGuest;
+            if (!login.IsGuest)
+            {
+                Store.TryWeeklyOverrideReset();   // 每周首次启动清空全部调代课
+                var s = Store.LoadSettings();     // F9：记住上次登录的用户名，下次预填
+                s.LastUsername = login.EnteredUser;
+                Store.SaveSettings(s);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogCrash("Login", ex);
+            try { System.Windows.Forms.MessageBox.Show("登录失败：" + ex.Message, "班级公布栏", System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Error); } catch { }
+            Shutdown(1);
+            return;
+        }
 
         // 启动主控制面板（原来的 StartupUri 改为手动创建，便于支持上面的诊断模式）
         try

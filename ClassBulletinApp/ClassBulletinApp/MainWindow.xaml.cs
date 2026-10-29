@@ -45,7 +45,7 @@ public partial class MainWindow : Window
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
 
-    /// <summary>打开时默认选中的标签页下标（0=周课程表,1=数据管理,2=显示设置,3=提醒设置,4=通知公告,5=作业公示）。
+    /// <summary>打开时默认选中的标签页下标（0=周课程表,1=数据管理,2=显示设置,3=提醒设置,4=通知公告,5=作业公示,6=用户中心）。
     /// 与 LayoutWindow 一样必须走属性 setter：对象初始化器的赋值发生在构造函数之后。</summary>
     public int InitialTabIndex
     {
@@ -87,6 +87,32 @@ public partial class MainWindow : Window
             {
                 TxtStatus.Text = "尚未导入课表，请到「数据管理」导入全校总课程表 Excel 文件。";
             }
+
+            // F5：用户名为班级名时，默认显示该班课表（在已导入班级中匹配）
+            if (!string.IsNullOrEmpty(settings.Username) && ClassNames.Contains(settings.Username))
+            {
+                settings.SelectedClass = settings.Username;
+                settings.ScheduleKind = "Class";
+                CbClass.SelectedItem = settings.Username;
+                if (Store.EnablePersistence) Store.SaveSettings(settings);
+            }
+
+            // 用户中心：显示当前用户名 + 邮箱 / 手机 / 密保
+            if (TxtCurUser != null) TxtCurUser.Text = settings.Username;
+            if (TxtEmail != null) TxtEmail.Text = settings.Email ?? "";
+            if (TxtPhone != null) TxtPhone.Text = settings.Phone ?? "";
+            if (CbSecQuestion != null)
+            {
+                // 选中与已保存密保问题一致的预设项；未设置则回到占位项
+                bool matched = false;
+                for (int i = 0; i < CbSecQuestion.Items.Count; i++)
+                {
+                    if (CbSecQuestion.Items[i] is ComboBoxItem ci && (ci.Content as string) == settings.SecurityQuestion)
+                    { CbSecQuestion.SelectedIndex = i; matched = true; break; }
+                }
+                if (!matched) CbSecQuestion.SelectedIndex = 0;
+            }
+            if (TxtSecAnswer != null) TxtSecAnswer.Text = settings.SecurityAnswer ?? "";
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
@@ -820,6 +846,7 @@ public partial class MainWindow : Window
         };
         var menu = new System.Windows.Forms.ContextMenuStrip();
         var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
+        var miUser = new System.Windows.Forms.ToolStripMenuItem("用户中心", null, (_, _) => { ShowMainWindow(); MainTabs.SelectedIndex = 6; });
         var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
         var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
         var miHw = new System.Windows.Forms.ToolStripMenuItem("作业悬浮：开/关", null, (_, _) => BtnToggleHw_Click(this, new RoutedEventArgs()));
@@ -831,7 +858,7 @@ public partial class MainWindow : Window
         var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
         menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
         {
-            miPanel, miSch, miNot, miHw, miMs,
+            miPanel, miUser, miSch, miNot, miHw, miMs,
             new System.Windows.Forms.ToolStripSeparator(),
             _miWp, _miWpHw, _miWpMs,
             new System.Windows.Forms.ToolStripSeparator(),
@@ -939,6 +966,59 @@ public partial class MainWindow : Window
     {
         _exiting = true;
         System.Windows.Application.Current.Shutdown();
+    }
+
+    // ---------- 用户中心 ----------
+    private void BtnSaveUser_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            string newUser = (TxtNewUser.Text ?? "").Trim();
+            string p1 = TxtNewPwd.Password ?? "";
+            string p2 = TxtNewPwd2.Password ?? "";
+            if (string.IsNullOrEmpty(newUser))
+            {
+                ShowUserMsg("用户名不能为空。", false);
+                return;
+            }
+            if (p1 != p2)
+            {
+                ShowUserMsg("两次输入的密码不一致。", false);
+                return;
+            }
+            s.Username = newUser;
+            if (!string.IsNullOrEmpty(p1)) s.Password = p1;
+            s.Email = (TxtEmail?.Text ?? "").Trim();
+            s.Phone = (TxtPhone?.Text ?? "").Trim();
+            // 密保：选中占位项（或不设）则清空；否则保存所选问题与答案
+            string secQ = "";
+            if (CbSecQuestion?.SelectedItem is ComboBoxItem ci && !string.IsNullOrEmpty(ci.Content as string)
+                && (ci.Content as string) != "（不设密保问题）")
+                secQ = (ci.Content as string) ?? "";
+            s.SecurityQuestion = secQ;
+            s.SecurityAnswer = secQ == "" ? "" : (TxtSecAnswer?.Text ?? "").Trim();
+            Store.SaveSettings(s);   // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
+            if (TxtCurUser != null) TxtCurUser.Text = s.Username;
+            TxtNewUser.Text = "";
+            TxtNewPwd.Password = "";
+            TxtNewPwd2.Password = "";
+            ShowUserMsg("已保存。下次启动若用户名为班级名，将默认显示该班课表。", true);
+        }
+        catch (Exception ex)
+        {
+            ShowUserMsg("保存失败：" + ex.Message, false);
+        }
+    }
+
+    private void ShowUserMsg(string text, bool ok)
+    {
+        if (TxtUserMsg == null) return;
+        TxtUserMsg.Text = text;
+        TxtUserMsg.Foreground = ok
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2E, 0x8B, 0x57))
+            : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B));
+        TxtUserMsg.Visibility = Visibility.Visible;
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)

@@ -283,8 +283,8 @@ public class CustomNote
     /// <summary>悬浮窗高度（逻辑像素，0 = 默认高度）。</summary>
     public double? Height { get; set; }
 
-    /// <summary>是否置顶显示。</summary>
-    public bool TopMost { get; set; } = true;
+    /// <summary>是否置顶显示（默认置于普通层级，仅在点击「置顶」后才置顶）。</summary>
+    public bool TopMost { get; set; }
 
     /// <summary>是否在屏幕上显示（控制面板 / 托盘可切换）。</summary>
     public bool Visible { get; set; } = true;

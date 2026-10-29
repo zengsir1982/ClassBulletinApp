@@ -29,6 +29,7 @@ public partial class ScheduleWindow : Window
     private PanelLayout? _layout;
     private ScheduleFile? _schedule;
     private bool _clickThrough;
+    private bool _locked;
     private AutoHider? _hider;
     private readonly DispatcherTimer _timer;
 
@@ -76,11 +77,11 @@ public partial class ScheduleWindow : Window
             AppEvents.RaiseLayoutChanged();   // 自动隐藏开关变化后同步隐藏按钮标签等
         }
 
-        FloatChrome.Enable(this, canInteract: () => !_clickThrough,
+        FloatChrome.Enable(this, canInteract: () => !_clickThrough && !_locked,
             onGestureStart: OnStart, onGestureEnd: OnEnd);
         FloatChrome.EnableDrag(HeaderBar, this,
             onDragStart: OnStart, onDragEnd: OnEnd,
-            canDrag: () => !_clickThrough);
+            canDrag: () => !_clickThrough && !_locked);
     }
 
     /// <summary>
@@ -134,6 +135,8 @@ public partial class ScheduleWindow : Window
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
         ApplyCurrentLayout();
+        _locked = Store.LoadSettings().ScheduleLayout?.Locked ?? false;
+        UpdateLockButton();
 
         AppEvents.ScheduleChanged += Refresh;
         AppEvents.LayoutChanged += OnLayoutChanged;
@@ -363,7 +366,7 @@ public partial class ScheduleWindow : Window
         }
         finally { _applyingLayout = false; }
         if (_clickThrough)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, ClassHeader, DateHeader, TodayPanel);
+            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel);
         else
             FloatingHelper.SetClickThrough(this, false);
 
@@ -541,11 +544,43 @@ public partial class ScheduleWindow : Window
         AppEvents.RaiseLayoutChanged();
     }
 
+    // ---------- 锁定 ----------
+    private void UpdateLockButton()
+    {
+        if (BtnLock == null) return;
+        BtnLock.Content = _locked ? "🔒" : "🔓";
+        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
+        BtnLock.Foreground = _locked ? Brushes.White : Brushes.Black;
+    }
+
+    private void BtnLock_Click(object sender, RoutedEventArgs e)
+    {
+        _locked = !_locked;
+        try
+        {
+            var s = Store.LoadSettings();
+            var l = s.ScheduleLayout ??= new PanelLayout();
+            l.Locked = _locked;
+            Store.SaveSettings(s);
+        }
+        catch { }
+        UpdateLockButton();
+    }
+
+    // ---------- 位置（桌面背景所见即所得排版） ----------
+    private void BtnPos_Click(object sender, RoutedEventArgs e)
+    {
+        try { new BackdropEditorWindow { Owner = this }.ShowDialog(); }
+        catch { }
+        AppEvents.RaiseBackdropChanged();
+    }
+
     // ---------- 长按 / 右键 弹出调课编辑（仅班级课表可编辑） ----------
     private void Window_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (_isTeacherMode) return;
         if (_clickThrough) return;
+        if (_locked) return;   // 锁定后禁止编辑
         var row = FindPeriodRow(e.OriginalSource as DependencyObject);
         if (row != null) { OpenEditor(row); e.Handled = true; }
     }
@@ -569,7 +604,7 @@ public partial class ScheduleWindow : Window
             }
         }
 
-        if (_isTeacherMode || _clickThrough)
+        if (_isTeacherMode || _clickThrough || _locked)
         {
             _pressRow = null;
             _dragCandidate = null;
@@ -730,6 +765,7 @@ public partial class ScheduleWindow : Window
     private void StartPressTimer()
     {
         CancelPress();
+        if (_locked) return;   // 锁定后禁止长按编辑
         _pressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _pressTimer.Tick += (_, _) =>
         {
@@ -830,7 +866,9 @@ public partial class ScheduleWindow : Window
     {
         while (dep != null)
         {
-            if (ReferenceEquals(dep, BtnHide) || ReferenceEquals(dep, BtnWp)) return true;
+            if (ReferenceEquals(dep, BtnHide) || ReferenceEquals(dep, BtnWp)
+                || ReferenceEquals(dep, BtnLock) || ReferenceEquals(dep, BtnPos))
+                return true;
             dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
         }
         return false;
