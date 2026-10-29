@@ -6,10 +6,10 @@
 ; ============================================================================
 
 #define MyAppName "班级公布栏"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "ClassBulletinApp"
 #define MyAppExeName "ClassBulletinApp.exe"
-#define MyAppId "{8F3C9A1E-2B7D-4E55-9C1A-1B6E2F3D4C5A}"
+#define MyAppId "8F3C9A1E-2B7D-4E55-9C1A-1B6E2F3D4C5A"
 
 [Setup]
 AppId={#MyAppId}
@@ -23,10 +23,10 @@ OutputBaseFilename=ClassBulletinApp_Setup_{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 UsePreviousAppDir=yes
-SetupIconFile=..\publish\{#MyAppExeName}
+SetupIconFile=..\ClassBulletinApp\Assets\AppIcon.ico
 
 [Languages]
 Name: "chs"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

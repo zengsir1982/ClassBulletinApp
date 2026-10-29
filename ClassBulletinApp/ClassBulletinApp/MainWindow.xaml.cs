@@ -995,7 +995,7 @@ public partial class MainWindow : Window
             string secQ = "";
             if (CbSecQuestion?.SelectedItem is ComboBoxItem ci && !string.IsNullOrEmpty(ci.Content as string)
                 && (ci.Content as string) != "（不设密保问题）")
-                secQ = ci.Content as string;
+                secQ = (ci.Content as string) ?? "";
             s.SecurityQuestion = secQ;
             s.SecurityAnswer = secQ == "" ? "" : (TxtSecAnswer?.Text ?? "").Trim();
             Store.SaveSettings(s);   // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
