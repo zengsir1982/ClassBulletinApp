@@ -3,7 +3,7 @@
 ; 前置：先执行 publish，生成 ..\dist\portable 目录
 
 #define MyAppName      "班级公布栏"
-#define MyAppVersion   "1.0.0"
+#define MyAppVersion   "1.0.1"
 #define MyAppPublisher "东凤中学"
 #define MyAppURL       ""
 #define MyAppExeName   "ClassBulletinApp.exe"
@@ -73,29 +73,27 @@ Filename: "{app}\{#MyAppExeName}"; Description: "立即启动 {#MyAppName}"; Fla
 ; ----------------------------------------------------------------------------
 [Code]
 var
-  UninstallChoicePage: TInputOptionWizardPage;
   DeleteUserData: Boolean;
 
 function InitializeUninstall(): Boolean;
 var
   RC: Integer;
+  Res: Integer;
 begin
   // 程序常驻托盘（关闭只隐藏不退出），卸载前先强制结束，解除文件占用
   Exec('taskkill.exe', '/f /im ClassBulletinApp.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
-  Result := True;
-end;
 
-procedure InitializeUninstallProgressPage();
-begin
-  // 在卸载进度页之前插入一个选项页，把选择权交给用户
-  UninstallChoicePage := CreateInputOptionPage(0,
-    '选择卸载清理方式',
-    '请选择是否一并删除用户数据',
-    '用户数据位于 AppData\Roaming\ClassBulletinApp，包含：课表、设置、作业公示、缺交名单、桌面背景图。',
-    True, False);
-  UninstallChoicePage.Add('彻底无残留：删除程序以及全部用户数据（下次使用需重新导入课表）');
-  UninstallChoicePage.Add('保留用户数据：仅删除程序，保留课表/设置/作业（重装免重新导入）');
-  UninstallChoicePage.SelectedValueIndex := 0;
+  // 卸载窗体(UninstallProgressForm)不支持向导页，改用系统消息框询问。
+  // 用 MB_YESNO + MB_DEFBUTTON2 让「否」(保留用户数据) 预聚焦，最安全，避免误删。
+  Res := MsgBox('是否一并删除用户数据？' + #13#10#13#10 +
+    '用户数据位于 AppData\Roaming\ClassBulletinApp，包含：课表、设置、作业公示、缺交名单、桌面背景图。' + #13#10#13#10 +
+    '• 选「是」：彻底无残留（删除程序及全部用户数据，重装需重新导入课表）' + #13#10 +
+    '• 选「否」：仅删除程序，保留用户数据（重装免重新导入，推荐）',
+    mbConfirmation, MB_YESNO or MB_DEFBUTTON2);
+
+  // IDYES=彻底无残留；其余情况（含关闭对话框/默认回车）一律按「保留」处理
+  DeleteUserData := (Res = IDYES);
+  Result := True;
 end;
 
 procedure RestoreWallpaperIfApplied();
@@ -148,10 +146,8 @@ begin
     // 2) 始终清理临时调试日志
     DeleteWildcard(ExpandConstant('{localappdata}\Temp\ClassBulletinApp*.log'));
     // 3) 按用户在弹窗中的选择决定是否删除用户数据
-    if WizardSilent then
-      DeleteUserData := False
-    else if Assigned(UninstallChoicePage) then
-      DeleteUserData := (UninstallChoicePage.SelectedValueIndex = 0);
+    if UninstallSilent then
+      DeleteUserData := False;   // 静默卸载默认保留用户数据
     if DeleteUserData then
       DelTree(ExpandConstant('{userappdata}\ClassBulletinApp'), True, True, True);
   end;
