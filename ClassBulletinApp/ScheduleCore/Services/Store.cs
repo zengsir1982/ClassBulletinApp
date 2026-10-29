@@ -28,6 +28,18 @@ public static class Store
 
     static void Ensure() => Directory.CreateDirectory(AppDir);
 
+    /// <summary>
+    /// 通用 JSON 读取：文件不存在或内容为空（0 字节 / 仅空白）时返回 null，
+    /// 统一防止「文件存在但被清空/截断」导致 Deserialize 抛 JsonException 而让程序启动崩溃。
+    /// </summary>
+    static T? ReadJsonOrNull<T>(string path) where T : class
+    {
+        if (!File.Exists(path)) return null;
+        var text = File.ReadAllText(path);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        return JsonSerializer.Deserialize<T>(text, Opt);
+    }
+
     public static void SaveSchedule(ScheduleFile sf)
     {
         Ensure();
@@ -35,10 +47,7 @@ public static class Store
     }
 
     public static ScheduleFile? LoadSchedule()
-    {
-        if (!File.Exists(SchedulePath)) return null;
-        return JsonSerializer.Deserialize<ScheduleFile>(File.ReadAllText(SchedulePath), Opt);
-    }
+        => ReadJsonOrNull<ScheduleFile>(SchedulePath);
 
     public static void SaveTeacherSchedule(ScheduleFile sf)
     {
@@ -47,10 +56,7 @@ public static class Store
     }
 
     public static ScheduleFile? LoadTeacherSchedule()
-    {
-        if (!File.Exists(TeacherSchedulePath)) return null;
-        return JsonSerializer.Deserialize<ScheduleFile>(File.ReadAllText(TeacherSchedulePath), Opt);
-    }
+        => ReadJsonOrNull<ScheduleFile>(TeacherSchedulePath);
 
     public static void SaveHomework(HomeworkBoard board)
     {
@@ -59,10 +65,7 @@ public static class Store
     }
 
     public static HomeworkBoard? LoadHomework()
-    {
-        if (!File.Exists(HomeworkPath)) return null;
-        return JsonSerializer.Deserialize<HomeworkBoard>(File.ReadAllText(HomeworkPath), Opt);
-    }
+        => ReadJsonOrNull<HomeworkBoard>(HomeworkPath);
 
     public static void SaveMissingBoard(MissingBoard board)
     {
@@ -111,10 +114,7 @@ public static class Store
     }
 
     public static List<Notification> LoadNotifications()
-    {
-        if (!File.Exists(NotificationsPath)) return new();
-        return JsonSerializer.Deserialize<List<Notification>>(File.ReadAllText(NotificationsPath), Opt) ?? new();
-    }
+        => ReadJsonOrNull<List<Notification>>(NotificationsPath) ?? new();
 
     public static void SaveSettings(AppSettings s)
     {
@@ -123,10 +123,7 @@ public static class Store
     }
 
     public static AppSettings LoadSettings()
-    {
-        if (!File.Exists(SettingsPath)) return new();
-        return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath), Opt) ?? new();
-    }
+        => ReadJsonOrNull<AppSettings>(SettingsPath) ?? new();
 
     public static void SaveOverrides(List<LessonOverride> list)
     {
@@ -135,8 +132,5 @@ public static class Store
     }
 
     public static List<LessonOverride> LoadOverrides()
-    {
-        if (!File.Exists(OverridesPath)) return new();
-        return JsonSerializer.Deserialize<List<LessonOverride>>(File.ReadAllText(OverridesPath), Opt) ?? new();
-    }
+        => ReadJsonOrNull<List<LessonOverride>>(OverridesPath) ?? new();
 }
