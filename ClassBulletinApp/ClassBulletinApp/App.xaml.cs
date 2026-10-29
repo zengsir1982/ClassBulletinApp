@@ -191,6 +191,7 @@ public partial class App : System.Windows.Application
 
             Check("MainWindow", () => new MainWindow());
             Check("LoginWindow", () => new LoginWindow());
+            Check("RetrievePasswordWindow", () => new RetrievePasswordWindow());
             Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });
             Check("HomeworkWindow", () => new HomeworkWindow());
             Check("MissingWindow", () => new MissingWindow());
@@ -234,7 +235,13 @@ public partial class App : System.Windows.Application
             var login = new LoginWindow();
             if (login.ShowDialog() != true) { Shutdown(0); return; }
             Store.EnablePersistence = !login.IsGuest;
-            if (!login.IsGuest) Store.TryWeeklyOverrideReset();   // 每周首次启动清空全部调代课
+            if (!login.IsGuest)
+            {
+                Store.TryWeeklyOverrideReset();   // 每周首次启动清空全部调代课
+                var s = Store.LoadSettings();     // F9：记住上次登录的用户名，下次预填
+                s.LastUsername = login.EnteredUser;
+                Store.SaveSettings(s);
+            }
         }
         catch (Exception ex)
         {

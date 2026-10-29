@@ -129,13 +129,10 @@
                 </StackPanel>
             </Border>
 
-            <!-- 最下方：置顶 / 锁定（左侧） + 位置 / 桌面背景（右侧，位置在桌面背景右边） -->
+            <!-- 最下方：锁定（左侧） + 位置 / 桌面背景（右侧，位置在桌面背景右边）。置顶由标题栏「自动隐藏 / 置顶显示」统一控制，避免两个置顶按钮冲突 -->
             <Border Grid.Row="3" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,12,12" Padding="10,7">
                 <DockPanel LastChildFill="True">
-                    <Button x:Name="BtnTop" DockPanel.Dock="Left" Content="置顶" Click="BtnTop_Click"
-                            Padding="10,4" FontSize="12" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                            ToolTip="切换置顶显示（置于所有窗口之上 / 普通层级）"/>
                     <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
                             Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
                             ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>

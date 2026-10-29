@@ -16,10 +16,14 @@ public partial class LoginWindow : Window
     /// <summary>true = 游客模式（不持久化）；false = 已登录管理员。</summary>
     public bool IsGuest { get; private set; } = true;
 
+    /// <summary>本次登录成功所用的用户名（供 App 记住，下次预填）。</summary>
+    public string EnteredUser { get; private set; } = "";
+
     public LoginWindow()
     {
         InitializeComponent();
-        TxtUser.Text = "";
+        // F9：默认记住上次登录的用户名，下次只需输入密码
+        TxtUser.Text = Store.LoadSettings().LastUsername ?? "";
         TxtPwd.Password = "";
     }
 
@@ -31,6 +35,7 @@ public partial class LoginWindow : Window
         if (user == s.Username && pwd == s.Password)
         {
             IsGuest = false;
+            EnteredUser = user;
             DialogResult = true;
         }
         else
@@ -44,6 +49,12 @@ public partial class LoginWindow : Window
     {
         IsGuest = true;
         DialogResult = true;
+    }
+
+    private void BtnForgot_Click(object sender, RoutedEventArgs e)
+    {
+        try { new RetrievePasswordWindow { Owner = this }.ShowDialog(); }
+        catch { }
     }
 
     private void TxtPwd_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

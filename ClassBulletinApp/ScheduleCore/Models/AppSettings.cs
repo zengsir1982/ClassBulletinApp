@@ -11,8 +11,23 @@ public class AppSettings
     /// <summary>登录密码（默认 000 三位数字，明文字符串存储，仅用于教室展示软件的简易保护）。</summary>
     public string Password { get; set; } = "000";
 
+    /// <summary>电子邮箱（用于「忘记密码」时找回 / 重置，可留空）。</summary>
+    public string Email { get; set; } = "";
+
+    /// <summary>手机号码（用于「忘记密码」时找回 / 重置，可留空）。</summary>
+    public string Phone { get; set; } = "";
+
+    /// <summary>密保问题（用户中心设置，用于「忘记密码」验证身份；空表示未设置）。</summary>
+    public string SecurityQuestion { get; set; } = "";
+
+    /// <summary>密保答案（与 SecurityQuestion 对应，明文存储，仅用于本地找回）。</summary>
+    public string SecurityAnswer { get; set; } = "";
+
     /// <summary>本周「清空全部调代课」已执行的周一日期（yyyy-MM-dd）。用于每周只清一次。</summary>
     public string LastClearedMonday { get; set; } = "";
+
+    /// <summary>上次成功登录的用户名（用于登录界面默认记住，下次只需输入密码）。</summary>
+    public string LastUsername { get; set; } = "";
 
     /// <summary>
     /// 课表「显示日」模式：

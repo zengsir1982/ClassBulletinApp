@@ -136,7 +136,6 @@ public partial class ScheduleWindow : Window
     {
         ApplyCurrentLayout();
         _locked = Store.LoadSettings().ScheduleLayout?.Locked ?? false;
-        UpdateTopButton();
         UpdateLockButton();
 
         AppEvents.ScheduleChanged += Refresh;
@@ -367,7 +366,7 @@ public partial class ScheduleWindow : Window
         }
         finally { _applyingLayout = false; }
         if (_clickThrough)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, BtnTop, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel);
+            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnWp, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel);
         else
             FloatingHelper.SetClickThrough(this, false);
 
@@ -543,26 +542,6 @@ public partial class ScheduleWindow : Window
         Store.SaveSettings(s);
         ApplyCurrentLayout();
         AppEvents.RaiseLayoutChanged();
-    }
-
-    // ---------- 置顶 ----------
-    private void UpdateTopButton()
-    {
-        if (BtnTop == null) return;
-        bool top = _layout?.TopMost ?? false;
-        BtnTop.Content = top ? "已置顶" : "置顶";
-        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
-        BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
-    }
-
-    private void BtnTop_Click(object sender, RoutedEventArgs e)
-    {
-        var s = Store.LoadSettings();
-        var l = s.ScheduleLayout ??= new PanelLayout();
-        l.TopMost = !l.TopMost;
-        Store.SaveSettings(s);
-        ApplyCurrentLayout();
-        UpdateTopButton();
     }
 
     // ---------- 锁定 ----------
@@ -888,7 +867,7 @@ public partial class ScheduleWindow : Window
         while (dep != null)
         {
             if (ReferenceEquals(dep, BtnHide) || ReferenceEquals(dep, BtnWp)
-                || ReferenceEquals(dep, BtnTop) || ReferenceEquals(dep, BtnLock) || ReferenceEquals(dep, BtnPos))
+                || ReferenceEquals(dep, BtnLock) || ReferenceEquals(dep, BtnPos))
                 return true;
             dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
         }

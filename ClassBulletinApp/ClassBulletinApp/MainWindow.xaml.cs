@@ -97,8 +97,22 @@ public partial class MainWindow : Window
                 if (Store.EnablePersistence) Store.SaveSettings(settings);
             }
 
-            // 用户中心：显示当前用户名
+            // 用户中心：显示当前用户名 + 邮箱 / 手机 / 密保
             if (TxtCurUser != null) TxtCurUser.Text = settings.Username;
+            if (TxtEmail != null) TxtEmail.Text = settings.Email ?? "";
+            if (TxtPhone != null) TxtPhone.Text = settings.Phone ?? "";
+            if (CbSecQuestion != null)
+            {
+                // 选中与已保存密保问题一致的预设项；未设置则回到占位项
+                bool matched = false;
+                for (int i = 0; i < CbSecQuestion.Items.Count; i++)
+                {
+                    if (CbSecQuestion.Items[i] is ComboBoxItem ci && (ci.Content as string) == settings.SecurityQuestion)
+                    { CbSecQuestion.SelectedIndex = i; matched = true; break; }
+                }
+                if (!matched) CbSecQuestion.SelectedIndex = 0;
+            }
+            if (TxtSecAnswer != null) TxtSecAnswer.Text = settings.SecurityAnswer ?? "";
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
@@ -975,6 +989,15 @@ public partial class MainWindow : Window
             }
             s.Username = newUser;
             if (!string.IsNullOrEmpty(p1)) s.Password = p1;
+            s.Email = (TxtEmail?.Text ?? "").Trim();
+            s.Phone = (TxtPhone?.Text ?? "").Trim();
+            // 密保：选中占位项（或不设）则清空；否则保存所选问题与答案
+            string secQ = "";
+            if (CbSecQuestion?.SelectedItem is ComboBoxItem ci && !string.IsNullOrEmpty(ci.Content as string)
+                && (ci.Content as string) != "（不设密保问题）")
+                secQ = ci.Content as string;
+            s.SecurityQuestion = secQ;
+            s.SecurityAnswer = secQ == "" ? "" : (TxtSecAnswer?.Text ?? "").Trim();
             Store.SaveSettings(s);   // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
             if (TxtCurUser != null) TxtCurUser.Text = s.Username;
             TxtNewUser.Text = "";
