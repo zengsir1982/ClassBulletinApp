@@ -30,8 +30,11 @@ public class PanelLayout
     /// <summary>“置顶显示”时的透明度（同时开启鼠标穿透，方便操作底层窗口）。建议 0.4~0.7。</summary>
     public double OverlayOpacity { get; set; } = 0.55;
 
-    /// <summary>是否置顶显示。</summary>
-    public bool TopMost { get; set; } = true;
+    /// <summary>是否置顶显示（默认 false：悬浮窗置于普通层级；点击「置顶」后才置顶）。</summary>
+    public bool TopMost { get; set; }
+
+    /// <summary>是否锁定（锁定后不能移动 / 缩放，仅课表悬浮窗使用；便签的锁定单独存于各自模型）。</summary>
+    public bool Locked { get; set; }
 
     /// <summary>是否鼠标穿透（点击落到底层窗口，纯展示）。与 AutoHide 互斥。</summary>
     public bool ClickThrough { get; set; } = false;

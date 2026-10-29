@@ -13,6 +13,13 @@ public static class Store
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClassBulletinApp");
 
     static string SchedulePath => Path.Combine(AppDir, "schedule.json");
+
+    /// <summary>
+    /// 持久化总开关：游客模式下为 false，所有 Save* 直接跳过（改动只留内存、不落盘），
+    /// 退出后自动丢弃；登录（admin）通过 LoginWindow 置为 true 后正常保存。
+    /// </summary>
+    public static bool EnablePersistence { get; set; }
+
     static string TeacherSchedulePath => Path.Combine(AppDir, "teacher_schedule.json");
     static string NotificationsPath => Path.Combine(AppDir, "notifications.json");
     static string SettingsPath => Path.Combine(AppDir, "settings.json");
@@ -42,6 +49,7 @@ public static class Store
 
     public static void SaveSchedule(ScheduleFile sf)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(SchedulePath, JsonSerializer.Serialize(sf, Opt));
     }
@@ -51,6 +59,7 @@ public static class Store
 
     public static void SaveTeacherSchedule(ScheduleFile sf)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(TeacherSchedulePath, JsonSerializer.Serialize(sf, Opt));
     }
@@ -60,6 +69,7 @@ public static class Store
 
     public static void SaveHomework(HomeworkBoard board)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(HomeworkPath, JsonSerializer.Serialize(board, Opt));
     }
@@ -69,6 +79,7 @@ public static class Store
 
     public static void SaveMissingBoard(MissingBoard board)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(MissingPath, JsonSerializer.Serialize(board, Opt));
     }
@@ -109,6 +120,7 @@ public static class Store
 
     public static void SaveNotifications(List<Notification> list)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(NotificationsPath, JsonSerializer.Serialize(list, Opt));
     }
@@ -118,6 +130,7 @@ public static class Store
 
     public static void SaveSettings(AppSettings s)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s, Opt));
     }
@@ -127,10 +140,30 @@ public static class Store
 
     public static void SaveOverrides(List<LessonOverride> list)
     {
+        if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(OverridesPath, JsonSerializer.Serialize(list, Opt));
     }
 
     public static List<LessonOverride> LoadOverrides()
         => ReadJsonOrNull<List<LessonOverride>>(OverridesPath) ?? new();
+
+    /// <summary>
+    /// 每周首次启动（本周周一尚未清空过）时，清除全部调代课（temp + manual 一并清空，因为「调代课」整体按教学周管理），
+    /// 并把本周周一日期写入设置标记，避免一周内重复清空。仅在已登录（EnablePersistence=true）时由 App 调用。
+    /// </summary>
+    public static void TryWeeklyOverrideReset()
+    {
+        var today = DateTime.Today;
+        int diff = (7 + ((int)today.DayOfWeek - (int)DayOfWeek.Monday)) % 7;
+        var monday = today.AddDays(-diff);
+        string key = monday.ToString("yyyy-MM-dd");
+
+        var s = LoadSettings();
+        if (s.LastClearedMonday == key) return;   // 本周已清空过
+
+        SaveOverrides(new List<LessonOverride>());  // 清除全部调代课
+        s.LastClearedMonday = key;
+        SaveSettings(s);
+    }
 }

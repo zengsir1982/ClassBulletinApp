@@ -5,6 +5,15 @@ public class AppSettings
     public string SelectedClass { get; set; } = "";
     public string LastImportPath { get; set; } = "";
 
+    /// <summary>登录用户名（默认 admin）。当 Username 与某个班级名一致时，启动后默认显示该班课表。</summary>
+    public string Username { get; set; } = "admin";
+
+    /// <summary>登录密码（默认 000 三位数字，明文字符串存储，仅用于教室展示软件的简易保护）。</summary>
+    public string Password { get; set; } = "000";
+
+    /// <summary>本周「清空全部调代课」已执行的周一日期（yyyy-MM-dd）。用于每周只清一次。</summary>
+    public string LastClearedMonday { get; set; } = "";
+
     /// <summary>
     /// 课表「显示日」模式：
     /// "Today" = 自动显示今天（默认，调休时改选其他日需切到 Fixed）；
@@ -33,11 +42,11 @@ public class AppSettings
     /// <summary>启动后是否自动弹出课表悬浮窗。</summary>
     public bool AutoShowSchedule { get; set; } = true;
 
-    /// <summary>启动后是否自动弹出通知悬浮窗。</summary>
-    public bool AutoShowNotification { get; set; } = true;
+    /// <summary>启动后是否自动弹出通知悬浮窗（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
+    public bool AutoShowNotification { get; set; }
 
-    /// <summary>启动后是否自动弹出作业公示悬浮窗。</summary>
-    public bool AutoShowHomework { get; set; } = true;
+    /// <summary>启动后是否自动弹出作业公示悬浮窗（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
+    public bool AutoShowHomework { get; set; }
 
     /// <summary>作业公示便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
     public double? HwWinLeft { get; set; }
@@ -51,11 +60,11 @@ public class AppSettings
     /// <summary>作业公示便签的高度。</summary>
     public double? HwWinHeight { get; set; }
 
-    /// <summary>作业公示便签是否置顶显示（默认置顶，教室展示用）。</summary>
-    public bool HwWinTopMost { get; set; } = true;
+    /// <summary>作业公示便签是否置顶显示（默认置于普通层级，仅在点击「置顶」后才置顶）。</summary>
+    public bool HwWinTopMost { get; set; }
 
-    /// <summary>启动后是否自动弹出缺交作业名单便签。</summary>
-    public bool AutoShowMissing { get; set; } = true;
+    /// <summary>启动后是否自动弹出缺交作业名单便签（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
+    public bool AutoShowMissing { get; set; }
 
     /// <summary>缺交作业名单便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
     public double? MsWinLeft { get; set; }
@@ -69,8 +78,8 @@ public class AppSettings
     /// <summary>缺交作业名单便签的高度。</summary>
     public double? MsWinHeight { get; set; }
 
-    /// <summary>缺交作业名单便签是否置顶显示。</summary>
-    public bool MsWinTopMost { get; set; } = true;
+    /// <summary>缺交作业名单便签是否置顶显示（默认置于普通层级）。</summary>
+    public bool MsWinTopMost { get; set; }
 
     /// <summary>启动后是否自动弹出教师个人课表悬浮窗。</summary>
     public bool AutoShowTeacher { get; set; }
@@ -129,7 +138,7 @@ public class AppSettings
         Width = 420,
         Height = 760,
         Opacity = 0.96,
-        TopMost = true,
+        TopMost = false,
         ClickThrough = false,
         AutoHide = false,
         AutoHideDuringClass = false
