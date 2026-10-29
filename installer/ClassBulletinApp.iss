@@ -64,3 +64,95 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "立即启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+; ----------------------------------------------------------------------------
+; 卸载增强：
+;  1) 卸载前强制结束仍在运行的程序（程序常驻托盘，点关闭只隐藏不退出，会占用文件）
+;  2) 卸载时弹窗让用户自行选择「彻底无残留 / 保留用户数据」
+;  3) 始终恢复桌面壁纸（若曾应用「桌面背景」）并清理临时调试日志
+; ----------------------------------------------------------------------------
+[Code]
+var
+  UninstallChoicePage: TInputOptionWizardPage;
+  DeleteUserData: Boolean;
+
+function InitializeUninstall(): Boolean;
+var
+  RC: Integer;
+begin
+  // 程序常驻托盘（关闭只隐藏不退出），卸载前先强制结束，解除文件占用
+  Exec('taskkill.exe', '/f /im ClassBulletinApp.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
+  Result := True;
+end;
+
+procedure InitializeUninstallProgressPage();
+begin
+  // 在卸载进度页之前插入一个选项页，把选择权交给用户
+  UninstallChoicePage := CreateInputOptionPage(0,
+    '选择卸载清理方式',
+    '请选择是否一并删除用户数据',
+    '用户数据位于 AppData\Roaming\ClassBulletinApp，包含：课表、设置、作业公示、缺交名单、桌面背景图。',
+    True, False);
+  UninstallChoicePage.Add('彻底无残留：删除程序以及全部用户数据（下次使用需重新导入课表）');
+  UninstallChoicePage.Add('保留用户数据：仅删除程序，保留课表/设置/作业（重装免重新导入）');
+  UninstallChoicePage.SelectedValueIndex := 0;
+end;
+
+procedure RestoreWallpaperIfApplied();
+var
+  PsPath, Ps: string;
+  RC: Integer;
+begin
+  // 仅当「桌面背景」当前正生效时才恢复原始壁纸，避免误改用户原有壁纸
+  Ps :=
+    '$d = Join-Path $env:APPDATA "ClassBulletinApp"' + #13#10 +
+    '$set = Join-Path $d "settings.json"' + #13#10 +
+    '$bp = Join-Path $d "desktop_backdrop.png"' + #13#10 +
+    'if (-not (Test-Path $set)) { exit }' + #13#10 +
+    '$s = Get-Content $set -Raw -Encoding UTF8 | ConvertFrom-Json' + #13#10 +
+    '$saved = $s.SavedWallpaper' + #13#10 +
+    '$cur = (Get-ItemProperty "HKCU:\Control Panel\Desktop").Wallpaper' + #13#10 +
+    'if ($cur -and ($cur -replace [char]34, "") -eq ($bp -replace [char]34, "")) {' + #13#10 +
+    '  Add-Type -TypeDefinition "using System;using System.Runtime.InteropServices;public class WB{[DllImport(\"user32.dll\")]public static extern int SystemParametersInfo(int a,int b,string c,int d);}"' + #13#10 +
+    '  [WB]::SystemParametersInfo(20, 0, $(if ($saved) {$saved} else {""}), 3)' + #13#10 +
+    '}';
+  PsPath := ExpandConstant('{tmp}\restore_wp.ps1');
+  if SaveStringToFile(PsPath, Ps, False) then
+    Exec('powershell.exe', '-NoProfile -ExecutionPolicy Bypass -File "' + PsPath + '"', '', SW_HIDE, ewWaitUntilTerminated, RC);
+end;
+
+procedure DeleteWildcard(const Pattern: string);
+var
+  FindRec: TFindRec;
+  Path: string;
+begin
+  if FindFirst(Pattern, FindRec) then begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
+          Path := AddBackslash(ExtractFilePath(Pattern)) + FindRec.Name;
+          DeleteFile(Path);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurStep: TUninstallStep);
+begin
+  if CurStep = usUninstall then begin
+    // 1) 仅在曾应用「桌面背景」时恢复原始壁纸
+    RestoreWallpaperIfApplied();
+    // 2) 始终清理临时调试日志
+    DeleteWildcard(ExpandConstant('{localappdata}\Temp\ClassBulletinApp*.log'));
+    // 3) 按用户在弹窗中的选择决定是否删除用户数据
+    if WizardSilent then
+      DeleteUserData := False
+    else if Assigned(UninstallChoicePage) then
+      DeleteUserData := (UninstallChoicePage.SelectedValueIndex = 0);
+    if DeleteUserData then
+      DelTree(ExpandConstant('{userappdata}\ClassBulletinApp'), True, True, True);
+  end;
+end;
