@@ -16,6 +16,62 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:QlIconConverter x:Key="QlIcon"/>
+
+        <!-- 普通课程行 -->
+        <DataTemplate x:Key="LessonRowTpl">
+            <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
+                    CornerRadius="10" Padding="10" Margin="0,0,0,8" Cursor="Hand">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="74"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="{Binding PeriodText}" FontSize="18" FontWeight="Bold"
+                                   Foreground="{DynamicResource PrimaryBrush}"/>
+                        <TextBlock Text="{Binding TimeRange}" FontSize="11" Foreground="#9CA3AF" Margin="0,3,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <ItemsControl ItemsSource="{Binding Lessons}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,2">
+                                        <Border Background="{Binding OverrideBadgeColor}" CornerRadius="4" Padding="5,1" Margin="0,0,0,5"
+                                                HorizontalAlignment="Left"
+                                                Visibility="{Binding IsOverridden, Converter={StaticResource BoolToVis}}"
+                                                ToolTip="{Binding OverrideNote}">
+                                            <TextBlock Text="{Binding OverrideBadgeText}" Foreground="White" FontSize="10"/>
+                                        </Border>
+                                        <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}">
+                                            <Run Text="{Binding Subject}"/>
+                                            <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
+                                        </TextBlock>
+                                        <TextBlock FontSize="13" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
+                                                   ToolTip="双击可切换到该教师 / 班级的课表">
+                                            <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
+                                            <Run Text="{Binding Teacher}"/>
+                                            <Run Text="{Binding LocationText}" Foreground="#2E8B57"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <!-- 固定时段行（大课间 / 眼保健操 / 午休）：单行灰色横条，左边名称、右边时间 -->
+        <DataTemplate x:Key="FixedRowTpl">
+            <Border Background="{Binding CardBg}" CornerRadius="8" Padding="9,4" Margin="0,0,0,6">
+                <DockPanel LastChildFill="False">
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding PeriodText}" FontSize="13"
+                               Foreground="#6B7280" VerticalAlignment="Center"/>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding TimeRange}" FontSize="11"
+                               Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
     <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
             Margin="0" Padding="0">
@@ -63,46 +119,19 @@
                     <ItemsControl x:Name="TodayPanel">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
-                                        CornerRadius="10" Padding="10" Margin="0,0,0,8"
-                                        Cursor="Hand">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="74"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding PeriodText}" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource PrimaryBrush}"/>
-                                            <TextBlock Text="{Binding TimeRange}" FontSize="11" Foreground="#9CA3AF" Margin="0,3,0,0"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1">
-                                            <ItemsControl ItemsSource="{Binding Lessons}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <StackPanel Margin="0,2">
-                                                            <Border Background="{Binding OverrideBadgeColor}" CornerRadius="4" Padding="5,1" Margin="0,0,0,5"
-                                                                    HorizontalAlignment="Left"
-                                                                    Visibility="{Binding IsOverridden, Converter={StaticResource BoolToVis}}"
-                                                                    ToolTip="{Binding OverrideNote}">
-                                                                <TextBlock Text="{Binding OverrideBadgeText}" Foreground="White" FontSize="10"/>
-                                                            </Border>
-                                                            <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}">
-                                                                <Run Text="{Binding Subject}"/>
-                                                                <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
-                                                            </TextBlock>
-                                                            <TextBlock FontSize="13" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
-                                                                       ToolTip="双击可切换到该教师 / 班级的课表">
-                                                                <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
-                                                                <Run Text="{Binding Teacher}"/>
-                                                                <Run Text="{Binding LocationText}" Foreground="#2E8B57"/>
-                                                            </TextBlock>
-                                                        </StackPanel>
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
+                                <!-- 固定时段（大课间/眼保健操/午休）走单行横条模板，其余走课程卡模板 -->
+                                <ContentControl Content="{Binding}" HorizontalContentAlignment="Stretch">
+                                    <ContentControl.Style>
+                                        <Style TargetType="ContentControl">
+                                            <Setter Property="ContentTemplate" Value="{StaticResource LessonRowTpl}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsFixed}" Value="True">
+                                                    <Setter Property="ContentTemplate" Value="{StaticResource FixedRowTpl}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ContentControl.Style>
+                                </ContentControl>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

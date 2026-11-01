@@ -73,7 +73,15 @@ public partial class MainWindow : Window
         var settings = Store.LoadSettings();
         try
         {
-            var schedule = Store.LoadSchedule();
+            // ---------- 数据源分支（P2：二一排课主通道） ----------
+            // ScheduleSource=="ErYi" 时优先从抓包缓存构建全校课表 + 今日调代课；
+            // 失败 / 空缓存时回退到 Store.LoadSchedule()（此前 Excel 导入持久化的结果）。
+            bool fromErYi = false;
+            int eryiOverrideCount = 0;
+            ScheduleFile? schedule = TryLoadErYi(settings, out fromErYi, out eryiOverrideCount);
+            if (schedule == null)
+                schedule = Store.LoadSchedule();
+
             if (schedule != null)
             {
                 foreach (var c in schedule.Classes) ClassNames.Add(c.ClassName);
@@ -81,7 +89,9 @@ public partial class MainWindow : Window
                     CbClass.SelectedItem = settings.SelectedClass;
                 else if (ClassNames.Count > 0)
                     CbClass.SelectedIndex = 0;
-                TxtStatus.Text = $"已加载 {ClassNames.Count} 个班级课表。";
+                TxtStatus.Text = fromErYi
+                    ? $"已从二一排课缓存加载 {ClassNames.Count} 个班级课表，今日调代课 {eryiOverrideCount} 条。"
+                    : $"已加载 {ClassNames.Count} 个班级课表。";
             }
             else
             {
@@ -98,7 +108,12 @@ public partial class MainWindow : Window
             }
 
             // 用户中心：显示当前用户名 + 邮箱 / 手机 / 密保
-            if (TxtCurUser != null) TxtCurUser.Text = settings.Username;
+            // ★ 必须取登录身份（UserSession），不能取 settings.Username：
+            //   升级后 settings.Username 是迁移前的管理员名，而实际登录的可能是 local（电教管理员），
+            //   照 settings 显示会让坐在教室机前的人以为自己在编辑管理员账号。
+            if (TxtCurUser != null) TxtCurUser.Text = UserSession.Current?.Username ?? "（游客）";
+            // 当前密码框永不在界面上回显任何内容（有 PasswordBox 也不预填）
+            if (TxtCurPwd != null) TxtCurPwd.Password = "";
             if (TxtEmail != null) TxtEmail.Text = settings.Email ?? "";
             if (TxtPhone != null) TxtPhone.Text = settings.Phone ?? "";
             if (CbSecQuestion != null)
@@ -113,6 +128,7 @@ public partial class MainWindow : Window
                 if (!matched) CbSecQuestion.SelectedIndex = 0;
             }
             if (TxtSecAnswer != null) TxtSecAnswer.Text = settings.SecurityAnswer ?? "";
+            if (ChkAutoLogin != null) ChkAutoLogin.IsChecked = settings.AutoLogin;
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             ReloadNotes();
@@ -167,7 +183,16 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
+        // 自动更新：先回显状态，再按设置挂上定时器（启动延迟见 UpdateStartupDelaySeconds）
+        try
+        {
+            RefreshUpdateStatus();
+            SetupUpdateTimer();
+        }
+        catch (Exception ex) { TxtStatus.Text += " [自动更新初始化失败：" + ex.Message + "]"; }
+
         UpdateToggleLabels();
+        ApplyPermissions();
 
         try
         {
@@ -175,6 +200,101 @@ public partial class MainWindow : Window
             if (settings.LaunchLocked) ToggleLock();
         }
         catch { }
+
+        // 升级后一次性说明：等窗口真正显示出来再弹，否则 Owner 还没就位
+        Loaded += (_, _) => ShowUpgradeNoticeOnce();
+    }
+
+    /// <summary>
+    /// 同一版本只提示一次（<see cref="ScheduleCore.Models.AppSettings.UpgradeNoticeShownFor"/>）。
+    /// <para>诊断 / 截图模式（<c>--ui-check</c>、<c>--shot</c>）直接跳过 —— 自动化流程卡在模态框上等于挂死。</para>
+    /// </summary>
+    private void ShowUpgradeNoticeOnce()
+    {
+        if (App.IsDiagnostic) return;
+
+        try
+        {
+            var st = Store.LoadSettings();
+            string cur = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
+            if (string.Equals(st.UpgradeNoticeShownFor, cur, StringComparison.Ordinal)) return;
+
+            // 先碰一次 overrides：旧记录若还没归周，这一步会触发迁移并写下 MigratedAt，
+            // 提示里才能说清"你原来的记录被归到哪了"。失败不影响提示本身。
+            try { _ = Store.LoadOverrides().Count; } catch { }
+            st = Store.LoadSettings();
+
+            var items = UpgradeNoticeWindow.BuildItems(
+                new AppSettingsSnapshot(st.WeekStartDay, st.OverridesMigratedAt),
+                st.UpgradeNoticeShownFor);
+
+            new UpgradeNoticeWindow(cur, items) { Owner = this }.ShowDialog();
+
+            st.UpgradeNoticeShownFor = cur;
+            Store.SaveSettings(st);
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text += " [更新说明显示失败：" + ex.Message + "]";
+        }
+    }
+
+    // ---------- 二一排课数据源（P2） ----------
+
+    /// <summary>
+    /// 当 ScheduleSource=="ErYi" 时，从二一排课抓包缓存目录构建全校课表 + 今日生效的调代课覆盖。
+    /// 成功：返回构建出的 ScheduleFile，并持久化 schedule.json / overrides.json（保留 manual 覆盖）；
+    /// 缓存为空、目录不存在或异常：返回 null，由调用方回退到 Excel 持久化的课表。
+    /// </summary>
+    private ScheduleFile? TryLoadErYi(AppSettings settings, out bool fromErYi, out int overrideCount)
+    {
+        fromErYi = false;
+        overrideCount = 0;
+        if (settings.ScheduleSource != "ErYi")
+            return null;
+
+        var dir = ResolveErYiDataDir(settings);
+        try
+        {
+            var result = ErYiClient.BuildFromCache(dir);
+            if (result.Schedule.Classes.Count == 0)
+            {
+                TxtStatus.Text = "二一排课缓存为空或不存在，回退到本地课表。";
+                return null;
+            }
+            // 合并调代覆盖：用新的 temp 覆盖替换旧的 temp，保留用户手填的 manual（与 ImportTempSchedule 语义一致）
+            var manual = Store.LoadOverrides().Where(o => o.Source != "temp").ToList();
+            Store.SaveSchedule(result.Schedule);
+            Store.SaveOverrides(result.Overrides.Concat(manual).ToList());
+            fromErYi = true;
+            // 缓存里有全量历史调代课（含已过期）：状态栏只报"今天实际生效"的条数
+            overrideCount = result.Overrides.Count(o => o.IsActiveOn(DateTime.Today));
+            return result.Schedule;
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "二一排课缓存加载失败，回退本地：" + ex.Message;
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 解析二一排课缓存目录：优先用设置项 ErYiDataDir；否则默认 %APPDATA%/ClassBulletinApp/eryi；
+    /// DEBUG 构建下若默认目录不存在，回退到开发机原始数据目录，便于免复制直接验证。
+    /// </summary>
+    private static string ResolveErYiDataDir(AppSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.ErYiDataDir))
+            return settings.ErYiDataDir;
+        var dir = Path.Combine(Store.AppDir, "eryi");
+#if DEBUG
+        if (!Directory.Exists(dir))
+        {
+            var dev = @"F:\study\班级公布栏\数据对接方案\data";
+            if (Directory.Exists(dev)) return dev;
+        }
+#endif
+        return dir;
     }
 
     // ---------- 悬浮窗管理 ----------
@@ -222,6 +342,14 @@ public partial class MainWindow : Window
         {
             _hwWin = new HomeworkWindow();
             _hwWin.Closed += (_, _) => { _hwWin = null; _hwOn = false; UpdateToggleLabels(); };
+            // ★ 便签右上角的 ✕ 是 Hide（不是 Close），不会触发 Closed 事件。
+            //   不同步这里，控制面板会一直显示「隐藏作业便签」，用户点一次等于再隐藏一次、
+            //   要点两次才能重新显示（2026-11-01 现场反馈）。
+            _hwWin.IsVisibleChanged += (_, _) =>
+            {
+                bool vis = _hwWin?.IsVisible == true;
+                if (_hwOn != vis) { _hwOn = vis; UpdateToggleLabels(); }
+            };
         }
         _hwWin.Show();
         // 先收屏再提到最前，确保便签一定出现在桌面可见区域内（不被控制面板 / 全屏展示盖住）
@@ -244,6 +372,12 @@ public partial class MainWindow : Window
         {
             _msWin = new MissingWindow();
             _msWin.Closed += (_, _) => { _msWin = null; _msOn = false; UpdateToggleLabels(); };
+            // 同上：✕ 只是 Hide，靠可见性变化把按钮文案拉回来
+            _msWin.IsVisibleChanged += (_, _) =>
+            {
+                bool vis = _msWin?.IsVisible == true;
+                if (_msOn != vis) { _msOn = vis; UpdateToggleLabels(); }
+            };
         }
         _msWin.Show();
         FloatingHelper.ClampToScreen(_msWin);
@@ -263,11 +397,69 @@ public partial class MainWindow : Window
     {
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
-        if (BtnToggleHw != null) BtnToggleHw.Content = _hwOn ? "作业悬浮：开" : "作业悬浮：关";
+        // 作业 / 缺交便签的开关只在「作业公示」标签页里（显示设置页已不再重复放一套）
         if (BtnToggleHw2 != null) BtnToggleHw2.Content = _hwOn ? "隐藏作业便签" : "显示作业便签";
-        if (BtnToggleMs != null) BtnToggleMs.Content = _msOn ? "缺交悬浮：开" : "缺交悬浮：关";
         if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
         UpdateModeIndicator();
+    }
+
+    /// <summary>
+    /// 按当前登录角色统一设置界面入口的可用性。
+    /// ★ 权限判定只走 <see cref="UserSession"/>，不在各处散写 <c>if (isAdmin)</c> ——
+    /// 全校有十几处能改数据的入口，漏一处就是一个后门。
+    /// </summary>
+    private void ApplyPermissions()
+    {
+        bool canData = UserSession.CanManageData;
+        bool canPublish = UserSession.CanPublish;
+
+        void Set(Button? b, bool enabled, string deny)
+        {
+            if (b == null) return;
+            b.IsEnabled = enabled;
+            b.ToolTip = enabled ? null : deny;
+        }
+
+        // 课表数据（整份替换 / 影响全部教室机）
+        Set(BtnImport, canData, UserSession.DenyManageData);
+        Set(BtnImportTemp, canData, UserSession.DenyManageData);
+        Set(BtnImportSingle, canData, UserSession.DenyManageData);
+        Set(BtnImportTeacher, canData, UserSession.DenyManageData);
+        Set(BtnClearOverrides, canData, UserSession.DenyManageData);
+        Set(BtnClearImported, canData, UserSession.DenyManageData);
+        Set(BtnExportPackage, canData, UserSession.DenyManageData);
+        Set(BtnImportPackage, canData, UserSession.DenyManageData);
+        Set(BtnBackup, canData, UserSession.DenyManageData);
+
+        // 发布 / 同步策略（一次点击影响 30 台机器）
+        Set(BtnUpdateSettings, canPublish, UserSession.DenyPublish);
+        Set(BtnPublishNow, canPublish, UserSession.DenyPublish);
+
+        // 恢复本机被停用的调课：班主任也需要（那是他自己班的记录）
+        Set(BtnRestoreSuspended, canData || UserSession.IsTeacher,
+            "当前身份不能修改调课记录。");
+
+        Set(BtnManageUsers, UserSession.CanManageUsers, "只有管理员可以管理用户。");
+
+        // 改自己的账号信息：游客没有账号可改（点了也只会报"未登录"）
+        Set(BtnSaveUser, UserSession.Current != null, "游客模式没有账号可修改，请先切换/登录一个账号。");
+
+        // 找回密码信息（邮箱 / 手机 / 密保）存在 settings.json 里，全机只有一份，不是每个账号各自一份。
+        // 多账号下让非管理员改，等于悄悄覆盖了管理员的找回方式；而找回入口本身也只对管理员开放
+        // （其他角色忘密码由管理员重置），所以这一块只给管理员编辑。
+        if (PanelRecovery != null)
+        {
+            PanelRecovery.IsEnabled = UserSession.IsAdmin;
+            // 只靠 IsEnabled 看不出来：里面的 TextBox 显式设了白底，禁用后只是字变灰一点，
+            // 用户会以为还能改。压暗整块，一眼就能看出"这块不归我管"。
+            PanelRecovery.Opacity = UserSession.IsAdmin ? 1.0 : 0.5;
+            PanelRecovery.ToolTip = UserSession.IsAdmin
+                ? null
+                : "找回密码信息是这台机器共用的一份（存在设置里），只有管理员可以修改。忘记密码请让管理员重置。";
+        }
+
+        if (TxtRoleLine != null)
+            TxtRoleLine.Text = "当前身份：" + UserSession.Caption;
     }
 
     /// <summary>顶栏提示当前悬浮课表显示的是班级课表还是教师个人课表。</summary>
@@ -973,24 +1165,87 @@ public partial class MainWindow : Window
     {
         try
         {
+            var me = UserSession.Current;
+            if (me == null)
+            {
+                ShowUserMsg("当前是游客模式，不能修改账号。请点「切换账号…」用账号登录后再改。", false);
+                return;
+            }
+
             var s = Store.LoadSettings();
+            var book = Store.LoadUsers();
+            var acc = book.Find(me.Username);
+            if (acc == null)
+            {
+                ShowUserMsg("当前账号已不在用户表里（可能已被管理员删除），请重新登录。", false);
+                return;
+            }
+
             string newUser = (TxtNewUser.Text ?? "").Trim();
+            string curPwd = TxtCurPwd?.Password ?? "";
             string p1 = TxtNewPwd.Password ?? "";
             string p2 = TxtNewPwd2.Password ?? "";
-            if (string.IsNullOrEmpty(newUser))
+
+            // ★ 留空 = 不改用户名 / 不改密码：只想换密码时不必连用户名一起重填
+            bool changeUser = newUser.Length > 0 && !string.Equals(newUser, acc.Username, StringComparison.Ordinal);
+            bool changePwd = p1.Length > 0 || p2.Length > 0;
+
+            if (changePwd && p1 != p2)
             {
-                ShowUserMsg("用户名不能为空。", false);
+                ShowUserMsg("两次输入的新密码不一致。", false);
                 return;
             }
-            if (p1 != p2)
+            if (newUser.Length == 0 && (TxtNewUser.Text ?? "").Length > 0)
             {
-                ShowUserMsg("两次输入的密码不一致。", false);
+                ShowUserMsg("新用户名不能只有空格。", false);
                 return;
             }
-            s.Username = newUser;
-            if (!string.IsNullOrEmpty(p1)) s.Password = p1;
+            if (changeUser && book.Contains(newUser))
+            {
+                ShowUserMsg($"用户名「{newUser}」已经被占用，请换一个。", false);
+                return;
+            }
+
+            // ★ 改用户名 / 改密码必须先验当前密码：教室里是公共电脑，
+            //   否则任何能碰到这台机器的人都能直接把管理员账号换掉。
+            if (changeUser || changePwd)
+            {
+                if (curPwd.Length == 0)
+                {
+                    ShowUserMsg("请先在「当前密码」里输入现在的密码，再修改用户名或密码。", false);
+                    TxtCurPwd?.Focus();
+                    return;
+                }
+                if (!PasswordHasher.Verify(curPwd, acc.PasswordHash, acc.Salt))
+                {
+                    ShowUserMsg("当前密码不正确，修改未生效。", false);
+                    TxtCurPwd?.SelectAll();
+                    TxtCurPwd?.Focus();
+                    return;
+                }
+                if (changePwd && p1.Length == 0)
+                {
+                    ShowUserMsg("新密码不能为空（不想改密码就留空所有新密码框）。", false);
+                    return;
+                }
+            }
+
+            string oldName = acc.Username;
+            if (changeUser)
+            {
+                acc.Username = newUser;
+                // 兼容旧字段：程序其他地方仍读 settings.Username（如默认为班级名时的展示）
+                s.Username = newUser;
+            }
+            if (p1.Length > 0)
+            {
+                PasswordHasher.SetPassword(acc, p1);
+                s.Password = p1;   // 仅作兼容保留；登录已改为校验 users.json 的哈希
+            }
+
             s.Email = (TxtEmail?.Text ?? "").Trim();
             s.Phone = (TxtPhone?.Text ?? "").Trim();
+
             // 密保：选中占位项（或不设）则清空；否则保存所选问题与答案
             string secQ = "";
             if (CbSecQuestion?.SelectedItem is ComboBoxItem ci && !string.IsNullOrEmpty(ci.Content as string)
@@ -998,12 +1253,63 @@ public partial class MainWindow : Window
                 secQ = (ci.Content as string) ?? "";
             s.SecurityQuestion = secQ;
             s.SecurityAnswer = secQ == "" ? "" : (TxtSecAnswer?.Text ?? "").Trim();
-            Store.SaveSettings(s);   // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
-            if (TxtCurUser != null) TxtCurUser.Text = s.Username;
+
+            // ---- 自动登录：只允许受限角色 ----
+            bool wantAuto = ChkAutoLogin?.IsChecked == true;
+            if (acc.Role == UserRole.Admin)
+            {
+                // 管理员永不参与自动登录。勾选保持原样（表示"本机仍自动进入受限账号"），
+                // 但绝不用管理员自己的凭据。
+                s.AutoLogin = wantAuto;
+            }
+            else
+            {
+                s.AutoLogin = wantAuto;
+                if (wantAuto)
+                {
+                    s.AutoLoginUser = acc.Username;
+                    s.AutoLoginPassword = p1.Length > 0 ? p1 : s.AutoLoginPassword;
+                }
+                else
+                {
+                    s.AutoLoginUser = "";
+                    s.AutoLoginPassword = "";
+                }
+            }
+
+            // 改名后自动登录里记的旧名字要跟着改，否则下次开机自动登录失败
+            if (changeUser && string.Equals(s.AutoLoginUser, oldName, StringComparison.OrdinalIgnoreCase))
+                s.AutoLoginUser = acc.Username;
+
+            s.LastUsername = acc.Username;
+
+            // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
+            Store.SaveUsers(book);
+            Store.SaveSettings(s);
+
+            // 同一实例：改完立即生效，界面按新角色重算权限
+            UserSession.SignIn(acc);
+            ApplyPermissions();
+
+            if (TxtCurUser != null) TxtCurUser.Text = acc.Username;
             TxtNewUser.Text = "";
+            TxtCurPwd!.Password = "";
             TxtNewPwd.Password = "";
             TxtNewPwd2.Password = "";
-            ShowUserMsg("已保存。下次启动若用户名为班级名，将默认显示该班课表。", true);
+
+            string tail = ClassNames.Contains(acc.Username) ? "用户名为班级名，下次启动将默认显示该班课表。" : "";
+            string what = changeUser && changePwd ? "用户名和密码都已更新。"
+                       : changeUser ? "用户名已更新（密码未变）。"
+                       : changePwd ? "密码已更新（用户名未变）。"
+                       : "已保存。";
+
+            string autoMsg = acc.Role == UserRole.Admin
+                ? "管理员账号不参与开机自动登录：本机仍自动以受限账号进入，要改数据时在这里切换即可。"
+                : (s.AutoLogin
+                    ? "下次开机将直接用这个账号自动登录，不再询问。"
+                    : "下次启动会回到登录界面（可以换账号或改用游客体验）。");
+
+            ShowUserMsg(what + autoMsg + tail, true);
         }
         catch (Exception ex)
         {
@@ -1019,6 +1325,52 @@ public partial class MainWindow : Window
             ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2E, 0x8B, 0x57))
             : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B));
         TxtUserMsg.Visibility = Visibility.Visible;
+    }
+
+    // ---------- 用户管理 / 切换账号 ----------
+
+    private void BtnManageUsers_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UserSession.CanManageUsers)
+        {
+            ShowUserMsg("只有管理员可以管理用户。", false);
+            return;
+        }
+
+        var dlg = new UserManagerWindow { Owner = this };
+        if (dlg.ShowDialog() == true)
+        {
+            ApplyPermissions();      // 角色可能被改过，界面入口立刻跟着变
+            ShowUserMsg("用户名单已保存。发布数据包后，各教室机会一并收到。", true);
+        }
+    }
+
+    private void BtnSwitchUser_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new LoginWindow { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        if (dlg.IsGuest || dlg.User == null)
+        {
+            UserSession.SignOut();
+            ShowUserMsg("已切换为游客：只能查看课表和控制显示，任何改动都不会保存。", true);
+        }
+        else
+        {
+            UserSession.SignIn(dlg.User);
+            ShowUserMsg($"已切换为「{UserSession.Caption}」。"
+                + (UserSession.IsAdmin ? "" : "本机数据的修改入口已按该身份限制。"), true);
+        }
+
+        ApplyPermissions();
+        if (TxtCurUser != null) TxtCurUser.Text = UserSession.Current?.Username ?? "（游客）";
+        TxtNewUser.Text = "";
+        TxtNewPwd.Password = "";
+        TxtNewPwd2.Password = "";
+        if (TxtCurPwd != null) TxtCurPwd.Password = "";
+
+        AppEvents.RaiseScheduleChanged();
+        TxtStatus.Text = $"当前身份：{UserSession.Caption}";
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -1149,6 +1501,8 @@ public partial class MainWindow : Window
 
         var st = Store.LoadSettings();
         st.LastImportPath = importPath;
+        // 用户主动用 Excel 定义/覆盖基础课表后，把主数据源切到 Excel，避免下次启动又被 ErYi 缓存覆盖
+        st.ScheduleSource = "Excel";
         if (ClassNames.Count > 0 &&
             (string.IsNullOrEmpty(st.SelectedClass) || !ClassNames.Contains(st.SelectedClass)))
             st.SelectedClass = ClassNames[0];
@@ -1208,15 +1562,82 @@ public partial class MainWindow : Window
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
-            Title = "选择全校总课程表"
+            Title = "选择全校总课程表（可一次多选七 / 八 / 九年级三份）",
+            Multiselect = true
         };
         if (dlg.ShowDialog() != true) return;
+
         try
         {
-            var sf = ScheduleImporter.Import(dlg.FileName);
-            ApplyImportedSchedule(sf, dlg.FileName, out int tc);
+            // ★ 按班合并，绝不整份替换：七/八/九年级是三个独立文件，
+            //   整份替换会导致"最后导入的那个年级把前两个年级全抹掉"（只剩 30 个班）。
+            //   与 r8 的「单班导入」是同一套合并语义。
+            var cur = Store.LoadSchedule() ?? new ScheduleFile();
+            int before = cur.Classes.Count;
 
-            TxtStatus.Text = $"导入成功，共 {ClassNames.Count} 个班级；已整理 {tc} 位教师的个人课表（顶栏「教师」下拉可输入姓名查询）。";
+            int parsed = 0;
+            var skipped = new System.Collections.Generic.List<string>();
+            var overwritten = new System.Collections.Generic.List<string>();
+            var sources = new System.Collections.Generic.List<string>();
+
+            foreach (var path in dlg.FileNames)
+            {
+                ScheduleFile sf;
+                try
+                {
+                    sf = ScheduleImporter.Import(path);
+                }
+                catch (Exception ex)
+                {
+                    skipped.Add($"{System.IO.Path.GetFileName(path)}（{ex.Message}）");
+                    continue;
+                }
+                if (sf.Classes.Count == 0)
+                {
+                    skipped.Add($"{System.IO.Path.GetFileName(path)}（未识别到班级，可能不是全校总课程表）");
+                    continue;
+                }
+
+                parsed++;
+                sources.Add(System.IO.Path.GetFileName(path));
+                foreach (var c in sf.Classes)
+                {
+                    if (cur.Classes.Any(x => x.ClassName == c.ClassName)) overwritten.Add(c.ClassName);
+                    cur.Classes.RemoveAll(x => x.ClassName == c.ClassName);
+                    cur.Classes.Add(c);
+                }
+            }
+
+            if (parsed == 0)
+            {
+                TxtStatus.Text = "没有导入任何课表：" + string.Join("；", skipped);
+                return;
+            }
+
+            // 统一按「年级 → 班号」排序：否则多选合并后下拉列表会变成「八、九、七」这种导入顺序
+            ScheduleImporter.SortClasses(cur);
+
+            cur.SourceFiles = sources;
+            cur.SourceFile = dlg.FileNames.Length == 1
+                ? dlg.FileName
+                : $"合并自 {parsed} 份：{string.Join("、", sources)}";
+            cur.ImportedAt = DateTime.Now;
+
+            ApplyImportedSchedule(cur, dlg.FileNames[0], out int tc);
+
+            int total = cur.Classes.Count;
+            int net = total - before;
+            var ow = overwritten.Distinct().ToList();
+            string mergeInfo = $"共 {total} 个班（原有 {before}、净增 {Math.Max(0, net)}" +
+                (ow.Count == 0 ? "、无同名覆盖" :
+                 ow.Count <= 5 ? $"、覆盖同名班 {string.Join("、", ow)}" : $"、覆盖同名班 {ow.Count} 个") + "）";
+
+            string head = parsed == 1
+                ? $"已导入总课表：{mergeInfo}"
+                : $"已导入 {parsed} 份总课表：{mergeInfo}";
+            TxtStatus.Text = $"{head}；已整理 {tc} 位教师的个人课表（顶栏「教师」下拉可输入姓名查询）。"
+                + (skipped.Count > 0 ? $"　未处理：{string.Join("；", skipped)}" : "");
+
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -1225,7 +1646,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- 导入临时课表（含 调/代 标记） ----------
+    // ---------- 导入临时课表（含 调/代 标记）：只生成覆盖记录，绝不改动基础课表 ----------
     private void BtnImportTemp_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
@@ -1234,20 +1655,101 @@ public partial class MainWindow : Window
             Title = "选择全校班级临时总课表"
         };
         if (dlg.ShowDialog() != true) return;
+
+        // 临时课表是“补丁”，必须先有底表；否则打上去也无处可打
+        var baseSf = Store.LoadSchedule();
+        if (baseSf == null || baseSf.Classes.Count == 0)
+        {
+            TxtStatus.Text = "请先导入全校总课程表（或在设置中改用二一缓存），再导入临时课表——临时课表只产生调代覆盖，不提供基础课表。";
+            return;
+        }
+
+        // ★ 问生效区间：临时课表是快照、文件里没有日期，不问就会变成"永久生效"（设计 §4.5.5）
+        var picker = new EffectiveRangeWindow(BoardBuilder.ResolveDisplayDate(Store.LoadSettings()),
+            "这份临时课表（带 调/代 标记的部分）从哪天到哪天生效？")
+        { Owner = this };
+        if (picker.ShowDialog() != true) return;
+
         try
         {
-            var (sf, tempOverrides) = ScheduleImporter.ImportTempSchedule(dlg.FileName);
-            ApplyImportedSchedule(sf, dlg.FileName, out int tcTemp);
+            var (tempOverrides, tempClassNames) =
+                ScheduleImporter.ImportTempOverrides(dlg.FileName, picker.From, picker.To);
 
-            // 合并调/代覆盖：移除旧的导入来源，保留手动记录，再写入本次导入结果
+            // 班级名对不上就挂不上去：先拦掉“选错年级的文件”，再提示个别不相符的班
+            var existing = new HashSet<string>(baseSf.Classes.Select(c => c.ClassName));
+            if (tempClassNames.Count > 0 && !tempClassNames.Any(n => existing.Contains(n)))
+            {
+                TxtStatus.Text = $"这份临时课表的班级（如「{tempClassNames[0]}」）与当前基础课表一个都对不上，可能选错了年级的文件。已取消导入，基础课表与调代课均未改动。";
+                return;
+            }
+
+            var unknown = tempOverrides.Select(o => o.ClassName).Distinct()
+                                       .Where(n => !existing.Contains(n))
+                                       .OrderBy(n => n).ToList();
+
+            // 临时课表是"整周快照"：同一周同一班，没再标记 调/代 的格子必须还原成底表原课程。
+            // 因此先清掉「本区间 + 本份文件涉及的班级」下所有导入来源（temp）的记录，再加入新标记。
+            // ★ 只清这份文件里出现的班级：教务有时分年级发（八年级一份、七年级一份），
+            //   若不加班级过滤，后导的那份会把先导的那份整周清空。
+            // ★ 手工记录（manual）与长期改课（basePatch）一律不动。
+            var affected = new HashSet<string>(tempClassNames, StringComparer.Ordinal);
             var list = Store.LoadOverrides();
-            list.RemoveAll(x => x.Source == "temp");
+
+            bool InScope(LessonOverride x)
+                => x.OverlapsRange(picker.From, picker.To)
+                   && (affected.Count == 0 || affected.Contains(x.ClassName));
+
+            // ★ 同步策略：本机设置为「覆盖」时，手工调课也一起停用（不删除，可恢复）。
+            //   本机导入是人工操作，必须先弹确认 —— 静默清掉老师的手改最容易出事。
+            int suspended = 0;
+            if (Store.LoadSettings().OverwriteManualOverrides)
+            {
+                var manuals = list.Where(x => x.Source == "manual" && !x.Suspended && InScope(x)).ToList();
+                if (manuals.Count > 0)
+                {
+                    var ans = MessageBox.Show(
+                        $"当前同步策略为「以数据源为准」，这份临时课表会同时停用本机的 {manuals.Count} 条手工调课。\n\n"
+                        + "记录不会被删除，可在「恢复被主机停用的本机调课」里复活。\n\n继续导入吗？",
+                        "导入临时课表", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+                    if (ans != MessageBoxResult.OK) return;
+
+                    foreach (var m in manuals)
+                    {
+                        m.Suspended = true;
+                        m.SuspendedAt = DateTime.Now;
+                        m.SuspendedBy = "本机导入临时课表";
+                    }
+                    suspended = manuals.Count;
+                }
+            }
+
+            int restored = list.RemoveAll(x => x.Source == "temp" && InScope(x));
             list.AddRange(tempOverrides);
             Store.SaveOverrides(list);
 
             int tiao = tempOverrides.Count(o => o.Type == "调");
             int dai = tempOverrides.Count(o => o.Type == "代");
-            TxtStatus.Text = $"已导入临时课表，共 {ClassNames.Count} 个班级；调课 {tiao} 条、代课 {dai} 条；已整理 {tcTemp} 位教师的个人课表。";
+
+            var st = Store.LoadSettings();
+            st.LastImportPath = dlg.FileName;
+            Store.SaveSettings(st);
+
+            string range = $"{picker.From:M月d日} – {picker.To:M月d日}";
+            string revertInfo = restored > 0
+                ? $"　另有 {restored} 条此前的调代课在这份临时课表里已不再标记，已还原为底表原课程。"
+                : "";
+            if (suspended > 0)
+                revertInfo += $"　按「以数据源为准」策略，另有 {suspended} 条本机手工调课已停用（可恢复）。";
+            if (unknown.Count > 0)
+            {
+                TxtStatus.Text = $"已导入临时课表：调课 {tiao} 条、代课 {dai} 条，生效期 {range}；基础课表未改动。" + revertInfo +
+                                 $"另有 {unknown.Count} 个班级名在基础课表中不存在，这些记录不会生效：" +
+                                 string.Join("、", unknown.Take(6)) + (unknown.Count > 6 ? " 等" : "");
+            }
+            else
+            {
+                TxtStatus.Text = $"已导入临时课表：调课 {tiao} 条、代课 {dai} 条，生效期 {range}（过期自动失效）。基础课表保持不变。" + revertInfo;
+            }
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -1267,19 +1769,35 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog() != true) return;
         try
         {
-            var sf = ScheduleImporter.ImportSingleClass(dlg.FileName);
-            ApplyImportedSchedule(sf, dlg.FileName, out int tcSingle);
+            var imported = ScheduleImporter.ImportSingleClass(dlg.FileName);
+
+            // ★ 单班课表只替换「该班」这一份，不能把整份底表换掉（否则一台机器上导了单班课表，
+            //   其余几十个班就全没了）。已有底表时按班名合并，没有底表时就是新建。
+            var cur = Store.LoadSchedule() ?? new ScheduleFile();
+            int before = cur.Classes.Count;
+            foreach (var c in imported.Classes)
+            {
+                cur.Classes.RemoveAll(x => x.ClassName == c.ClassName);
+                cur.Classes.Add(c);
+            }
+            cur.SourceFile = imported.SourceFile;
+            cur.ImportedAt = DateTime.Now;
+
+            ApplyImportedSchedule(cur, dlg.FileName, out int tcSingle);
 
             if (ClassNames.Count > 0)
             {
                 var st = Store.LoadSettings();
-                st.SelectedClass = ClassNames[0];
+                st.SelectedClass = imported.Classes.Count > 0 ? imported.Classes[0].ClassName : ClassNames[0];
                 st.ScheduleKind = "Class";
                 Store.SaveSettings(st);
                 UpdateModeIndicator();
             }
 
-            TxtStatus.Text = $"已导入单个班级课表：{sf.Classes.Count} 个班级（{string.Join("、", sf.Classes.Select(c => c.ClassName))}）；已整理 {tcSingle} 位教师的个人课表。";
+            string merged = before > 0
+                ? $"已合并到现有课表（原有 {before} 个班，现共 {ClassNames.Count} 个班）"
+                : "已建立基础课表";
+            TxtStatus.Text = $"已导入单个班级课表：{string.Join("、", imported.Classes.Select(c => c.ClassName))}；{merged}；已整理 {tcSingle} 位教师的个人课表。";
             AppEvents.RaiseScheduleChanged();
         }
         catch (Exception ex)
@@ -1362,19 +1880,21 @@ public partial class MainWindow : Window
     // ---------- 清除全部临时调课 ----------
     private void BtnClearOverrides_Click(object sender, RoutedEventArgs e)
     {
-        var list = Store.LoadOverrides();
-        if (list.Count == 0)
-        {
-            TxtStatus.Text = "当前没有临时调课记录。";
-            return;
-        }
-        var result = System.Windows.MessageBox.Show(
-            $"确定要清除全部 {list.Count} 条临时调课 / 代课记录吗？此操作不可撤销。",
-            "清除全部临时调课", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
-        if (result != MessageBoxResult.OK) return;
-        Store.SaveOverrides(new System.Collections.Generic.List<LessonOverride>());
+        // 三选一（本周 / 指定日期范围 / 全部）。保护 basePatch（长期改课），由 OverrideCleaner 统一负责。
+        var dlg = new ClearOverridesWindow { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Result == null) return;
+
+        int removed = OverrideCleaner.Apply(dlg.Result);
         AppEvents.RaiseScheduleChanged();
-        TxtStatus.Text = "已清除全部临时调课记录。";
+        TxtStatus.Text = OverrideCleaner.Receipt(dlg.Result, removed);
+    }
+
+    /// <summary>恢复被「以数据源为准」策略停用的本机手工调课。</summary>
+    private void BtnRestoreSuspended_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SuspendedOverridesWindow { Owner = this };
+        dlg.ShowDialog();
+        TxtStatus.Text = "已打开「恢复被主机停用的本机调课」。恢复后如需长期生效，请让管理员把同步策略改回「保留本机手工调课」。";
     }
 
     // ---------- 一键清除全部导入数据（课表 / 教师个人课表 / 调代覆盖） ----------
@@ -1416,6 +1936,552 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             TxtStatus.Text = "清除导入数据失败：" + ex.Message;
+        }
+    }
+
+    // ---------- 数据包导出 / 导入（离线版多教室机同步） ----------
+
+    private void BtnExportPackage_Click(object sender, RoutedEventArgs e)
+    {
+        var sf = Store.LoadSchedule();
+        if (sf == null || sf.Classes.Count == 0)
+        {
+            TxtStatus.Text = "当前没有基础课表，无法导出数据包。请先导入全校总课程表（七 / 八 / 九年级三份）。";
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "班级公布栏数据包 (*.cbpack)|*.cbpack",
+            DefaultExt = ".cbpack",
+            AddExtension = true,
+            FileName = $"课表数据_{DateTime.Now:yyyyMMdd_HHmm}.cbpack",
+            Title = "导出数据包"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var r = SchedulePackage.Export(
+            dlg.FileName, sf, Store.LoadOverrides(), Store.LoadNotifications(),
+            Store.LoadSettings(), Environment.MachineName,
+            users: Store.LoadUsers().Users);
+
+        if (!r.Ok)
+        {
+            TxtStatus.Text = "导出失败：" + r.Error;
+            return;
+        }
+
+        TxtStatus.Text = $"已导出数据包：{r.ClassCount} 个班、调代 {r.OverrideCount} 条" +
+            (string.IsNullOrEmpty(r.OverrideRange) ? "" : $"（{r.OverrideRange}）") +
+            $"、全校通知 {r.NoticeCount} 条；文件 {r.Size / 1024.0:0.#} KB。" +
+            "本机的手工调课、作业、缺交、布局、密码都不会被打包。";
+    }
+
+    private void BtnImportPackage_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "班级公布栏数据包 (*.cbpack)|*.cbpack|所有文件 (*.*)|*.*",
+            Title = "导入数据包"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var pkg = SchedulePackage.Inspect(dlg.FileName);
+        if (!pkg.Ok)
+        {
+            TxtStatus.Text = "数据包无效：" + pkg.Error;
+            System.Windows.MessageBox.Show(pkg.Error, "导入数据包",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var m = pkg.Manifest!;
+        string msg =
+            "数据包内容：\n" +
+            $"　打包时间：{m.BuiltAt:yyyy-MM-dd HH:mm}　来源：{(string.IsNullOrWhiteSpace(m.BuiltBy) ? "未标注" : m.BuiltBy)}\n" +
+            $"　基础课表：{m.ClassCount} 个班\n" +
+            $"　调代课：{m.OverrideCount} 条" +
+            (string.IsNullOrEmpty(m.OverrideRange) ? "" : $"（{m.OverrideRange}）") + "\n" +
+            $"　全校通知：{m.NoticeCount} 条\n\n" +
+            "将覆盖：基础课表、" +
+            (m.OverrideAuthoritative
+                ? "全部导入来源的调代课（包里没覆盖到的周也会取消、还原成底表原课程）"
+                : "该时间段内的调代课") +
+            "、全校通知、开学周 / 主题。\n" +
+            "会保留：本机手工调课、长期改课、本班通知、显示班级、窗口布局、密码、作业、缺交、自定义便签。\n\n" +
+            "导入前会自动备份当前数据。确定导入吗？";
+
+        if (System.Windows.MessageBox.Show(msg, "导入数据包",
+                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+
+        var r = SchedulePackage.Apply(pkg);
+        if (!r.Ok)
+        {
+            TxtStatus.Text = "导入失败：" + r.Error;
+            System.Windows.MessageBox.Show(r.Error, "导入数据包",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // 复用统一导入后处理：刷新班级下拉、重建教师表、把主数据源标记为 Excel
+        ApplyImportedSchedule(pkg.Schedule!, dlg.FileName, out int tc);
+        AppEvents.RaiseScheduleChanged();
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"已导入数据包：{r.ClassCount} 个班；调代新增 {r.OverrideAdded} 条、清理 {r.OverrideRemoved} 条"
+                  + (r.AuthoritativeCleared ? "（含未覆盖周已还原的）" : ""));
+        if (r.NoticeAdded > 0) sb.Append($"；全校通知 {r.NoticeAdded} 条（本班通知保留 {r.NoticeKept} 条）");
+        sb.Append($"；教师表 {tc} 位。");
+        if (!string.IsNullOrEmpty(r.BackupDir)) sb.Append("　原数据已备份。");
+        foreach (var w in r.Warnings) sb.Append("　⚠ " + w);
+        TxtStatus.Text = sb.ToString();
+    }
+
+    private void BtnBackup_Click(object sender, RoutedEventArgs e)
+    {
+        var w = new BackupWindow { Owner = this };
+        w.ShowDialog();
+
+        if (w.Restored)
+        {
+            var sf = Store.LoadSchedule();
+            ClassNames.Clear();
+            if (sf != null) foreach (var c in sf.Classes) ClassNames.Add(c.ClassName);
+            RefreshTeacherCombo();
+            UpdateModeIndicator();
+            AppEvents.RaiseScheduleChanged();
+            TxtStatus.Text = "已从备份恢复，界面已刷新。";
+        }
+    }
+
+    // ---------- 周视图：周起始日 ----------
+    // ★ 控件已移到「周课程表」标签的工具栏（「清除本周调课」右边，见 WeekView.xaml），
+    //   读写逻辑也在 WeekView 里，这里不再保留副本 —— 两处各有一份会出现
+    //   "这页改了、那页还显示旧值"的错觉。
+
+
+    // ---------- 自动更新（O3：共享文件夹 / U 盘 / FTP 三通道统一） ----------
+    /// <summary>周期检查定时器（30 秒一跳，到点才真正去访问数据源）。</summary>
+    private DispatcherTimer? _updTimer;
+
+    /// <summary>下一次允许检查的时刻。</summary>
+    private DateTime _updNextAt = DateTime.MinValue;
+
+    /// <summary>检查/下载进行中，避免定时器与手动点击撞车。</summary>
+    private bool _updBusy;
+
+    /// <summary>source 目录里"已确认处理过"的指纹（发布成功或确认无变化）。</summary>
+    private string _srcFp = "";
+
+    /// <summary>上一次扫描到的指纹，用于「连续两次一致」的防抖。</summary>
+    private string _srcFpPending = "";
+
+    /// <summary>自动发布进行中。</summary>
+    private bool _pubBusy;
+
+    /// <summary>按当前设置（重新）配置定时器；关闭自动更新或没配数据源则不启动。</summary>
+    private void SetupUpdateTimer()
+    {
+        _updTimer?.Stop();
+        _updTimer = null;
+
+        var st = Store.LoadSettings();
+        _updNextAt = DateTime.Now.AddSeconds(Math.Max(5, st.UpdateStartupDelaySeconds));
+
+        if (!st.AutoUpdateEnabled) return;
+        if (FeedSourceFactory.Create(st) == null) return;
+
+        _updTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        // 源目录扫描每跳都做（不受 _updNextAt 限制）：Excel 放进去最多 60 秒就该自动发布，
+        // 不必等「检查远端」那个间隔。检查远端仍按 UpdateIntervalMinutes 走。
+        _updTimer.Tick += (_, _) => { TickSourcePublish(); TickUpdate(); };
+        _updTimer.Start();
+    }
+
+    /// <summary>
+    /// 发布机专用：监视 source 目录，Excel 一变就自动重新打包上传，不必每次手点「发布到数据源」。
+    /// <para>必须「连续两次扫描指纹一致」才动手 —— Excel 保存过程中文件大小/时间会变，
+    /// 立刻读会读到半截内容，解析出一堆错的课。</para>
+    /// </summary>
+    private void TickSourcePublish()
+    {
+        var st = Store.LoadSettings();
+        if (!st.PublishEnabled || !st.AutoPublishOnSourceChange) return;
+        if (string.IsNullOrWhiteSpace(st.PublishSourcePath)) return;
+        if (!Directory.Exists(st.PublishSourcePath)) return;
+        if (_pubBusy) return;
+
+        string fp;
+        try { fp = SourcePublisher.SourceFingerprint(st.PublishSourcePath); }
+        catch { return; }
+        if (string.IsNullOrEmpty(fp)) return;
+
+        if (fp == _srcFp) { _srcFpPending = ""; return; }   // 已经处理过的版本
+
+        if (fp != _srcFpPending)
+        {
+            // 第一次看到：先记下，等下一跳再确认是不是稳定了
+            _srcFpPending = fp;
+            if (TxtUpdateStatus != null)
+                TxtUpdateStatus.Text = $"　⏳ 检测到 source 目录有变化（{DateTime.Now:HH:mm:ss}），等文件写完后自动发布…";
+            return;
+        }
+
+        _ = AutoPublishAsync(fp);
+    }
+
+    /// <summary>把 source 目录重新打包上传，并让本机同步成这一版。</summary>
+    private async Task AutoPublishAsync(string fp)
+    {
+        var st = Store.LoadSettings();
+        var src = FeedSourceFactory.Create(st);
+        if (src == null) return;
+
+        _pubBusy = true;
+        try
+        {
+            if (TxtUpdateStatus != null)
+                TxtUpdateStatus.Text = $"　⏳ 正在自动发布（{DateTime.Now:HH:mm:ss}）…";
+
+            var r = await Task.Run(() => SourcePublisher.Publish(src, st.PublishSourcePath, Environment.MachineName));
+
+            if (!r.Ok)
+            {
+                // 失败**不记指纹**，下一跳会再试；但必须让人看见，不能静默
+                if (TxtUpdateStatus != null)
+                    TxtUpdateStatus.Text =
+                        $"　⚠ {DateTime.Now:HH:mm} 自动发布失败：{r.Message}\n　下一轮会重试；也可点「发布到数据源」手动排查。";
+                return;
+            }
+
+            _srcFp = fp;
+            _srcFpPending = "";
+
+            if (r.LocalApplied)
+            {
+                var sch = Store.LoadSchedule();
+                if (sch != null) ApplyImportedSchedule(sch, "自动发布同步", out _);
+                AppEvents.RaiseScheduleChanged();
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"{DateTime.Now:HH:mm} 已自动发布：{r.ClassCount} 个班、调代 {r.OverrideCount} 条");
+            if (r.Skipped) sb.Append("（内容没变，未重复上传）");
+            if (r.LocalApplied) sb.Append("；本机已同步");
+            if (r.Warnings.Count > 0) sb.Append("　⚠ " + r.Warnings[0]);
+
+            TxtStatus.Text = sb.ToString();
+            RefreshUpdateStatus();
+            if (TxtUpdateStatus != null) TxtUpdateStatus.Text += "\n上次自动发布：" + sb;
+        }
+        catch (Exception ex)
+        {
+            if (TxtUpdateStatus != null)
+                TxtUpdateStatus.Text = $"　⚠ {DateTime.Now:HH:mm} 自动发布出错：{ex.Message}";
+        }
+        finally
+        {
+            _pubBusy = false;
+        }
+    }
+
+    private void TickUpdate()
+    {
+        if (_updBusy || DateTime.Now < _updNextAt) return;
+
+        var st = Store.LoadSettings();
+        if (!st.AutoUpdateEnabled) { _updTimer?.Stop(); return; }
+
+        var src = FeedSourceFactory.Create(st);
+        if (src == null) { _updTimer?.Stop(); return; }
+
+        // 先把下次时间推后，避免检查耗时较长时连续触发
+        _updNextAt = DateTime.Now.AddMinutes(Math.Clamp(st.UpdateIntervalMinutes, AppSettings.MinUpdateIntervalMinutes, AppSettings.MaxUpdateIntervalMinutes));
+
+        // 后台检查一律走 silent：不弹窗，只在状态行提示
+        _ = CheckAndApplyAsync(src, st, silent: true);
+    }
+
+    /// <summary>把数据源与上次检查结果回显到「数据管理」页。</summary>
+    private void RefreshUpdateStatus()
+    {
+        if (TxtUpdateStatus == null) return;
+
+        var st = Store.LoadSettings();
+        int mins = Math.Clamp(st.UpdateIntervalMinutes, AppSettings.MinUpdateIntervalMinutes, AppSettings.MaxUpdateIntervalMinutes);
+
+        if (!st.AutoUpdateEnabled)
+        {
+            TxtUpdateStatus.Text = $"自动更新：未开启。开启后本机每 {mins} 分钟到数据源查一次，" +
+                "只有内容变了才整包替换（不看文件时间戳）。";
+            return;
+        }
+
+        var src = FeedSourceFactory.Create(st);
+        if (src == null)
+        {
+            TxtUpdateStatus.Text = "自动更新：已开启，但数据源地址还不完整，请点「自动更新设置…」补全。";
+            return;
+        }
+
+        string last = string.IsNullOrWhiteSpace(st.LastUpdateCheckInfo) ? "尚未检查过" : st.LastUpdateCheckInfo;
+        string applied = string.IsNullOrWhiteSpace(st.LastAppliedAt)
+            ? ""
+            : $"（本机最后应用到 {st.LastAppliedAt}）";
+
+        string pub = "";
+        if (st.PublishEnabled)
+        {
+            pub = "\n发布机：" + (st.AutoPublishOnSourceChange
+                    ? "监视 source 目录，Excel 变化后约 1 分钟自动发布"
+                    : "未开启自动发布，需手动点「发布到数据源」")
+                + (string.IsNullOrWhiteSpace(st.PublishSourcePath) ? "（未指定源目录）" : "　" + st.PublishSourcePath);
+        }
+
+        TxtUpdateStatus.Text =
+            $"自动更新：每 {mins} 分钟检查　数据源：{UpdateService.DescribeSource(st)}\n" +
+            $"上次：{last}{applied}" + pub;
+    }
+
+    private void BtnUpdateSettings_Click(object sender, RoutedEventArgs e)
+    {
+        var w = new UpdateSettingsWindow { Owner = this };
+        w.ShowDialog();
+        RefreshUpdateStatus();
+        SetupUpdateTimer();
+    }
+
+    private async void BtnUpdateCheck_Click(object sender, RoutedEventArgs e)
+    {
+        var st = Store.LoadSettings();
+        var src = FeedSourceFactory.Create(st);
+        if (src == null)
+        {
+            TxtStatus.Text = "还没配置更新数据源。请先填写共享文件夹或 FTP 地址。";
+            new UpdateSettingsWindow { Owner = this }.ShowDialog();
+            RefreshUpdateStatus();
+            SetupUpdateTimer();
+            return;
+        }
+
+        if (_updBusy) { TxtStatus.Text = "上一次检查还没结束，请稍等。"; return; }
+
+        BtnUpdateCheck.IsEnabled = false;
+        try
+        {
+            TxtStatus.Text = $"正在检查（{UpdateService.DescribeSource(st)}）…";
+            await CheckAndApplyAsync(src, st, silent: false);
+        }
+        finally
+        {
+            BtnUpdateCheck.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// 检查 →（按设置决定是否确认）→ 下载 → 校验 → 应用 → 刷新界面。
+    /// <para><paramref name="silent"/>=true 用于定时后台检查：<b>绝不弹窗</b>；
+    /// 虽然 <see cref="AppSettings.UpdateConfirmBeforeApply"/> 开着，后台也只在新版本出现在状态行，
+    /// 等人点「立即检查更新」才应用 —— 教室屏不该在无人值守时冒出对话框。</para>
+    /// </summary>
+    private async Task CheckAndApplyAsync(IFeedSource src, AppSettings st, bool silent)
+    {
+        if (_updBusy) return;
+        _updBusy = true;
+        try
+        {
+            var chk = await Task.Run(() => UpdateService.Check(src, st));
+
+            // 把"上次检查结果"落盘，重启后状态行仍能看到
+            var st2 = Store.LoadSettings();
+            st2.LastUpdateCheckInfo = chk.Message;
+            Store.SaveSettings(st2);
+            RefreshUpdateStatus();
+
+            if (!silent) TxtStatus.Text = chk.Message;
+            if (!chk.Ok || !chk.HasUpdate) return;
+
+            var man = chk.Manifest!;
+            bool apply;
+
+            if (!st.UpdateConfirmBeforeApply)
+            {
+                apply = true;              // 全自动：查到就换
+            }
+            else if (silent)
+            {
+                // 后台检查发现新版本：不打扰，只在状态行挂提示
+                TxtUpdateStatus.Text = "　⚠ " + chk.Message + "　→ 点「立即检查更新」应用。";
+                return;
+            }
+            else
+            {
+                string msg =
+                    "数据源上有新版本：\n" +
+                    $"　打包时间：{man.BuiltAt:yyyy-MM-dd HH:mm}　来源：{(string.IsNullOrWhiteSpace(man.BuiltBy) ? "未标注" : man.BuiltBy)}\n" +
+                    $"　基础课表：{man.ClassCount} 个班\n" +
+                    $"　调代课：{man.OverrideCount} 条" +
+                    (string.IsNullOrEmpty(man.OverrideRange) ? "" : $"（{man.OverrideRange}）") + "\n" +
+                    $"　全校通知：{man.NoticeCount} 条\n\n" +
+                    "将覆盖：基础课表、该时间段内的调代课、全校通知、开学周 / 主题。\n" +
+                    "会保留：本机手工调课、本班通知、显示班级、窗口布局、密码、作业、缺交、自定义便签。\n\n" +
+                    "导入前会自动备份。现在更新吗？";
+                apply = MessageBox.Show(msg, "发现课表更新",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK;
+            }
+            if (!apply) return;
+
+            var outp = await Task.Run(() => UpdateService.DownloadAndApply(src));
+            if (!outp.Ok)
+            {
+                TxtStatus.Text = outp.Message;
+                return;
+            }
+
+            var ap = outp.Applied!;
+            var sf = outp.Package!.Schedule;
+            if (sf != null)
+            {
+                ApplyImportedSchedule(sf, "自动更新", out _);   // 刷新班级下拉 + 重建教师表
+                AppEvents.RaiseScheduleChanged();
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"已更新：{ap.ClassCount} 个班；调代新增 {ap.OverrideAdded} 条、按周重整 {ap.OverrideRemoved} 条")
+              .Append(ap.OverrideRemoved > 0
+                    ? (ap.AuthoritativeCleared
+                        ? "（未再标记 调/代 的格子、以及数据源里没有临时课表的周，都已还原为底表原课程）"
+                        : "（其中未再标记 调/代 的格子已还原为底表原课程）")
+                    : "");
+            if (ap.NoticeAdded > 0) sb.Append($"，全校通知 {ap.NoticeAdded} 条（本班通知保留 {ap.NoticeKept} 条）");
+            // ★ 停用 ≠ 删除：必须告诉用户"记录还在、能恢复"，否则会以为老师的工作被抹掉了
+            if (ap.ManualSuspended > 0)
+                sb.Append($"，另有 {ap.ManualSuspended} 条本机手工调课按主机策略已停用（可在「恢复被主机停用的本机调课」里复活）");
+            sb.Append("。");
+            foreach (var w in ap.Warnings) sb.Append("　⚠ " + w);
+            TxtStatus.Text = sb.ToString();
+            RefreshUpdateStatus();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "检查更新出错：" + ex.Message;
+        }
+        finally
+        {
+            _updBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// 发布：本机是"发布机"时，从 source 目录的 Excel 重新打包上传；
+    /// 否则直接把本机当前数据打包上传（适合教师在自己电脑上临时发一次修正）。
+    /// </summary>
+    private async void BtnPublishNow_Click(object sender, RoutedEventArgs e)
+    {
+        var st = Store.LoadSettings();
+        var src = FeedSourceFactory.Create(st);
+        if (src == null)
+        {
+            TxtStatus.Text = "还没配置数据源，无法发布。请先填写共享文件夹或 FTP 地址。";
+            new UpdateSettingsWindow { Owner = this }.ShowDialog();
+            RefreshUpdateStatus();
+            SetupUpdateTimer();
+            return;
+        }
+
+        bool fromSource = st.PublishEnabled && !string.IsNullOrWhiteSpace(st.PublishSourcePath);
+
+        if (fromSource)
+        {
+            // 发布前预检：底表缺年级、临时表没带日期这类问题，必须在"传上去"之前摆到人面前
+            var pre = SourcePublisher.Scan(st.PublishSourcePath);
+            if (!pre.Ok)
+            {
+                TxtStatus.Text = pre.Message;
+                MessageBox.Show(pre.Message, "发布数据包", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string what =
+                "将从 Excel 源目录重新打包：\n" + st.PublishSourcePath + "\n\n" +
+                pre.Describe() + "\n\n" +
+                "发布到：" + UpdateService.DescribeSource(st) + "\n\n" +
+                "文件名含「临时」的，按 yyyy-MM-dd 前缀对齐到「所在周」（写周三也算本周）。\n" +
+                "临时课表按整周快照处理：这些周内未标记 调/代 的格子会还原为底表原课程。\n" +
+                "发布成功后，本机数据也会同步成这一版。\n\n" +
+                "确定发布吗？";
+
+            if (MessageBox.Show(what, "发布数据包", MessageBoxButton.OKCancel,
+                    pre.HasRisk ? MessageBoxImage.Warning : MessageBoxImage.Question) != MessageBoxResult.OK)
+                return;
+        }
+        else
+        {
+            string what =
+                "将把本机当前的课表数据打包上传到：\n" + UpdateService.DescribeSource(st) +
+                "\n\n（未开启「发布机模式」，所以不读 source 目录，直接用本机数据）\n\n确定发布吗？";
+
+            if (MessageBox.Show(what, "发布数据包",
+                    MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+                return;
+        }
+
+        if (fromSource && !Directory.Exists(st.PublishSourcePath))
+        {
+            TxtStatus.Text = "发布源目录不存在：" + st.PublishSourcePath;
+            MessageBox.Show("发布源目录不存在：\n" + st.PublishSourcePath +
+                "\n\n请在「自动更新设置…」里指定存放 Excel 的目录。", "发布数据包",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        BtnPublishNow.IsEnabled = false;
+        TxtStatus.Text = "正在打包并发布…";
+        try
+        {
+            if (fromSource)
+            {
+                var r = await Task.Run(() => SourcePublisher.Publish(src, st.PublishSourcePath, Environment.MachineName));
+
+                TxtStatus.Text = (r.Skipped ? "数据源上已是最新，未重复上传。" : "") + r.Message;
+
+                // 本机同步成功后，界面上的课表 / 调代 / 教师表都得跟着变
+                if (r.LocalApplied)
+                {
+                    var sch = Store.LoadSchedule();
+                    if (sch != null) ApplyImportedSchedule(sch, "发布数据包同步", out _);
+                    AppEvents.RaiseScheduleChanged();
+                }
+
+                // 摘要与"已应用"标记由 SourcePublisher 自己记（RecordReleased），
+                // 这里只负责刷新界面和把问题摆出来。
+
+                // 有坑就明确弹出来，别只塞进状态栏
+                if (!r.Ok || r.Warnings.Count > 0 || !string.IsNullOrEmpty(r.LocalError))
+                {
+                    var box = new System.Text.StringBuilder();
+                    box.AppendLine(r.Ok ? "发布完成，但有以下问题需要注意：" : "发布失败：");
+                    box.AppendLine();
+                    foreach (var w in r.Warnings) box.AppendLine("⚠ " + w + "\n");
+                    if (!string.IsNullOrEmpty(r.LocalError)) box.AppendLine("⚠ " + r.LocalError);
+                    MessageBox.Show(box.ToString().TrimEnd(), "发布数据包",
+                        MessageBoxButton.OK, r.Ok ? MessageBoxImage.Warning : MessageBoxImage.Error);
+                }
+            }
+            else
+            {
+                var (ok, msg) = await Task.Run(() => UpdateService.PublishCurrent(src, Environment.MachineName));
+                TxtStatus.Text = msg;
+                if (!ok) MessageBox.Show(msg, "发布数据包", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            BtnPublishNow.IsEnabled = true;
+            var st3 = Store.LoadSettings();
+            st3.LastUpdateCheckInfo = TxtStatus.Text;
+            Store.SaveSettings(st3);
+            RefreshUpdateStatus();
         }
     }
 
@@ -1592,11 +2658,38 @@ public partial class MainWindow : Window
         var title = TxtNewTitle.Text.Trim();
         var content = TxtNewContent.Text.Trim();
         if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(content)) return;
-        Notifications.Insert(0, new Notification { Title = title, Content = content, CreatedAt = DateTime.Now });
+        bool school = ChkNewNoticeSchool?.IsChecked == true;
+        Notifications.Insert(0, new Notification
+        {
+            Title = title,
+            Content = content,
+            CreatedAt = DateTime.Now,
+            Scope = school ? "school" : "local"
+        });
         SaveNotes();
         TxtNewTitle.Text = "";
         TxtNewContent.Text = "";
+        // 范围勾选保持用户上一次的选择（连续发多条全校通知时不用每次重勾）
         AppEvents.RaiseNotificationChanged();
+        TxtStatus.Text = school
+            ? "已添加全校通知：会随数据包同步到所有教室机（发布 / 自动更新后生效）。"
+            : "已添加本班通知：只在本机显示。";
+    }
+
+    /// <summary>切换一条通知的范围（全校 ⇄ 本班）。</summary>
+    private void BtnNoticeScope_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button b || b.Tag is not string id) return;
+        var item = Notifications.FirstOrDefault(n => n.Id == id);
+        if (item == null) return;
+
+        item.Scope = item.Scope == "school" ? "local" : "school";
+        SaveNotes();
+        ReloadNotes();   // 重绑一次，按钮文案 / 徽标才会跟着变
+        AppEvents.RaiseNotificationChanged();
+        TxtStatus.Text = item.Scope == "school"
+            ? "已设为全校通知：下次「发布到数据源」时会同步到所有教室机。"
+            : "已设为本班通知：只在本机显示，不再随数据包发出。";
     }
 
     private void BtnDeleteNotice_Click(object sender, RoutedEventArgs e)

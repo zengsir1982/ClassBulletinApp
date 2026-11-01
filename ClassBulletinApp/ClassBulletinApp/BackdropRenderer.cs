@@ -265,6 +265,8 @@ public static class BackdropRenderer
 
         foreach (var row in today.Rows)
         {
+            // 固定时段（大课间/眼保健操/午休）不占壁纸空间：壁纸卡片高度紧张，优先保留 8 节课
+            if (row.IsFixed) continue;
             // 左列：节次 + 时间段；给定最小宽度并允许折行，避免窄便签 / 固定小尺寸时时间被裁掉
             var line = new Grid { Margin = new Thickness(0, 0, 0, 10 * scale) };
             line.ColumnDefinitions.Add(new ColumnDefinition

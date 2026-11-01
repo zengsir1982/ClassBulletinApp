@@ -20,14 +20,77 @@ public static class ScheduleImporter
         return sf;
     }
 
+    static readonly Regex ClassNoRe = new(@"[（(]\s*(\d+)\s*[)）]");
+
     /// <summary>
-    /// 导入临时总课程表：返回 (基础课表, 调/代课覆盖列表)。
-    /// 基础课表中的 (调)/(代) 标记被剥离为干净科目；同时为每个带标记的单元格生成一条
-    /// LessonOverride（Type=调/代，Source=temp），用于悬浮窗显示「已调课 / 代课」徽章。
+    /// 按「年级（七→八→九）+ 班号数值」对班级排序。
+    /// 合并三个年级的课表后若不排序，下拉列表会变成「八、九、七」这种按导入顺序的乱序；
+    /// 班号必须按数值比较（字符串比较会把「(10)」排在「(2)」前面）。
+    /// 无年级前缀的班级（单班/教师课表导入的）排到最后。
+    /// </summary>
+    public static void SortClasses(ScheduleFile sf)
+    {
+        if (sf?.Classes == null || sf.Classes.Count < 2) return;
+        sf.Classes.Sort((a, b) =>
+        {
+            var (ga, na) = SplitClassName(a.ClassName);
+            var (gb, nb) = SplitClassName(b.ClassName);
+            int c = ga.CompareTo(gb);
+            if (c != 0) return c;
+            c = na.CompareTo(nb);
+            if (c != 0) return c;
+            return string.Compare(a.ClassName, b.ClassName, StringComparison.Ordinal);
+        });
+    }
+
+    /// <summary>拆出「年级序号, 班号」用于排序。七年级=0、八年级=1、九年级=2，其它=90。</summary>
+    static (int grade, int number) SplitClassName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return (99, 9999);
+        int grade =
+            name.Contains("七年级") ? 0 :
+            name.Contains("八年级") ? 1 :
+            name.Contains("九年级") ? 2 : 90;
+        var m = ClassNoRe.Match(name);
+        int num = m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : 9999;
+        return (grade, num);
+    }
+
+    /// <summary>
+    /// 导入临时总课程表 —— <b>只产出「带 (调)/(代) 标记」的覆盖记录，不产出也不替换基础课表</b>。
+    /// 返回 (调代覆盖列表, 文件中出现的班级名)。
+    /// 临时课表是对基础课表的“打补丁”：未带标记的格子与基础课表一致，
+    /// 因此绝不能用它覆盖 schedule.json（否则等于换了一份底表，且七/九年级会被整级抹掉）。
+    ///
+    /// <paramref name="validFrom"/> / <paramref name="validTo"/> 为生效区间；
+    /// 不传则默认「本周」（周一起算），与设计 §4.5.5 一致。
+    /// </summary>
+    public static (List<LessonOverride> overrides, List<string> classNames) ImportTempOverrides(
+        string path, DateTime? validFrom = null, DateTime? validTo = null)
+    {
+        var (sf, marks) = ParseAll(path);
+        var (ws, we) = WeekHelper.WeekWindow(validFrom ?? DateTime.Today);
+        var from = DateOnly.FromDateTime((validFrom ?? ws).Date);
+        var to = DateOnly.FromDateTime((validTo ?? we).Date);
+        if (to < from) (from, to) = (to, from);
+        return (BuildOverrides(marks, from, to), sf.Classes.Select(c => c.ClassName).ToList());
+    }
+
+    /// <summary>
+    /// 兼容入口：返回 (从临时课表拼出的课表, 调代覆盖列表)。
+    /// <b>仅供解析测试/对照使用</b>——App 导入请用 <see cref="ImportTempOverrides"/>，
+    /// 不要把这里的 schedule 写入 Store.SaveSchedule（见 ImportTempOverrides 注释）。
     /// </summary>
     public static (ScheduleFile schedule, List<LessonOverride> overrides) ImportTempSchedule(string path)
     {
         var (sf, marks) = ParseAll(path);
+        var (ws, we) = WeekHelper.WeekWindow(DateTime.Today);
+        return (sf, BuildOverrides(marks, DateOnly.FromDateTime(ws), DateOnly.FromDateTime(we)));
+    }
+
+    /// <summary>把「(调)/(代) 标记格」转成覆盖记录（Type=调/代，Source=temp，带生效区间）。</summary>
+    static List<LessonOverride> BuildOverrides(List<MarkCell> marks, DateOnly from, DateOnly to)
+    {
         var overrides = new List<LessonOverride>();
         foreach (var m in marks)
         {
@@ -41,11 +104,13 @@ public static class ScheduleImporter
                 Location = m.Location,
                 Type = m.Mark,
                 Source = "temp",
+                ValidFrom = from,
+                ValidTo = to,
                 Note = m.Mark == "代" ? "代课" : "临时调课",
                 UpdatedAt = DateTime.Now
             });
         }
-        return (sf, overrides);
+        return overrides;
     }
 
     /// <summary>
@@ -222,14 +287,26 @@ public static class ScheduleImporter
             if (v.Contains("星期")) dayCols.Add(c);
         }
 
-        // 每个 day block（12 列）解析时段（第X节 + 时间区间）
+        if (dayCols.Count == 0)
+            throw new InvalidDataException(
+                "未在第 2 行找到「星期」表头，无法识别课表布局。请确认选择的是「全校班级总课表」。");
+
+        // 每个 day block 解析时段（第X节 + 时间区间）。
+        // ★ 块宽不能写死 12 列：各年级的列布局并不相同 ——
+        //   七年级每天 13 列（多一列「午休」），八/九年级每天 12 列。
+        //   写死 12 列时，七年级每天最后一列（第 8 节）会被整列丢掉，
+        //   30 个班 × 5 天 = 150 节课静默消失。
+        //   改用「下一个星期列」来界定块宽，两种布局都能正确解析。
         var blocks = new List<List<(int col, int period, string time)>>();
-        foreach (var start in dayCols)
+        for (int di = 0; di < dayCols.Count; di++)
         {
+            int start = dayCols[di];
+            int end = di + 1 < dayCols.Count ? dayCols[di + 1] : lastCol + 1;   // 不含 end
+            if (end <= start) end = start + 1;
+
             var slots = new List<(int, int, string)>();
-            for (int off = 0; off < 12; off++)
+            for (int c = start; c < end; c++)
             {
-                int c = start + off;
                 var label = ws.Cell(3, c).GetString();
                 var m = PeriodRe.Match(label);
                 if (m.Success)

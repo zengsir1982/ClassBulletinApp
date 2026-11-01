@@ -39,7 +39,19 @@ public partial class RetrievePasswordWindow : Window
     {
         var s = Store.LoadSettings();
         string u = (TxtUser.Text ?? "").Trim();
-        TxtSecQuestion.Text = (u == s.Username && !string.IsNullOrEmpty(s.SecurityQuestion))
+
+        // 密保 / 邮箱 / 手机目前挂在"管理员"这一个账号上（存在 settings 里）。
+        // 其他角色（班主任 / 电教管理员）由管理员在用户管理里重置密码，不走这里。
+        bool isAdminAccount = false;
+        try
+        {
+            var book = Store.LoadUsers();
+            var au = book.Find(u);
+            isAdminAccount = au != null && au.Role == UserRole.Admin;
+        }
+        catch { }
+
+        TxtSecQuestion.Text = (isAdminAccount && !string.IsNullOrEmpty(s.SecurityQuestion))
             ? s.SecurityQuestion
             : "（请输入正确的用户名后显示）";
     }
@@ -48,9 +60,20 @@ public partial class RetrievePasswordWindow : Window
     {
         var s = Store.LoadSettings();
         string user = (TxtUser.Text ?? "").Trim();
-        if (user != s.Username)
+
+        UserBook book;
+        try { book = Store.LoadUsers(); }
+        catch (System.Exception ex) { ShowMsg("读取用户表失败：" + ex.Message, false); return; }
+
+        var target = book.Find(user);
+        if (target == null)
         {
             ShowMsg("用户名不正确。", false);
+            return;
+        }
+        if (target.Role != UserRole.Admin)
+        {
+            ShowMsg("只有管理员账号可以在这里自助找回密码。其他账号（班主任 / 电教管理员）请让管理员在「用户管理」里重置。", false);
             return;
         }
 
@@ -72,11 +95,14 @@ public partial class RetrievePasswordWindow : Window
         }
 
         _verified = true;
+
+        // ★ 密码现在只存哈希，**无法还原成明文**，所以"找回"只能是"重置"。
+        //   与其显示一串假东西，不如直接引导到重置。
         if (RbRetrieve.IsChecked == true)
         {
-            TxtReveal.Text = "验证通过。您的密码是：" + s.Password;
+            TxtReveal.Text = "验证通过。为安全起见，密码不以明文保存、无法查看；请在「重置密码」里设置一个新密码。";
             TxtReveal.Visibility = Visibility.Visible;
-            ShowMsg("请妥善保管您的密码。", true);
+            ShowMsg("请切换到「重置密码」。", true);
             BtnVerify.Visibility = Visibility.Collapsed;
         }
         else
@@ -106,13 +132,41 @@ public partial class RetrievePasswordWindow : Window
 
         try
         {
+            string user = (TxtUser.Text ?? "").Trim();
+            var book = Store.LoadUsers();
+            var target = book.Find(user);
+            if (target == null || target.Role != UserRole.Admin)
+            {
+                ShowMsg("该账号不存在或不是管理员，无法在这里重置。", false);
+                return;
+            }
+
+            // 哈希 + 新盐；明文只留一份在 settings.Password（兼容旧逻辑，且登录已不再用它比对）
+            PasswordHasher.SetPassword(target, p1);
+
             var s = Store.LoadSettings();
             s.Password = p1;
+            s.LastUsername = target.Username;
+
             // 登录界面阶段 EnablePersistence 仍为 false（游客开关尚未置位），临时开启以落盘新密码
             bool prev = Store.EnablePersistence;
             Store.EnablePersistence = true;
-            try { Store.SaveSettings(s); }
+            try
+            {
+                Store.SaveUsers(book);
+                Store.SaveSettings(s);
+            }
             finally { Store.EnablePersistence = prev; }
+
+            // 自动登录若正用这个账号，密码也得跟着更新，否则下次开机自动登录会失败
+            if (string.Equals(s.AutoLoginUser, target.Username, StringComparison.OrdinalIgnoreCase))
+            {
+                s.AutoLoginPassword = p1;
+                bool prev2 = Store.EnablePersistence;
+                Store.EnablePersistence = true;
+                try { Store.SaveSettings(s); } finally { Store.EnablePersistence = prev2; }
+            }
+
             ShowMsg("密码已重置，请用新密码登录。", true);
             PnlReset.IsEnabled = false;
             BtnConfirmReset.IsEnabled = false;

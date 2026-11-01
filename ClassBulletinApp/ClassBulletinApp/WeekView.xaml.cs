@@ -51,27 +51,60 @@ public partial class WeekView : System.Windows.Controls.UserControl
     private string? _selectedName;     // 当前显示的班级名或教师名
     private bool _isTeacher;           // true = 显示教师个人课表（只读）
     private string _semesterStart = "";
-    private DateTime _monday;
+    private DateTime _monday;          // 这一周的「第一天」（跟着周起始日设置，默认周日）
+    private int _weekStartDay = WeekHelper.DefaultWeekStartDay;
     private WeekCell? _dragSrc;
     private WeekCell? _pressCell;
     private System.Windows.Point _dragStart;
     private bool _cellDragged;
     private string _editType = "调";   // 拖动产生的覆盖类型
+    private bool _weekStartGuard;      // 回填周起始日下拉时抑制 SelectionChanged
 
     public WeekView()
     {
         InitializeComponent();
-        _monday = StartOfWeek(DateTime.Now);
-        Loaded += (_, _) => { AppEvents.ScheduleChanged += Rebuild; Rebuild(); };
+        _monday = WeekHelper.WeekStart(DateTime.Now, _weekStartDay);
+        Loaded += (_, _) => { AppEvents.ScheduleChanged += Rebuild; PopulateWeekStartCombo(); Rebuild(); };
         Unloaded += (_, _) => { AppEvents.ScheduleChanged -= Rebuild; };
     }
 
-    private static DateTime StartOfWeek(DateTime date)
-        => date.AddDays(-((int)date.DayOfWeek + 6) % 7).Date;
+    // ---------- 周起始日（放在「清除本周调课」右边） ----------
+    private void PopulateWeekStartCombo()
+    {
+        if (CbWeekStartDay == null) return;
+        int cur = WeekHelper.NormalizeStartDay(Store.LoadSettings().WeekStartDay);
+        _weekStartGuard = true;
+        try
+        {
+            CbWeekStartDay.Items.Clear();
+            for (int d = 0; d < 7; d++)
+                CbWeekStartDay.Items.Add(new ComboBoxItem { Content = WeekHelper.StartDayName(d), Tag = d });
+            CbWeekStartDay.SelectedIndex = cur;
+        }
+        finally { _weekStartGuard = false; }
+    }
+
+    private void CbWeekStartDay_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_weekStartGuard) return;
+        if (CbWeekStartDay.SelectedItem is not ComboBoxItem ci || ci.Tag is not int d) return;
+
+        var s = Store.LoadSettings();
+        if (s.WeekStartDay == d) return;
+        s.WeekStartDay = d;
+        Store.SaveSettings(s);
+
+        // 先把自己这一天对齐到新的周首日（Rebuild 里也会幂等地再对齐一次），
+        // 再广播：周视图 / 悬浮窗 / 桌面背景一起换周。
+        _weekStartDay = WeekHelper.NormalizeStartDay(d);
+        _monday = WeekHelper.WeekStart(_monday, _weekStartDay);
+        AppEvents.RaiseScheduleChanged();   // 自己也订阅了，会同步重建
+        TxtStatus.Text = $"周视图已改为「一周从{WeekHelper.StartDayName(d)}开始」。";
+    }
 
     // ---------- 周导航 ----------
     private void BtnPrevWeek_Click(object sender, RoutedEventArgs e) { _monday = _monday.AddDays(-7); Rebuild(); }
-    private void BtnThisWeek_Click(object sender, RoutedEventArgs e) { _monday = StartOfWeek(DateTime.Now); Rebuild(); }
+    private void BtnThisWeek_Click(object sender, RoutedEventArgs e) { _monday = WeekHelper.WeekStart(DateTime.Now, _weekStartDay); Rebuild(); }
     private void BtnNextWeek_Click(object sender, RoutedEventArgs e) { _monday = _monday.AddDays(7); Rebuild(); }
 
     private void ApplyModeHint()
@@ -91,6 +124,12 @@ public partial class WeekView : System.Windows.Controls.UserControl
         _isTeacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
         _selectedName = _isTeacher ? s.SelectedTeacher : s.SelectedClass;
         _semesterStart = s.SemesterStartMonday;
+
+        // 周起始日可能在「显示设置」里被改过：重新对齐当前显示周的第一天
+        // （对齐是幂等的：本来就是该周首日时不会移动）
+        _weekStartDay = WeekHelper.NormalizeStartDay(s.WeekStartDay);
+        _monday = WeekHelper.WeekStart(_monday, _weekStartDay);
+
         ApplyModeHint();   // 依赖 _isTeacher 提供正确的操作提示
 
         // 教师个人课表与班级课表分别取自各自的存储
@@ -124,7 +163,9 @@ public partial class WeekView : System.Windows.Controls.UserControl
 
         var data = WeekBuilder.BuildWeek(_selectedName, _semesterStart, schedule, overrides, _monday);
         BuildGrid(data);
-        int weekNo = WeekHelper.TeachingWeek(_monday, _semesterStart);
+        // 教学周序号按"这一周里占多数的那一周"算：取中间那天（周起始日不同时，
+        // 直接用第一天会落到上一教学周，例如周日开头时周日属于上一个教学周）
+        int weekNo = WeekHelper.TeachingWeek(_monday.AddDays(3), _semesterStart);
         TxtWeekRange.Text = $"第{weekNo}周　{_monday:MM月dd日} - {_monday.AddDays(6):MM月dd日}　{_selectedName}（{targetLabel}）";
         TxtStatus.Text = _isTeacher
             ? $"当前显示教师「{_selectedName}」的周课表（只读；如需查看某班请到顶栏「班级」下拉切换）。"
@@ -195,7 +236,8 @@ public partial class WeekView : System.Windows.Controls.UserControl
 
             for (int d = 0; d < 7; d++)
             {
-                var cell = cellDict[(d, p + 1)];
+                int dayIdx = data.ColumnDayIdx.Count > d ? data.ColumnDayIdx[d] : d;   // 列号 ≠ DayIdx
+                var cell = cellDict[(dayIdx, p + 1)];
                 var border = MakeCellBorder(cell);
                 Grid.SetRow(border, p + 1);
                 Grid.SetColumn(border, d + 1);
@@ -372,6 +414,14 @@ public partial class WeekView : System.Windows.Controls.UserControl
     private void OpenArrangeEditor(WeekCell cell)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;
+
+        // 班主任只能改自己班；电教管理员 / 游客不能改任何班
+        if (!_isTeacher && !UserSession.CanEditClass(_selectedName))
+        {
+            TxtStatus.Text = UserSession.DenyEditClass(_selectedName);
+            return;
+        }
+
         var schedule = Store.LoadSchedule();
         var current = new LessonView
         {
@@ -383,7 +433,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
             IsOverridden = cell.IsOverridden,
             OverrideType = cell.Type
         };
-        var w = new LessonOverrideWindow(_selectedName, cell.DayIdx, cell.Period, current, schedule)
+        var w = new LessonOverrideWindow(_selectedName, cell.DayIdx, cell.Period, current, schedule, _monday)
         {
             Owner = Window.GetWindow(this),
             Topmost = true
@@ -400,12 +450,24 @@ public partial class WeekView : System.Windows.Controls.UserControl
     private void ClearCell(WeekCell cell)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;
+
+        if (!UserSession.CanEditClass(_selectedName))
+        {
+            TxtStatus.Text = UserSession.DenyEditClass(_selectedName);
+            return;
+        }
+
         var list = Store.LoadOverrides();
-        int n = list.RemoveAll(o => o.ClassName == _selectedName && o.DayIdx == cell.DayIdx && o.Period == cell.Period);
-        Store.SaveOverrides(list);
+        // ★ 只清「当前显示周」这一格：以前按班级+节次无条件删，会把其他周同一格的记录一起删掉
+        var (ws, we) = WeekHelper.WeekWindowOf(_monday);
+        int n = list.RemoveAll(o => o.ClassName == _selectedName && o.DayIdx == cell.DayIdx
+                                    && o.Period == cell.Period && o.OverlapsRange(ws, we));
+        if (n > 0) Store.SaveOverrides(list);
         AppEvents.RaiseScheduleChanged();
         Rebuild();
-        TxtStatus.Text = n > 0 ? $"已清除 {cell.DayName}第{cell.Period}节 的调课" : $"{cell.DayName}第{cell.Period}节 无调课记录";
+        TxtStatus.Text = n > 0
+            ? $"已清除 {ws:M/d}–{we:M/d} 这一周 {cell.DayName}第{cell.Period}节 的调课"
+            : $"{cell.DayName}第{cell.Period}节 本周无调课记录";
     }
 
     // ---------- 拖动调课 ----------
@@ -414,17 +476,26 @@ public partial class WeekView : System.Windows.Controls.UserControl
         if (_isTeacher) return;   // 教师课表只读
         if (src.DayIdx == tgt.DayIdx && src.Period == tgt.Period) return;
         if (string.IsNullOrEmpty(_selectedName)) return;
+
+        if (!UserSession.CanEditClass(_selectedName))
+        {
+            TxtStatus.Text = UserSession.DenyEditClass(_selectedName);
+            Rebuild();    // 把拖到一半的视觉状态复原
+            return;
+        }
+
         var list = Store.LoadOverrides();
+        var schedule = Store.LoadSchedule();
 
         if (!tgt.HasLesson)
         {
-            Upsert(list, tgt.DayIdx, tgt.Period, src.Subject, src.Teacher, src.Location, _editType, isEmpty: !src.HasLesson);
-            Upsert(list, src.DayIdx, src.Period, "", "", "", "", isEmpty: true);
+            Upsert(list, schedule, tgt.DayIdx, tgt.Period, src.Subject, src.Teacher, src.Location, _editType, isEmpty: !src.HasLesson);
+            Upsert(list, schedule, src.DayIdx, src.Period, "", "", "", "", isEmpty: true);
         }
         else
         {
-            Upsert(list, tgt.DayIdx, tgt.Period, src.Subject, src.Teacher, src.Location, _editType, isEmpty: !src.HasLesson);
-            Upsert(list, src.DayIdx, src.Period, tgt.Subject, tgt.Teacher, tgt.Location, _editType, isEmpty: !tgt.HasLesson);
+            Upsert(list, schedule, tgt.DayIdx, tgt.Period, src.Subject, src.Teacher, src.Location, _editType, isEmpty: !src.HasLesson);
+            Upsert(list, schedule, src.DayIdx, src.Period, tgt.Subject, tgt.Teacher, tgt.Location, _editType, isEmpty: !tgt.HasLesson);
         }
 
         Store.SaveOverrides(list);
@@ -441,28 +512,63 @@ public partial class WeekView : System.Windows.Controls.UserControl
             return;
         }
         if (string.IsNullOrEmpty(_selectedName)) return;
-        var r = WpfMessageBox.Show($"确定清除「{_selectedName}」全部调课 / 代课 / 调空记录吗？此操作不可撤销。",
-            "清除全部调课", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+
+        if (!UserSession.CanEditClass(_selectedName))
+        {
+            TxtStatus.Text = UserSession.DenyEditClass(_selectedName);
+            return;
+        }
+
+        var (ws, we) = WeekHelper.WeekWindowOf(_monday);
+        var targets = Store.LoadOverrides()
+                           .Where(o => o.ClassName == _selectedName && o.OverlapsRange(ws, we)).ToList();
+        if (targets.Count == 0)
+        {
+            TxtStatus.Text = $"本周（{ws:M/d}–{we:M/d}）没有调课记录。";
+            return;
+        }
+        var r = WpfMessageBox.Show(
+            $"确定清除「{_selectedName}」在 {ws:M/d}–{we:M/d} 这一周的 {targets.Count} 条调课 / 代课 / 调空记录吗？\n" +
+            "其他周的记录不受影响；此操作不可撤销。",
+            "清除本周调课", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (r != MessageBoxResult.OK) return;
         var list = Store.LoadOverrides();
-        list.RemoveAll(o => o.ClassName == _selectedName);
+        int n = list.RemoveAll(o => o.ClassName == _selectedName && o.OverlapsRange(ws, we));
         Store.SaveOverrides(list);
         AppEvents.RaiseScheduleChanged();
         Rebuild();
-        TxtStatus.Text = "已清除全部调课记录。";
+        TxtStatus.Text = $"已清除本周 {n} 条调课记录（其他周不受影响）。";
     }
 
-    private void Upsert(List<LessonOverride> list, int dayIdx, int period, string subject, string teacher, string location, string type, bool isEmpty)
+    private void Upsert(List<LessonOverride> list, ScheduleFile? schedule,
+                        int dayIdx, int period, string subject, string teacher, string location, string type, bool isEmpty)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;
-        string key = $"{_selectedName}|{dayIdx}|{period}";
-        list.RemoveAll(o => o.Key == key);
+
+        // ★ 周视图里改的是「当前显示的这一周」（设计 D13：临时层带生效区间）
+        var (ws, we) = WeekHelper.WeekWindowOf(_monday);
+
+        // ★ 拖回原位 = 取消调代：与底表该格完全一致时，这条记录不该留下标记
+        //   （以前会留一条"内容是原课"的覆盖，格子上一直挂着「已调课」角标）
+        if (IsSameAsBase(schedule, _selectedName, dayIdx, period, subject, teacher, location, isEmpty))
+        {
+            list.RemoveAll(o => o.ClassName == _selectedName && o.DayIdx == dayIdx && o.Period == period
+                                && o.Source == "manual" && o.OverlapsRange(ws, we));
+            return;
+        }
+
+        // 只清本周该格的手工记录；其他周、以及远程/导入来源不动
+        list.RemoveAll(o => o.ClassName == _selectedName && o.DayIdx == dayIdx && o.Period == period
+                            && o.Source == "manual" && o.OverlapsRange(ws, we));
+
         if (isEmpty)
         {
             list.Add(new LessonOverride
             {
                 ClassName = _selectedName, DayIdx = dayIdx, Period = period,
-                IsEmpty = true, Type = "调", Source = "manual", UpdatedAt = DateTime.Now
+                IsEmpty = true, Type = "调", Source = "manual",
+                ValidFrom = DateOnly.FromDateTime(ws), ValidTo = DateOnly.FromDateTime(we),
+                UpdatedAt = DateTime.Now
             });
         }
         else if (!string.IsNullOrWhiteSpace(subject))
@@ -471,10 +577,17 @@ public partial class WeekView : System.Windows.Controls.UserControl
             {
                 ClassName = _selectedName, DayIdx = dayIdx, Period = period,
                 Subject = subject, Teacher = teacher, Location = location,
-                Type = string.IsNullOrEmpty(type) ? "调" : type, Source = "manual", UpdatedAt = DateTime.Now
+                Type = string.IsNullOrEmpty(type) ? "调" : type, Source = "manual",
+                ValidFrom = DateOnly.FromDateTime(ws), ValidTo = DateOnly.FromDateTime(we),
+                UpdatedAt = DateTime.Now
             });
         }
     }
+
+    // ---------- 「是否与底表原位一致」：判定在 ScheduleCore.LessonComparer（周视图与右键调课窗共用） ----------
+    private static bool IsSameAsBase(ScheduleFile? schedule, string className, int dayIdx, int period,
+                                     string? subject, string? teacher, string? location, bool isEmpty)
+        => LessonComparer.IsSameAsBase(schedule, className, dayIdx, period, subject, teacher, location, isEmpty);
 
     private static SolidColorBrush Brush(string hex)
     {
