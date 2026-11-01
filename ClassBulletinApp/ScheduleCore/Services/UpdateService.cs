@@ -204,7 +204,7 @@ public static class UpdateService
                 overridesAuthoritative: true,
                 includeManualOverrides: includeManual,
                 rev: rev,
-                users: Store.LoadUsers().Users);
+                userBook: Store.LoadUsers());
             if (!ex.Ok) return (false, "打包失败：" + ex.Error);
 
             string manifestJson = ReadManifestFromPackage(tmp);

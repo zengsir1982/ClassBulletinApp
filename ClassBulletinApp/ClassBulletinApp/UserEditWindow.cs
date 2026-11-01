@@ -77,14 +77,16 @@ public class UserEditWindow : Window
         root.Children.Add(Label("角色"));
         _role.FontSize = 14;
         _role.Items.Add(new ComboBoxItem { Content = "管理员（可改全部数据、可发布、可管用户）", Tag = UserRole.Admin });
-        _role.Items.Add(new ComboBoxItem { Content = "班主任（只能改自己班的课表）", Tag = UserRole.Teacher });
-        _role.Items.Add(new ComboBoxItem { Content = "电教管理员 / 学生（只能控制本机显示）", Tag = UserRole.Student });
-        _role.SelectedIndex = existing == null ? 2
+        _role.Items.Add(new ComboBoxItem { Content = "班主任（改本班课表 / 作业，可收发数据包）", Tag = UserRole.Teacher });
+        _role.Items.Add(new ComboBoxItem { Content = "科任老师（只能改所教班级的作业 / 缺交）", Tag = UserRole.SubjectTeacher });
+        _role.Items.Add(new ComboBoxItem { Content = "电教管理员（管本机显示，可改本班课表）", Tag = UserRole.Student });
+        _role.SelectedIndex = existing == null ? 3
             : existing.Role == UserRole.Admin ? 0
-            : existing.Role == UserRole.Teacher ? 1 : 2;
+            : existing.Role == UserRole.Teacher ? 1
+            : existing.Role == UserRole.SubjectTeacher ? 2 : 3;
         root.Children.Add(_role);
 
-        root.Children.Add(Label("所属班级（班主任必填；多个班用逗号分隔）"));
+        root.Children.Add(Label("所属班级（班主任 / 科任老师必填；多个班用逗号分隔）"));
         _classes.FontSize = 14;
         _classes.Padding = new Thickness(8, 6, 8, 6);
         _classes.Text = string.Join("，", existing?.ClassNames ?? new List<string>());
@@ -145,9 +147,12 @@ public class UserEditWindow : Window
             .Distinct()
             .ToList();
 
-        if (role == UserRole.Teacher && classes.Count == 0)
+        // 班主任 / 科任老师的权限范围恒为"所属班级"，没填班级等于什么都不能改
+        if ((role == UserRole.Teacher || role == UserRole.SubjectTeacher) && classes.Count == 0)
         {
-            Err("班主任必须填所属班级，否则他一个班也改不了。");
+            Err(role == UserRole.Teacher
+                ? "班主任必须填所属班级，否则他一个班也改不了。"
+                : "科任老师必须填任教班级，否则他一个班的作业也改不了。");
             return;
         }
 

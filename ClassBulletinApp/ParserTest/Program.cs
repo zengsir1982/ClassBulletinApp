@@ -11,6 +11,20 @@ if (precedenceMode)
     return;
 }
 
+var packPolicyMode = args.Length > 1 && args[1] == "packpolicy";
+if (packPolicyMode)
+{
+    RunPackPolicyTests();
+    return;
+}
+
+var policyDefaultsMode = args.Length > 1 && args[1] == "policydefaults";
+if (policyDefaultsMode)
+{
+    RunPolicyDefaultTests();
+    return;
+}
+
 var path = args.Length > 0 ? args[0] :
     @"F:\study\班级公布栏\全校班级临时总课表.xlsx";
 
@@ -185,4 +199,123 @@ static void Assert(bool cond, string msg)
 {
     Console.WriteLine((cond ? "  [PASS] " : "  [FAIL] ") + msg);
     if (!cond) Environment.Exit(1);
+}
+
+// ===== 回归：角色权限必须随数据包下发（r15 修复） =====
+// 现场反馈：发布机在「角色权限」里改了电教管理员权限，教室机收不到。
+// 根因是 SchedulePackage.Export 重新 new UserBook 时只拷了 Users 列表、丢了 Policies。
+static void RunPackPolicyTests()
+{
+    Console.WriteLine("\n=== 角色权限随包下发回归测试（r15）===");
+
+    UserBook MakeBook(bool studentCanEditSchedule)
+    {
+        var book = new UserBook();
+        // 两个账号（带哈希/盐，避免被 Inspect 丢弃）
+        var admin = new AppUser { Username = "admin", Role = UserRole.Admin };
+        var local = new AppUser { Username = "local", Role = UserRole.Student };
+        PasswordHasher.SetPassword(admin, "000");
+        PasswordHasher.SetPassword(local, "000");
+        book.Users.Add(admin);
+        book.Users.Add(local);
+        // 自定义权限：班级主任默认即可；电教管理员按入参决定（默认是全关）
+        book.Policies[UserRole.Teacher] = RolePolicy.DefaultFor(UserRole.Teacher);
+        book.Policies[UserRole.Student] = new RolePolicy { EditSchedule = studentCanEditSchedule };
+        book.EnsurePolicyDefaults();
+        return book;
+    }
+
+    ScheduleFile MakeSchedule()
+    {
+        var sf = new ScheduleFile();
+        sf.Classes.Add(new ClassSchedule { ClassName = "测试班" });
+        return sf;
+    }
+
+    string pkgA = Path.Combine(Path.GetTempPath(), "cbpack_polA.cbpack");
+    string pkgB = Path.Combine(Path.GetTempPath(), "cbpack_polB.cbpack");
+    if (File.Exists(pkgA)) File.Delete(pkgA);
+    if (File.Exists(pkgB)) File.Delete(pkgB);
+
+    // A：电教管理员不可改课表；B：电教管理员可改课表（仅权限不同，其余完全一致）
+    var exA = SchedulePackage.Export(pkgA, MakeSchedule(), Array.Empty<LessonOverride>(),
+        Array.Empty<Notification>(), new AppSettings(), "test", userBook: MakeBook(false));
+    var exB = SchedulePackage.Export(pkgB, MakeSchedule(), Array.Empty<LessonOverride>(),
+        Array.Empty<Notification>(), new AppSettings(), "test", userBook: MakeBook(true));
+    Assert(exA.Ok && exB.Ok, "A/B 两个包都应导出成功");
+
+    // 解出 B，验证权限确实进了包
+    var insB = SchedulePackage.Inspect(pkgB);
+    Assert(insB.Ok, "B 包应能解包");
+    Assert(insB.Users != null && insB.Users.Policies.ContainsKey(UserRole.Student),
+        "B 包的用户表应带 student 角色的 Policies");
+    Assert(insB.Users!.PolicyFor(UserRole.Student).EditSchedule == true,
+        "B 包里电教管理员应可改课表（随包下发）");
+    Assert(insB.Users.PolicyFor(UserRole.Teacher).EditSchedule == true,
+        "B 包里班主任权限也应保留");
+
+    // 关键：仅权限不同 → 整包摘要必须不同，否则教室机判定已是最新、不会重新同步
+    string ReadSha(string pkg)
+    {
+        using var z = System.IO.Compression.ZipFile.OpenRead(pkg);
+        var e = z.GetEntry("manifest.json")!;
+        using var s = e.Open();
+        using var r = new StreamReader(s);
+        var man = System.Text.Json.JsonSerializer.Deserialize<PackageManifest>(
+            r.ReadToEnd(), new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return man?.DataSha256 ?? "";
+    }
+    Assert(ReadSha(pkgA) != ReadSha(pkgB),
+        "仅权限不同的两个包，整包摘要必须不同（否则教室机不会重新同步）");
+
+    File.Delete(pkgA); File.Delete(pkgB);
+    Console.WriteLine("PACKPOLICY DONE");
+}
+
+// ===== 回归：角色默认权限 + 老用户表升级补齐（r16） =====
+// 现场需求：新增「科任老师」角色；班主任/电教默认能改本班课表+作业+恢复停用+自动更新；
+// 数据包/备份恢复单独成一项能力并默认给班主任。升级不能让老教室机行为错乱。
+static void RunPolicyDefaultTests()
+{
+    Console.WriteLine("\n=== 角色默认权限 / 升级补齐回归（r16）===");
+
+    var teacher = RolePolicy.DefaultFor(UserRole.Teacher);
+    Assert(teacher.EditSchedule && teacher.EditBoard && teacher.RestoreSuspended,
+        "班主任默认能改本班课表 / 作业 / 恢复停用调课");
+    Assert(teacher.ManagePackage, "班主任默认能用数据包导入导出 / 备份恢复");
+    Assert(!teacher.ManageData, "班主任默认不能导入总课表 / 清除调课");
+    Assert(!teacher.SendSchoolNotice, "班主任默认不能发全校通知（需管理员授权）");
+    Assert(teacher.ManageUpdate, "班主任默认可改自动更新设置");
+
+    var subject = RolePolicy.DefaultFor(UserRole.SubjectTeacher);
+    Assert(UserRole.IsValid(UserRole.SubjectTeacher), "subject 必须是合法角色");
+    Assert(subject.EditBoard, "科任老师默认能改作业 / 缺交名单");
+    Assert(!subject.EditSchedule, "科任老师默认不能改课表");
+    Assert(!subject.ManageData && !subject.ManagePackage && !subject.ImportTemp,
+        "科任老师默认不能导数据");
+    Assert(!subject.SendSchoolNotice, "科任老师默认不能发全校通知");
+    Assert(subject.ManageUpdate, "科任老师默认可改自动更新设置（所有账号都能改本机更新来源）");
+
+    var student = RolePolicy.DefaultFor(UserRole.Student);
+    Assert(student.EditSchedule && student.EditBoard && student.RestoreSuspended && student.ManageUpdate,
+        "电教管理员默认能改本班课表 / 作业 / 恢复停用调课 / 自动更新设置");
+    Assert(!student.ManagePackage, "电教管理员默认不能收发数据包");
+    Assert(!student.SendSchoolNotice, "电教管理员默认不能发全校通知");
+
+    // 升级路径：Schema=3 的老表（没有 subject 策略、班主任没有 ManagePackage）
+    var book = new UserBook { Schema = 3 };
+    book.Policies[UserRole.Teacher] = new RolePolicy { EditSchedule = true, EditBoard = true, ManageUpdate = true };
+    book.Policies[UserRole.Student] = new RolePolicy { EditSchedule = true, ManageUpdate = true };
+
+    Assert(book.EnsurePolicyDefaults(), "老用户表补齐后应报告有改动");
+    Assert(book.Schema == 4, "补齐后 Schema 应为 4");
+    Assert(book.FindPolicy(UserRole.SubjectTeacher) != null, "升级后应自动补上科任老师策略");
+    Assert(book.FindPolicy(UserRole.SubjectTeacher)!.EditBoard, "补上的科任老师策略默认能改作业");
+    Assert(book.PolicyFor(UserRole.Teacher).ManagePackage, "升级后班主任应补开数据包 / 备份恢复");
+    Assert(!book.PolicyFor(UserRole.Teacher).SendSchoolNotice, "升级不能擅自打开全校通知");
+
+    // 幂等：再来一次不应产生新改动（否则每次保存都会改写 users.json → 摘要天天变）
+    Assert(!book.EnsurePolicyDefaults(), "第二次补齐应无改动（幂等）");
+
+    Console.WriteLine("POLICYDEFAULTS DONE");
 }

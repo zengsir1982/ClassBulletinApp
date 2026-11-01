@@ -17,6 +17,28 @@ public partial class NotificationEditWindow : Window
         InitializeComponent();
         Lst.ItemsSource = _items;
         Reload();
+        ApplyScopePermission();
+    }
+
+    /// <summary>
+    /// 按当前身份决定能否勾「全校通知」。
+    /// <para>无 <see cref="UserSession.CanSendSchoolNotice"/> 权限时禁用勾选框并给出原因；
+    /// 已存在的全校通知仍显示为勾选（只读），避免误降级。</para>
+    /// </summary>
+    private void ApplyScopePermission()
+    {
+        bool canSchool = UserSession.CanSendSchoolNotice;
+        ChkSchool.IsEnabled = canSchool;
+        ChkSchool.ToolTip = canSchool ? null : UserSession.DenySendSchoolNotice;
+    }
+
+    /// <summary>
+    /// 计算最终范围：无权限时新增=本班、编辑=保留原范围（不降级、不越权升全校）。
+    /// </summary>
+    private bool EffectiveSchoolScope(bool existingIsSchool)
+    {
+        if (UserSession.CanSendSchoolNotice) return ChkSchool.IsChecked == true;
+        return existingIsSchool;
     }
 
     private void Reload()
@@ -51,7 +73,7 @@ public partial class NotificationEditWindow : Window
             Title = title,
             Content = content,
             CreatedAt = DateTime.Now,
-            Scope = ChkSchool.IsChecked == true ? "school" : "local"
+            Scope = EffectiveSchoolScope(false) ? "school" : "local"
         };
         _items.Insert(0, n);
         Persist();
@@ -71,7 +93,7 @@ public partial class NotificationEditWindow : Window
         }
         n.Title = TxtTitle.Text.Trim();
         n.Content = TxtContent.Text.Trim();
-        n.Scope = ChkSchool.IsChecked == true ? "school" : "local";
+        n.Scope = EffectiveSchoolScope(n.Scope == "school") ? "school" : "local";
         Persist();
         Lst.Items.Refresh();
         AppEvents.RaiseNotificationChanged();

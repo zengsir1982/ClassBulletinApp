@@ -45,6 +45,9 @@ public class UpdateSettingsWindow : Window
 
     AppSettings _s = new();
 
+    /// <summary>非管理员打开时的权限提示（默认折叠，按身份显示）。</summary>
+    Border _roleNote = new();
+
     /// <summary>打开窗口时的策略值。判断"是不是刚改成覆盖"用它，而不是用已经会被改写的 _s。</summary>
     bool _openedOverwrite;
 
@@ -79,6 +82,25 @@ public class UpdateSettingsWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         });
+
+        // 非管理员（但有自动更新设置权限）打开时的提示：能改本机数据源，但不能动"发布机"身份
+        _roleNote.Background = HexBrush("#EAF2FD");
+        _roleNote.BorderBrush = HexBrush("#9EC1F0");
+        _roleNote.BorderThickness = new Thickness(1);
+        _roleNote.CornerRadius = new CornerRadius(6);
+        _roleNote.Padding = new Thickness(10, 7, 10, 7);
+        _roleNote.Margin = new Thickness(0, 0, 0, 12);
+        _roleNote.Child = new TextBlock
+        {
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "当前身份不是管理员：可以修改本机的共享文件夹 / FTP / 检查频率等更新来源，"
+                 + "但「发布机」身份及其专属项（源目录、自动发布、同步策略）为只读，只有管理员能开关。"
+                 + "这样既能防止改了共享文件夹就收不到更新，又不会让教室机误变成发布机往数据源写数据。"
+        };
+        _roleNote.Visibility = Visibility.Collapsed;
+        head.Children.Add(_roleNote);
+
         System.Windows.Controls.DockPanel.SetDock(head, System.Windows.Controls.Dock.Top);
         root.Children.Add(head);
 
@@ -285,6 +307,28 @@ public class UpdateSettingsWindow : Window
         _rbKeep.IsChecked = !_openedOverwrite;
 
         SyncVisibility();
+        ApplyRoleRestrictions();
+    }
+
+    /// <summary>
+    /// 非管理员（但拥有自动更新设置权限）打开时，禁用「发布机」身份及其专属项。
+    /// <para>★ 需求三：所有角色都能改本机更新来源（共享文件夹 / FTP），否则教室机改了路径就收不到更新；
+    /// 但"发布机"一旦在教室机上被打开，那台机器也会往数据源写数据、影响 30 台机器，所以恒只给管理员。</para>
+    /// </summary>
+    void ApplyRoleRestrictions()
+    {
+        if (UserSession.IsAdmin) return;
+
+        _roleNote.Visibility = Visibility.Visible;
+
+        _publish.IsEnabled = false;
+        _publish.ToolTip = "只有管理员可以开关「发布机」身份。";
+
+        // 发布机专属项一并禁用，防止切换发布机时误改这些
+        _sourceDir.IsEnabled = false;
+        _autoPub.IsEnabled = false;
+        _rbKeep.IsEnabled = false;
+        _rbOverwrite.IsEnabled = false;
     }
 
     string SelectedKind()

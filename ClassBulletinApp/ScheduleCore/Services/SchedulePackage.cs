@@ -122,7 +122,7 @@ public static class SchedulePackage
         bool overridesAuthoritative = false,
         bool includeManualOverrides = false,
         int rev = 0,
-        IReadOnlyList<AppUser>? users = null)
+        UserBook? userBook = null)
     {
         var res = new ExportResult { Path = outPath };
 
@@ -187,11 +187,16 @@ public static class SchedulePackage
 
                 // 用户表随包下发（可选）。★ 只写用户名 / 哈希 / 盐 / 角色 / 班级，绝不含明文密码。
                 //   按用户名排序后再序列化：同输入必同摘要，否则每次打包摘要都变、30 台天天重下。
-                if (users is { Count: > 0 })
+                //   ★ 必须连角色权限 Policies（与 Schema）一起带：权限配置存在 UserBook.Policies 里，
+                //     只传 Users 列表会丢权限，导致"发布机改了权限、教室机收不到"
+                //     （2026-11-01 现场反馈：电教管理员权限改完不同步）。
+                if (userBook is { Users.Count: > 0 })
                 {
                     var book = new UserBook
                     {
-                        Users = users.OrderBy(u => u.Username, StringComparer.Ordinal).ToList(),
+                        Users = userBook.Users.OrderBy(u => u.Username, StringComparer.Ordinal).ToList(),
+                        Policies = userBook.Policies,
+                        Schema = userBook.Schema,
                         UpdatedAt = null
                     };
                     AddEntry(zip, files, FileUsers, JsonSerializer.Serialize(book, WriteOpt));
@@ -210,7 +215,7 @@ public static class SchedulePackage
                     OverrideIncludeManual = includeManualOverrides,
                     Rev = rev,
                     NoticeCount = schoolNotices.Count,
-                    UserCount = users?.Count ?? 0,
+                    UserCount = userBook?.Users.Count ?? 0,
                     Files = files,
                     DataSha256 = ComputeDataSha(files, rev)
                 };
@@ -545,7 +550,7 @@ public static class SchedulePackage
     /// <summary>两份用户表的角色权限是否不同（决定应用后要不要重刷界面按钮）。</summary>
     static bool PolicyDiffers(UserBook a, UserBook b)
     {
-        foreach (var role in new[] { UserRole.Teacher, UserRole.Student })
+        foreach (var role in new[] { UserRole.Teacher, UserRole.SubjectTeacher, UserRole.Student })
             if (!string.Equals(a.PolicyFor(role).Describe(), b.PolicyFor(role).Describe(), StringComparison.Ordinal))
                 return true;
         return false;

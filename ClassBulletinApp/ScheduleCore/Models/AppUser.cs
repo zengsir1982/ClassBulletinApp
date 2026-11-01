@@ -11,22 +11,26 @@ public static class UserRole
     /// <summary>管理员：可改别人的数据、可发布、可改同步策略、可管理用户。</summary>
     public const string Admin = "admin";
 
-    /// <summary>班主任：只能改自己班（<see cref="AppUser.ClassNames"/>）的课表。</summary>
+    /// <summary>班主任：默认可改自己班（<see cref="AppUser.ClassNames"/>）的课表、作业、恢复停用调课。</summary>
     public const string Teacher = "teacher";
 
-    /// <summary>电教管理员（学生）：只能控制本机显示，不能碰任何数据。</summary>
+    /// <summary>科任老师：默认只能查看课表、编辑所任教班级的作业公示与缺交名单，不能改课表。</summary>
+    public const string SubjectTeacher = "subject";
+
+    /// <summary>电教管理员（学生）：默认管本机显示，并可改本班课表 / 作业 / 恢复停用调课 / 自动更新设置。</summary>
     public const string Student = "student";
 
     public static string Display(string? role) => (role ?? "").ToLowerInvariant() switch
     {
         Admin => "管理员",
         Teacher => "班主任",
+        SubjectTeacher => "科任老师",
         Student => "电教管理员",
         _ => "未知"
     };
 
     public static bool IsValid(string? role)
-        => role is Admin or Teacher or Student;
+        => role is Admin or Teacher or SubjectTeacher or Student;
 }
 
 /// <summary>
@@ -108,8 +112,29 @@ public class RolePolicy
     /// <summary>导入临时课表 / 教师课表（每周常规操作，影响面较小）。</summary>
     public bool ImportTemp { get; set; }
 
-    /// <summary>导入总课表、清除调课、备份与恢复、数据包导入导出（影响面大）。</summary>
+    /// <summary>导入全校总课表、单班 / 教师课表、清除调课（会整份覆盖全年级数据，影响面最大）。</summary>
     public bool ManageData { get; set; }
+
+    /// <summary>
+    /// 导入 / 导出数据包、备份与恢复（本机数据可整体搬迁，但不动别的机器）。
+    /// <para>★ 从 <see cref="ManageData"/> 里拆出来：班主任需要能备份与收发数据包，
+    /// 但"导入总课表 / 清除调课"会整份覆盖全校 90 个班的数据，必须留在管理员手里。</para>
+    /// </summary>
+    public bool ManagePackage { get; set; }
+
+    /// <summary>
+    /// 发布全校通知（<see cref="Notification.Scope"/> = <c>school</c>，随包下发到所有教室机）。
+    /// <para>★ 默认只对管理员开放，班主任 / 电教管理员需显式授权。
+    /// 关闭时仍可发"本班通知"（<c>local</c>，只留本机）。</para>
+    /// </summary>
+    public bool SendSchoolNotice { get; set; }
+
+    /// <summary>
+    /// 修改本机自动更新设置（共享文件夹 / U 盘 / FTP 来源、是否启用自动更新）。
+    /// <para>★ 默认所有角色都开：教室机开机自动登录的是电教管理员，
+    /// 一旦这项被关掉，改了共享文件夹路径就再也收不到更新，那台机器会慢慢变成"信息孤岛"。</para>
+    /// </summary>
+    public bool ManageUpdate { get; set; }
 
     public RolePolicy Clone() => new()
     {
@@ -117,7 +142,10 @@ public class RolePolicy
         EditBoard = EditBoard,
         RestoreSuspended = RestoreSuspended,
         ImportTemp = ImportTemp,
-        ManageData = ManageData
+        ManageData = ManageData,
+        ManagePackage = ManagePackage,
+        SendSchoolNotice = SendSchoolNotice,
+        ManageUpdate = ManageUpdate
     };
 
     /// <summary>管理员用的全权策略（实际判定会先判 <c>IsAdmin</c>，这里只作双保险）。</summary>
@@ -127,7 +155,10 @@ public class RolePolicy
         EditBoard = true,
         RestoreSuspended = true,
         ImportTemp = true,
-        ManageData = true
+        ManageData = true,
+        ManagePackage = true,
+        SendSchoolNotice = true,
+        ManageUpdate = true
     };
 
     /// <summary>
@@ -136,17 +167,46 @@ public class RolePolicy
     /// </summary>
     public static RolePolicy DefaultFor(string? role) => (role ?? "").Trim().ToLowerInvariant() switch
     {
-        // 班主任：改本班课表 + 本班作业 + 恢复本班被停用的调课；不能导数据、不能清全部
+        // 班主任：改本班课表 + 本班作业 + 恢复本班被停用的调课 + 数据包收发/备份 + 自动更新设置；
+        // 不能导入总课表 / 清除全部；默认不能发全校通知（可授权）
         UserRole.Teacher => new RolePolicy
         {
             EditSchedule = true,
             EditBoard = true,
             RestoreSuspended = true,
             ImportTemp = false,
-            ManageData = false
+            ManageData = false,
+            ManagePackage = true,
+            SendSchoolNotice = false,
+            ManageUpdate = true
         },
-        // 电教管理员（学生，也是教室机开机身份）：只能控显示，其余全关
-        _ => new RolePolicy()
+        // 科任老师：默认只能查看课表 + 编辑所任教班级的作业公示与缺交名单；不能改课表、不能导数据
+        // 自动更新设置默认开（与「所有账号都能改本机更新来源」一致，防止教室机变成信息孤岛）
+        UserRole.SubjectTeacher => new RolePolicy
+        {
+            EditSchedule = false,
+            EditBoard = true,
+            RestoreSuspended = false,
+            ImportTemp = false,
+            ManageData = false,
+            ManagePackage = false,
+            SendSchoolNotice = false,
+            ManageUpdate = true
+        },
+        // 电教管理员（学生，也是教室机开机身份）：
+        // 默认开通"改本班课表 + 本班作业 + 恢复本班停用调课 + 自动更新设置"；
+        // 默认不能发全校通知（只能发本班）；不能导数据、不能清全部
+        _ => new RolePolicy
+        {
+            EditSchedule = true,
+            EditBoard = true,
+            RestoreSuspended = true,
+            ImportTemp = false,
+            ManageData = false,
+            ManagePackage = false,
+            SendSchoolNotice = false,
+            ManageUpdate = true
+        }
     };
 
     /// <summary>人类可读的能力清单，用于变更日志与提示文案。</summary>
@@ -157,8 +217,11 @@ public class RolePolicy
         if (EditBoard) on.Add("作业/缺交");
         if (RestoreSuspended) on.Add("恢复停用调课");
         if (ImportTemp) on.Add("导入临时课表");
-        if (ManageData) on.Add("总课表/清除/备份");
-        return on.Count == 0 ? "无（只能控显示）" : string.Join("、", on);
+        if (ManageData) on.Add("总课表/清除");
+        if (ManagePackage) on.Add("数据包/备份恢复");
+        if (SendSchoolNotice) on.Add("发全校通知");
+        if (ManageUpdate) on.Add("自动更新设置");
+        return on.Count == 0 ? "无（只能查看/控显示）" : string.Join("、", on);
     }
 }
 
@@ -168,8 +231,10 @@ public class RolePolicy
 public class UserBook
 {
     /// <summary>
-    /// 1 = 首个多账号版本（无 <see cref="Policies"/>）；2 = 带角色权限配置。
-    /// <para>★ 这个号决定"Policies 缺失"怎么解释，见 <see cref="PolicyFor"/>。</para>
+    /// 1 = 首个多账号版本（无 <see cref="Policies"/>）；2 = 带角色权限配置；
+    /// 3 = 新增「发全校通知」「自动更新设置」；4 = 新增「科任老师」角色与「数据包 / 备份恢复」能力。
+    /// <para>★ 这个号决定"Policies 缺失"怎么解释，见 <see cref="PolicyFor"/>；
+    /// 也决定升级时缺字段怎么补齐，见 <see cref="EnsurePolicyDefaults"/>。</para>
     /// </summary>
     public int Schema { get; set; } = 1;
 
@@ -178,7 +243,7 @@ public class UserBook
     private Dictionary<string, RolePolicy> _policies = new();
 
     /// <summary>
-    /// 各角色的能力配置，键为 <see cref="UserRole"/> 常量（<c>teacher</c> / <c>student</c>）。
+    /// 各角色的能力配置，键为 <see cref="UserRole"/> 常量（<c>teacher</c> / <c>subject</c> / <c>student</c>）。
     /// <para>★ 管理员<b>不进这张表</b>：管理员恒全权，允许配置等于允许把自己锁死，
     /// 而且锁死之后没有任何人能救（谁都没权限改回去了）。</para>
     /// </summary>
@@ -224,22 +289,34 @@ public class UserBook
     }
 
     /// <summary>
-    /// 把缺失的角色配置补齐为出厂默认（<b>只补缺，不覆盖已有</b>），并把 Schema 提到 2。
+    /// 把缺失的角色配置补齐为出厂默认，并把 Schema 提到当前版本。
     /// 供"保存用户表 / 从包应用"时调用，让文件里能直接看到并手工编辑这几项。
     /// </summary>
     /// <returns>是否发生了改动。</returns>
     public bool EnsurePolicyDefaults()
     {
         bool changed = false;
-        foreach (var role in new[] { UserRole.Teacher, UserRole.Student })
+        // 升级补齐（只补，不覆盖管理员显式设置）：
+        //   2→3：ManageUpdate 是新增字段，旧策略里一定没有，统一补开（所有账号都能改本机更新来源）。
+        //   3→4：新增「科任老师」角色 → 补一条默认策略；班主任补开 ManagePackage（数据包/备份恢复）。
+        // 之后 Schema 已是最新，不会再进这些分支，管理员在界面上的显式关闭不会被覆盖。
+        bool preV3 = Schema < 3;
+        bool preV4 = Schema < 4;
+        foreach (var role in new[] { UserRole.Teacher, UserRole.SubjectTeacher, UserRole.Student })
         {
-            if (FindPolicy(role) == null)
+            var existing = FindPolicy(role);
+            if (existing == null)
             {
                 _policies[role] = RolePolicy.DefaultFor(role);
                 changed = true;
             }
+            else if (preV4)
+            {
+                if (preV3 && !existing.ManageUpdate) { existing.ManageUpdate = true; changed = true; }
+                if (role == UserRole.Teacher && !existing.ManagePackage) { existing.ManagePackage = true; changed = true; }
+            }
         }
-        if (Schema < 2) { Schema = 2; changed = true; }
+        if (Schema < 4) { Schema = 4; changed = true; }
         return changed;
     }
 
