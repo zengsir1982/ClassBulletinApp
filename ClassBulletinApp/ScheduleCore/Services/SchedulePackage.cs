@@ -507,7 +507,48 @@ public static class SchedulePackage
         /// <summary>本次随包更新的用户表条目数（0 = 包内没有用户表，本机用户表未动）。</summary>
         public int UserCount { get; set; }
 
+        /// <summary>本次随包带来的角色权限与原来不同（界面需要重刷按钮可用性）。</summary>
+        public bool PolicyApplied { get; set; }
+
+        /// <summary>
+        /// 应用后对当前登录身份的重新绑定结果。
+        /// <para>★ <c>Removed</c> / <c>Disabled</c> 表示"我自己被这个包踢掉了"：
+        /// 调用方必须提示并回登录窗，否则那台机器会带着一个已失效的身份继续跑，
+        /// 用户还会以为自己有权限。</para>
+        /// </summary>
+        public RebindResult Identity { get; set; } = RebindResult.Guest;
+
         public List<string> Warnings { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 包内用户表会不会让本机<b>开机后进不去</b>（自动登录账号被删 / 停用 / 升成管理员）。
+    /// <para>本机没开自动登录、或没配自动登录账号时一律返回 false ——
+    /// 那种机器本来就是开机弹登录窗的，用户表怎么变都不影响它。</para>
+    /// </summary>
+    static bool AutoLoginWouldBreak(UserBook incoming, out string why)
+    {
+        why = "";
+        var st = Store.LoadSettings();
+        if (!st.AutoLogin) return false;
+
+        string name = (st.AutoLoginUser ?? "").Trim();
+        if (name.Length == 0) return false;
+
+        var u = incoming.Find(name);
+        if (u == null) { why = $"包里已经没有账号「{name}」"; return true; }
+        if (!u.Enabled) { why = $"账号「{name}」在包里是停用状态"; return true; }
+        if (u.Role == UserRole.Admin) { why = $"账号「{name}」在包里变成了管理员，而管理员不参与自动登录"; return true; }
+        return false;
+    }
+
+    /// <summary>两份用户表的角色权限是否不同（决定应用后要不要重刷界面按钮）。</summary>
+    static bool PolicyDiffers(UserBook a, UserBook b)
+    {
+        foreach (var role in new[] { UserRole.Teacher, UserRole.Student })
+            if (!string.Equals(a.PolicyFor(role).Describe(), b.PolicyFor(role).Describe(), StringComparison.Ordinal))
+                return true;
+        return false;
     }
 
     /// <summary>
@@ -635,10 +676,24 @@ public static class SchedulePackage
                 {
                     res.Warnings.Add("包内用户表里没有启用中的管理员，已忽略（保留本机用户表）。");
                 }
+                else if (AutoLoginWouldBreak(pkg.Users, out string why))
+                {
+                    // ★ 教室机靠 AutoLoginUser 开机直接进（通常是 local）。包里把这个账号删了、
+                    //   停用了、或升成管理员，那 30 台机器会同时停在登录窗——而且没人值班，
+                    //   课表就挂了。宁可这次名单不同步，也不能让机器开不了机。
+                    res.Warnings.Add($"包内用户表会让本机开机后无法自动登录（{why}），已忽略（保留本机用户表）。"
+                                   + "请在发布机的「用户管理」里确认开机账号仍然存在，且角色是班主任或电教管理员。");
+                }
                 else
                 {
+                    bool policyChanged = PolicyDiffers(Store.LoadUsers(), pkg.Users);
                     Store.SaveUsers(pkg.Users);
                     res.UserCount = pkg.Users.Users.Count;
+                    res.PolicyApplied = policyChanged;
+
+                    // 角色 / 停用状态 / 角色权限任一变化都要立刻重绑：
+                    // 否则要重启才生效，更糟的是"自己已被降级却仍按旧权限操作"。
+                    res.Identity = UserSession.Rebind(pkg.Users);
                 }
             }
 

@@ -149,9 +149,10 @@ public partial class App : System.Windows.Application
                     "suspended" => new SuspendedOverridesWindow(),
                     "usermanager" => new UserManagerWindow(),
                     "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
+                    "rolepolicy" => new RolePolicyWindow(Store.LoadUsers()),
                     "upgradenotice" => new UpgradeNoticeWindow(
-                        "1.0.3.0",
-                        UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.2.0")),
+                        "1.0.4.0",
+                        UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.0.0")),
                     _ => new LayoutWindow { InitialTabIndex = 2 }
                 };
                 w0.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -272,9 +273,10 @@ public partial class App : System.Windows.Application
             Check("UserManagerWindow", () => new UserManagerWindow());
             Check("UserEditWindow", () => new UserEditWindow(null,
                 new ScheduleCore.Models.UserBook(), new[] { "八(22)班" }));
+            Check("RolePolicyWindow", () => new RolePolicyWindow(Store.LoadUsers()));
             Check("UpgradeNoticeWindow", () => new UpgradeNoticeWindow(
-                "1.0.3.0",
-                UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.2.0")));
+                "1.0.4.0",
+                UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.0.0")));
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());

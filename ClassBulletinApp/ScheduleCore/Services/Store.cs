@@ -253,6 +253,9 @@ public static class Store
         if (SuppressWrites) return;
         if (!EnablePersistence) return;
         Ensure();
+        // 补齐缺失的角色权限并提到 Schema 2：users.json 里能直接看到这几项，
+        // 出问题时管理员能手改（权限体系本来就是"界面不给入口"，不是加密）。
+        book.EnsurePolicyDefaults();
         book.UpdatedAt = DateTime.Now;
         File.WriteAllText(UsersPath, JsonSerializer.Serialize(book, Opt));
     }
@@ -273,6 +276,9 @@ public static class Store
         if (book != null && book.Users.Count > 0) return book;
 
         book = MigrateFromSingleAccount();
+
+        // 迁移出来的新表直接带上角色权限的出厂默认，省得用户首次打开用户管理时看不到这几项
+        book.EnsurePolicyDefaults();
 
         // ★ 这里必须<b>强制落盘</b>，不能走 SaveUsers 的 EnablePersistence 开关：
         //   迁移时还没走到"登录成功、打开持久化"那一步，如果跳过写盘，

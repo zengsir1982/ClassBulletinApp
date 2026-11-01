@@ -1,6 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using ScheduleCore.Models;
 using ScheduleCore.Services;
+
+var precedenceMode = args.Length > 1 && args[1] == "precedence";
+if (precedenceMode)
+{
+    RunPrecedenceTests();
+    return;
+}
 
 var path = args.Length > 0 ? args[0] :
     @"F:\study\班级公布栏\全校班级临时总课表.xlsx";
@@ -123,4 +132,57 @@ if (args.Length > 1 && args[1] == "extract")
         Store.SaveTeacherSchedule(teachers);
         Console.WriteLine($"已写入教师课表：教师 {teachers.Classes.Count} 人 -> " + Store.AppDir);
     }
+}
+
+// ===== 回归：覆盖来源优先级（manual 压过 temp，恢复后仍可见）—— r14 修复 =====
+static void RunPrecedenceTests()
+{
+    Console.WriteLine("\n=== 覆盖来源优先级回归测试（r14）===");
+    var date = new DateTime(2026, 11, 2);          // 某周一
+    var vf = DateOnly.FromDateTime(date);
+    var vt = vf.AddDays(6);
+
+    LessonOverride M(string src, bool suspended, DateTime updated) => new LessonOverride
+    {
+        ClassName = "测试班", DayIdx = 0, Period = 1, Source = src,
+        Subject = src == "manual" ? "手动课" : "临时课",
+        ValidFrom = vf, ValidTo = vt, UpdatedAt = updated, Suspended = suspended
+    };
+
+    string Key() => OverrideExpander.CellKey("测试班", 0, 1);
+
+    // 场景A：manual(旧) + temp(新)，manual 活动 → 应选 manual（手动 > 导入）
+    var a = new List<LessonOverride>
+    {
+        M("manual", false, date.AddHours(-2)),
+        M("temp", false, date.AddHours(1))
+    };
+    Assert(OverrideExpander.MapForDate(a, "测试班", date).TryGetValue(Key(), out var ra) && ra.Source == "manual",
+        "场景A: 活动的 manual 应压过更新更晚的 temp");
+
+    // 场景B：manual 被停用 + temp 活动 → 应选 temp（停用记录不显示）
+    var b = new List<LessonOverride>
+    {
+        M("manual", true, date.AddHours(-2)),
+        M("temp", false, date.AddHours(1))
+    };
+    Assert(OverrideExpander.MapForDate(b, "测试班", date).TryGetValue(Key(), out var rb) && rb.Source == "temp",
+        "场景B: 停用的 manual 不显示，应回退到 temp");
+
+    // 场景C（本次修复核心）：恢复后的 manual(UpdatedAt 仍旧) + temp(新) → 应选 manual
+    var c = new List<LessonOverride>
+    {
+        M("manual", false, date.AddHours(-2)),   // 恢复后未刷新时间
+        M("temp", false, date.AddHours(1))
+    };
+    Assert(OverrideExpander.MapForDate(c, "测试班", date).TryGetValue(Key(), out var rc2) && rc2.Source == "manual",
+        "场景C: 恢复后的 manual 即使 UpdatedAt 更旧也应压过 temp");
+
+    Console.WriteLine("PRECEDENCE DONE");
+}
+
+static void Assert(bool cond, string msg)
+{
+    Console.WriteLine((cond ? "  [PASS] " : "  [FAIL] ") + msg);
+    if (!cond) Environment.Exit(1);
 }

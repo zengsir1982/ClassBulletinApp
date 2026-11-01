@@ -102,8 +102,19 @@ public class UpgradeNoticeWindow : Window
     public static List<(string Title, string Detail)> BuildItems(AppSettingsSnapshot snap, string? fromVersion = null)
     {
         var items = new List<(string, string)>();
+        int from = ParseRelease(fromVersion);
 
-        // ===== 1.0.3 =====
+        // ===== 1.0.4 新增（角色权限可配）=====
+        items.Add(("管理员可配置班主任 / 电教管理员的权限",
+            "用户中心 →「管理账号」→「角色权限」，可勾选每个角色能做的事：编辑课表、作业与缺交名单、"
+          + "恢复被停用的调课、导入临时课表、总课表 / 清除 / 备份。\n"
+          + "★ 权限存在 users.json 里随数据包下发，只有「发布机」能改；其他机器打开此窗口是只读的。\n"
+          + "★「发布」和「管理用户」两项刻意不开放：发布一次影响 30 台且无法回滚，管理用户等于能给自己升管理员，整套权限会失效。\n"
+          + "★ 自动登录身份 local（电教管理员）请勿勾选「总课表 / 清除」类高危项，否则教室机一开机就带着重导全校数据的能力。"));
+
+        // ===== 1.0.3（从 1.0.3 及更早升上来才补，避免重复）=====
+        if (from < 3)
+        {
 
         // ① 身份变了（最容易"打不开设置"的一条，放最前面）
         items.Add(("开机默认身份改成「电教管理员」",
@@ -124,8 +135,10 @@ public class UpgradeNoticeWindow : Window
           + "选「覆盖」后，本机手工改的调课在同步时会被停用（不会删除），"
           + "随时可以在「数据管理 → 恢复被主机停用的本机调课」一键恢复。"));
 
-        // ===== 1.0.2（跳版本升级时补上）=====
-        if (NeedsLegacyItems(fromVersion))
+        }   // 结束 1.0.3 历史块
+
+        // ===== 1.0.2（从 1.0.2 及更早升上来才补）=====
+        if (from < 2)
         {
             string migrated = string.IsNullOrWhiteSpace(snap.MigratedAt)
                 ? ""
@@ -156,21 +169,18 @@ public class UpgradeNoticeWindow : Window
     }
 
     /// <summary>
-    /// 上一次提示停在 1.0.1 或更早（或从未提示过）时，把 1.0.2 的说明也带上。
-    /// <para>★ 注意版本号是四段式 <c>1.0.2.0</c>：发布号在 <see cref="Version.Build"/> 位，
-    /// <see cref="Version.Minor"/> 恒为 0，按 Minor 判会一直成立（踩过一次）。</para>
-    /// 解析失败按"新装、不需要"处理 —— 别让一条版本号把更新说明卡死。
+    /// 解析"上一次提示停在哪个版本"，决定要不要把历史说明带上。
+    /// ★ 版本号是四段式 <c>1.0.x.0</c>：发布号在 <see cref="Version.Build"/> 位，
+    /// <see cref="Version.Minor"/> 恒为 0，按 Minor 判会一直成立（踩过一次）。
+    /// <see langword="null"/> 或解析失败按"新装、不需要旧说明"处理 —— 别让一条版本号把更新说明卡死。
     /// </summary>
-    static bool NeedsLegacyItems(string? fromVersion)
+    static int ParseRelease(string? fromVersion)
     {
-        if (string.IsNullOrWhiteSpace(fromVersion)) return false;
-        if (!Version.TryParse(fromVersion.Trim(), out var v)) return false;
-
-        // 1.0.x：x 在 Build 位；更老的 0.x 也一并按"需要补说明"处理
-        if (v.Major < 1) return true;
-        if (v.Major > 1) return false;                 // 将来 1.1.x 之后不必再补 1.0.2 的说明
-        int release = v.Build >= 0 ? v.Build : 0;
-        return release < 2;
+        if (string.IsNullOrWhiteSpace(fromVersion)) return int.MaxValue;   // 新装：不补历史
+        if (!Version.TryParse(fromVersion.Trim(), out var v)) return int.MaxValue;
+        if (v.Major < 1) return 0;               // 0.x 系列：补全部历史
+        if (v.Major > 1) return int.MaxValue;     // 将来 2.0 之后不必再补 1.0.x
+        return v.Build >= 0 ? v.Build : 0;
     }
 }
 

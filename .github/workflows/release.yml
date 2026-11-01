@@ -1,0 +1,77 @@
+name: 发布 Windows 安装包
+
+# 触发方式：推送形如 v1.0.0 的标签时自动构建并把产物挂到 GitHub Release
+# （Gitee 不会执行本文件；Gitee 那边按 发布指南.md 手动上传同样两个文件即可）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 发布自包含 win-x64
+        run: dotnet publish ClassBulletinApp/ClassBulletinApp/ClassBulletinApp.csproj -c Release -r win-x64 --self-contained -o dist/portable
+
+      - name: 放入使用说明
+        run: Copy-Item "installer\使用说明.txt" "dist\portable\使用说明.txt" -Force
+        shell: pwsh
+
+      - name: 打免安装包
+        run: Compress-Archive -Path dist/portable/* -DestinationPath "dist/ClassBulletinApp-${{ github.ref_name }}-portable-win-x64.zip"
+        shell: pwsh
+
+      - name: 编译安装版（runner 预装 Inno Setup 时）
+        # 没有 Inno Setup 就跳过，安装版由本机构建后手动上传到 Release
+        run: |
+          $cands = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+          )
+          $iscc = $cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($iscc) {
+            Write-Host "使用 $iscc"
+            & $iscc "installer\ClassBulletinApp.iss"
+          } else {
+            Write-Host "runner 未预装 Inno Setup，跳过安装版"
+          }
+        shell: pwsh
+
+      - name: 生成校验值
+        run: |
+          $files = Get-ChildItem dist -File -Include *.zip,*.exe -Recurse
+          $files | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } |
+            Out-File -Encoding utf8 dist/SHA256SUMS.txt
+        shell: pwsh
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $assets = @()
+          $assets += (Get-ChildItem dist -File -Filter *.zip | Select-Object -ExpandProperty FullName)
+          $assets += (Get-ChildItem dist -File -Filter *.exe | Select-Object -ExpandProperty FullName)
+          $assets += (Get-ChildItem dist -File -Filter SHA256SUMS.txt | Select-Object -ExpandProperty FullName)
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "班级公布栏 $tag" --notes-file RELEASE_NOTES.md
+          } else {
+            gh release edit $tag --notes-file RELEASE_NOTES.md
+          }
+          if ($assets.Count -gt 0) { gh release upload $tag $assets --clobber }
+        shell: pwsh
