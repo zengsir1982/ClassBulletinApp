@@ -273,7 +273,16 @@ public static class Store
     public static UserBook LoadUsers()
     {
         var book = ReadJsonOrNull<UserBook>(UsersPath);
-        if (book != null && book.Users.Count > 0) return book;
+        if (book != null && book.Users.Count > 0)
+        {
+            // ★ 升级自愈：老 users.json（Schema &lt; 4）里没有「科任老师」这一条，
+            //   而 PolicyFor 在 Schema&gt;=2 时"缺 = 全关"，于是管理员把某个账号设成科任老师后
+            //   他会连作业都改不了，界面上还看不出哪里错了。读取时就补齐（只补缺、不覆盖），
+            //   有改动才落盘，避免每次启动都重写用户表。
+            if (book.EnsurePolicyDefaults())
+                ForceWrite(UsersPath, JsonSerializer.Serialize(book, Opt));
+            return book;
+        }
 
         book = MigrateFromSingleAccount();
 

@@ -175,7 +175,9 @@ public class UserManagerWindow : Window
     {
         _list.Items.Clear();
         foreach (var u in _book.Users
-                     .OrderBy(u => u.Role == UserRole.Admin ? 0 : u.Role == UserRole.Teacher ? 1 : 2)
+                     .OrderBy(u => u.Role == UserRole.Admin ? 0
+                                 : u.Role == UserRole.Teacher ? 1
+                                 : u.Role == UserRole.SubjectTeacher ? 2 : 3)
                      .ThenBy(u => u.Username, StringComparer.Ordinal))
         {
             // 显示名留空、或者就是角色名 / 用户名本身的，一律显示"—"：
@@ -205,11 +207,12 @@ public class UserManagerWindow : Window
 
         int admins = _book.AdminCount;
         _hint.Text = $"共 {_book.Users.Count} 个账号（管理员 {admins} 个）。"
-            + "管理员可改全部数据并发布（恒全权，不可配置）；班主任 / 电教管理员能做什么，"
+            + "管理员可改全部数据并发布（恒全权，不可配置）；班主任 / 科任老师 / 电教管理员能做什么，"
             + "由下方「角色权限…」决定，改完随数据包下发到各教室机。\n"
             + $"当前：班主任 = {_book.PolicyFor(UserRole.Teacher).Describe()}；"
+            + $"科任老师 = {_book.PolicyFor(UserRole.SubjectTeacher).Describe()}；"
             + $"电教管理员 = {_book.PolicyFor(UserRole.Student).Describe()}。\n"
-            + "★ 开机自动登录只允许「班主任 / 电教管理员」，管理员账号永不参与自动登录 —— "
+            + "★ 开机自动登录只允许「班主任 / 科任老师 / 电教管理员」，管理员账号永不参与自动登录 —— "
             + "否则谁坐到这台电脑前谁就有管理员权限。";
     }
 
@@ -340,9 +343,9 @@ public class UserManagerWindow : Window
                 .Split(new[] { ',', '，', '、', ';', '；', '/', ' ' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => s.Trim()).Where(s => s.Length > 0).Distinct().ToList();
 
-            if (role == UserRole.Teacher && classes.Count == 0)
+            if ((role == UserRole.Teacher || role == UserRole.SubjectTeacher) && classes.Count == 0)
             {
-                errors.Add($"第 {i + 2} 行「{user}」是班主任但没填班级，已跳过");
+                errors.Add($"第 {i + 2} 行「{user}」是{UserRole.Display(role)}但没填班级，已跳过");
                 skipped++;
                 continue;
             }
@@ -404,6 +407,7 @@ public class UserManagerWindow : Window
         {
             "管理员" or "admin" or "administrator" => UserRole.Admin,
             "班主任" or "teacher" or "老师" => UserRole.Teacher,
+            "科任老师" or "科任" or "任课老师" or "subject" or "subjectteacher" or "subject_teacher" => UserRole.SubjectTeacher,
             "学生" or "电教" or "电教管理员" or "student" or "local" => UserRole.Student,
             _ => null
         };

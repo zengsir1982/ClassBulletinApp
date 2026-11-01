@@ -127,6 +127,8 @@
                                                 ToolTip="透明度、置顶、鼠标穿透、自动靠边隐藏，以及恢复默认位置"/>
                                         <Button x:Name="BtnSettings" Content="启动选项…" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"
                                                 ToolTip="开机自启、启动即全屏 / 锁定、启动时自动弹出哪些悬浮窗"/>
+                                        <Button x:Name="BtnTrayMenu" Content="任务栏菜单…" Style="{StaticResource TabBtn}" Click="BtnTrayMenu_Click"
+                                                ToolTip="自定义托盘图标右键菜单：默认只保留「打开控制面板 / 用户中心 / 退出」，可自行增删与改名"/>
                                     </WrapPanel>
                                     <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
                                               FontSize="14" Foreground="#1F2A37" Margin="2,6,0,0" Click="ChkMaxHide_Click"/>

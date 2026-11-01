@@ -52,7 +52,7 @@ public partial class App : System.Windows.Application
             // 诊断模式不写任何文件：否则跑一次截图就把用户表迁移做了、下次启动身份都变了
             Store.SuppressWrites = true;
 
-            // 环境变量 CB_DIAG_ROLE=student|teacher|admin 可换预览身份：
+            // 环境变量 CB_DIAG_ROLE=student|teacher|subject|admin 可换预览身份：
             // 受限身份的界面（灰按钮 / tooltip）必须能截出来目视确认，
             // 否则"管理员截图里按钮全是亮的"，权限是不是真生效了看不出来。
             string diagRole = (Environment.GetEnvironmentVariable("CB_DIAG_ROLE") ?? "").Trim().ToLowerInvariant();
@@ -65,8 +65,9 @@ public partial class App : System.Windows.Application
                 DisplayName = "诊断预览",
                 Role = diagRole
             };
-            // 班主任身份要真的能改到某个班，否则截图里连本班都是灰的，看不出区别
-            if (diagRole == ScheduleCore.Models.UserRole.Teacher)
+            // 班主任 / 科任老师身份要真的能改到某个班，否则截图里连本班都是灰的，看不出区别
+            if (diagRole == ScheduleCore.Models.UserRole.Teacher
+                || diagRole == ScheduleCore.Models.UserRole.SubjectTeacher)
             {
                 try
                 {
@@ -150,6 +151,7 @@ public partial class App : System.Windows.Application
                     "usermanager" => new UserManagerWindow(),
                     "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
                     "rolepolicy" => new RolePolicyWindow(Store.LoadUsers()),
+                    "traymenu" => new TrayMenuWindow(),
                     "upgradenotice" => new UpgradeNoticeWindow(
                         "1.0.4.0",
                         UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.0.0")),

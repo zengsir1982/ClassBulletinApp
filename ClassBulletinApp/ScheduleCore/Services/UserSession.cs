@@ -39,6 +39,8 @@ public static class UserSession
 
     public static bool IsTeacher => string.Equals(Role, UserRole.Teacher, StringComparison.Ordinal);
 
+    public static bool IsSubjectTeacher => string.Equals(Role, UserRole.SubjectTeacher, StringComparison.Ordinal);
+
     public static bool IsStudent => string.Equals(Role, UserRole.Student, StringComparison.Ordinal);
 
     /// <summary>当前身份的策略快照（只读用；改配置请走 <c>Store.SaveUsers</c>）。</summary>
@@ -115,8 +117,15 @@ public static class UserSession
         return _current.OwnsClass(className);
     }
 
-    /// <summary>能否导入总课表 / 清除调课 / 备份恢复 / 导入导出数据包（影响整份数据）。</summary>
+    /// <summary>能否导入总课表 / 单班 / 教师课表 / 清除调课（会整份覆盖全年级数据）。</summary>
     public static bool CanManageData => IsAdmin || _policy.ManageData;
+
+    /// <summary>
+    /// 能否导入 / 导出数据包、备份与恢复本机数据。
+    /// <para>★ 与 <see cref="CanManageData"/> 拆开：班主任要能备份和收发数据包，
+    /// 但"导入总课表 / 清除调课"会整份覆盖全校数据，必须留在管理员手里。</para>
+    /// </summary>
+    public static bool CanManagePackage => IsAdmin || _policy.ManagePackage;
 
     /// <summary>能否导入临时课表 / 教师课表（每周常规操作，影响面比总课表小）。</summary>
     public static bool CanImportTemp => IsAdmin || _policy.ImportTemp;
@@ -140,6 +149,34 @@ public static class UserSession
 
     /// <summary>能否编辑作业公示 / 缺交名单。</summary>
     public static bool CanEditBoard => IsAdmin || _policy.EditBoard;
+
+    /// <summary>
+    /// 能否编辑指定班级的作业公示 / 缺交名单。
+    /// <para>★ 作业公示 / 缺交名单是"本机显示的那一个班"的板报，
+    /// 所以范围同样受 <see cref="AppUser.ClassNames"/> 限制：科任老师只能改自己任教的班。
+    /// 没填班级的账号即使开了能力，也什么都改不了。</para>
+    /// </summary>
+    public static bool CanEditBoardFor(string? className)
+    {
+        if (_current == null) return false;
+        if (IsAdmin) return true;
+        if (!_policy.EditBoard) return false;
+        return _current.OwnsClass(className);
+    }
+
+    /// <summary>
+    /// 能否发布全校通知（随包下发到所有教室机）。
+    /// <para>★ 默认只对管理员开放；班主任 / 电教管理员需显式授权。
+    /// 关闭时仍可发"本班通知"（只留本机，不影响其他机器）。</para>
+    /// </summary>
+    public static bool CanSendSchoolNotice => IsAdmin || _policy.SendSchoolNotice;
+
+    /// <summary>
+    /// 能否修改本机自动更新设置（共享文件夹 / U 盘 / FTP 来源、是否启用自动更新）。
+    /// <para>★ <b>默认所有角色都开</b>（见 <see cref="RolePolicy.ManageUpdate"/>）：
+    /// 教室机开机自动登录的是电教管理员，这项一旦被关，改了共享文件夹路径就再也收不到更新。</para>
+    /// </summary>
+    public static bool CanManageUpdate => IsAdmin || _policy.ManageUpdate;
 
     /// <summary>能否操作本机显示（开关便签、切显示日、全屏、锁定）—— 所有人，含游客。</summary>
     /// <remarks>
@@ -173,7 +210,11 @@ public static class UserSession
 
     public static string DenyManageData => IsGuest
         ? "当前是游客模式，不能修改数据。请用管理员账号登录。"
-        : $"当前身份（{RoleDisplay}）没有「导入总课表 / 清除 / 备份」的权限，请让管理员操作。";
+        : $"当前身份（{RoleDisplay}）没有「导入总课表 / 清除调课」的权限，请让管理员操作。";
+
+    public static string DenyManagePackage => IsGuest
+        ? "当前是游客模式，不能收发数据包。请用账号登录。"
+        : $"当前身份（{RoleDisplay}）没有「导入导出数据包 / 备份恢复」的权限，请让管理员在「用户管理 → 角色权限」里开通。";
 
     public static string DenyImportTemp => IsGuest
         ? "当前是游客模式，不能导入数据。请用账号登录。"
@@ -181,7 +222,31 @@ public static class UserSession
 
     public static string DenyRestoreSuspended => $"当前身份（{RoleDisplay}）不能恢复调课记录。";
 
+    /// <summary>不能编辑作业 / 缺交时的提示（区分"没这项能力"与"不是这个班"）。</summary>
+    public static string DenyEditBoard(string? className)
+    {
+        if (IsGuest) return "当前是游客模式，不能编辑作业 / 缺交名单。请用账号登录后再改。";
+
+        if (!_policy.EditBoard)
+            return $"当前身份（{RoleDisplay}）没有编辑作业 / 缺交名单的权限，请让管理员在「用户管理 → 角色权限」里开通。";
+
+        if (_current != null && _current.ClassNames.Count == 0)
+            return $"你登录的账号（{_current.Caption}）还没有指定班级，所以改不了任何班的作业。"
+                 + "请让管理员在「用户管理」里给这个账号填上班级。";
+
+        return $"你登录的账号（{_current?.Caption ?? RoleDisplay}）只能编辑自己任教班级的作业 / 缺交名单，"
+             + $"当前显示的是「{className}」。";
+    }
+
     public static string DenyPublish => $"当前身份（{RoleDisplay}）不能发布数据或修改同步策略，请用管理员账号登录。";
+
+    public static string DenySendSchoolNotice => IsGuest
+        ? "当前是游客模式，不能发布通知。请用账号登录。"
+        : $"当前身份（{RoleDisplay}）没有发布全校通知的权限，只能发本班通知；如需全校通知请让管理员在「用户管理 → 角色权限」里开通。";
+
+    public static string DenyManageUpdate => IsGuest
+        ? "当前是游客模式，不能修改更新设置。请用账号登录。"
+        : $"当前身份（{RoleDisplay}）不能修改自动更新设置，请让管理员操作。";
 }
 
 /// <summary>重新绑定身份的结果。</summary>

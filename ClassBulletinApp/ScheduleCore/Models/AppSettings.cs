@@ -272,8 +272,13 @@ public class AppSettings
     /// </summary>
     public int UpdateIntervalMinutes { get; set; } = 30;
 
-    /// <summary>发现新版本时是否先弹窗确认（false = 静默自动应用）。</summary>
-    public bool UpdateConfirmBeforeApply { get; set; } = true;
+    /// <summary>
+    /// 发现新版本时是否先弹窗确认（false = 静默自动应用）。
+    /// <para>★ 默认 <c>false</c>：教室屏是无人值守的，后台检查发现新版本必须直接应用，
+    /// 否则会"发现却不更新"（见 <see cref="MainWindow"/> 的 silent 分支修复）。
+    /// 想让人确认时再打开这项即可（仅影响手动点「立即检查更新」，后台永远自动应用）。</para>
+    /// </summary>
+    public bool UpdateConfirmBeforeApply { get; set; } = false;
 
     /// <summary>启动后延迟多少秒开始第一次检查（错开 30 台同时拉取）。</summary>
     public int UpdateStartupDelaySeconds { get; set; } = 30;
@@ -323,6 +328,91 @@ public class AppSettings
 
     /// <summary>上一次检查的结果描述（显示在数据管理页，便于排查）。</summary>
     public string LastUpdateCheckInfo { get; set; } = "";
+
+    /// <summary>
+    /// 任务栏图标右键菜单里的项目（可自定义文字、顺序、取舍）。
+    /// <para>★ 空列表 = 从未配置过 → 用 <see cref="TrayCommands.Defaults"/> 的内置三项。
+    /// 一旦用户在「任务栏菜单…」里保存过，就以这里的顺序为准。</para>
+    /// </summary>
+    public System.Collections.Generic.List<TrayMenuItem> TrayMenuItems { get; set; } = new();
+}
+
+/// <summary>任务栏右键菜单里的一项。</summary>
+public class TrayMenuItem
+{
+    /// <summary>显示文字；留空则用该命令的默认文字。</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>命令标识，取值见 <see cref="TrayCommands"/>。</summary>
+    public string Command { get; set; } = "";
+
+    public TrayMenuItem Clone() => new() { Text = Text, Command = Command };
+}
+
+/// <summary>
+/// 任务栏右键菜单可用的命令清单。
+/// <para>★ 菜单项只存"命令标识"，不存代码 / 路径：教室机之间会同步设置，
+/// 存可执行路径等于给了别人一个远程执行入口。</para>
+/// </summary>
+public static class TrayCommands
+{
+    public const string Separator = "separator";
+    public const string Panel = "panel";
+    public const string UserCenter = "user";
+    public const string ToggleSchedule = "toggle_schedule";
+    public const string ToggleNotice = "toggle_notice";
+    public const string ToggleHomework = "toggle_homework";
+    public const string ToggleMissing = "toggle_missing";
+    public const string BackdropSchedule = "backdrop_schedule";
+    public const string BackdropHomework = "backdrop_homework";
+    public const string BackdropMissing = "backdrop_missing";
+    public const string Exit = "exit";
+
+    /// <summary>一条命令的默认文字与说明。</summary>
+    public sealed class Def
+    {
+        public string Id = "";
+        public string Label = "";
+        public string Hint = "";
+    }
+
+    public static readonly Def[] All =
+    {
+        new() { Id = Panel,           Label = "打开控制面板", Hint = "显示主窗口" },
+        new() { Id = UserCenter,      Label = "用户中心",     Hint = "显示主窗口并切到「用户中心」标签" },
+        new() { Id = Separator,       Label = "—— 分隔线 ——", Hint = "只显示一条横线" },
+        new() { Id = ToggleSchedule,  Label = "课表悬浮",     Hint = "开 / 关课表悬浮窗（勾选表示当前已开）" },
+        new() { Id = ToggleNotice,    Label = "通知悬浮",     Hint = "开 / 关顶部通知跑马灯" },
+        new() { Id = ToggleHomework,  Label = "作业悬浮",     Hint = "开 / 关作业公示便签" },
+        new() { Id = ToggleMissing,   Label = "缺交悬浮",     Hint = "开 / 关缺交名单便签" },
+        new() { Id = BackdropSchedule, Label = "当天课表 → 桌面背景", Hint = "把当天课表画到桌面壁纸上" },
+        new() { Id = BackdropHomework, Label = "作业公示 → 桌面背景", Hint = "把作业公示画到桌面壁纸上" },
+        new() { Id = BackdropMissing,  Label = "缺交名单 → 桌面背景", Hint = "把缺交名单画到桌面壁纸上" },
+        new() { Id = Exit,            Label = "退出",         Hint = "完全退出程序（含所有悬浮窗）" }
+    };
+
+    public static Def? Find(string? id)
+    {
+        string key = (id ?? "").Trim();
+        foreach (var d in All)
+            if (string.Equals(d.Id, key, System.StringComparison.OrdinalIgnoreCase)) return d;
+        return null;
+    }
+
+    public static bool IsValid(string? id) => Find(id) != null;
+
+    public static string LabelOf(string? id) => Find(id)?.Label ?? "（未知命令）";
+
+    public static string HintOf(string? id) => Find(id)?.Hint ?? "";
+
+    /// <summary>内置默认菜单：打开控制面板 / 用户中心 / 退出（用户没配过时用它）。</summary>
+    public static System.Collections.Generic.List<TrayMenuItem> Defaults() => new()
+    {
+        new TrayMenuItem { Command = Panel },
+        new TrayMenuItem { Command = UserCenter },
+        new TrayMenuItem { Command = Separator },
+        new TrayMenuItem { Command = Exit }
+    };
 }
 
 /// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口项。</summary>

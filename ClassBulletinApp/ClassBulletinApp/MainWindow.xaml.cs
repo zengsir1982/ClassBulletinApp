@@ -34,10 +34,6 @@ public partial class MainWindow : Window
     // 桌面最大化窗口自动隐藏
     private readonly DispatcherTimer _winTimer;
     private bool _maxActive;
-    private System.Windows.Forms.ToolStripMenuItem? _miWp;
-    private System.Windows.Forms.ToolStripMenuItem? _miWpHw;
-    private System.Windows.Forms.ToolStripMenuItem? _miWpMs;
-    private System.Windows.Forms.ToolStripMenuItem? _miCustom;
 
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
@@ -98,8 +94,11 @@ public partial class MainWindow : Window
                 TxtStatus.Text = "尚未导入课表，请到「数据管理」导入全校总课程表 Excel 文件。";
             }
 
+            // 登录账号所属班级优先：电教管理员 / 班主任 / 科任老师默认显示自己班（需求三）
+            bool ownApplied = ApplyOwnClassDefault();
+
             // F5：用户名为班级名时，默认显示该班课表（在已导入班级中匹配）
-            if (!string.IsNullOrEmpty(settings.Username) && ClassNames.Contains(settings.Username))
+            if (!ownApplied && !string.IsNullOrEmpty(settings.Username) && ClassNames.Contains(settings.Username))
             {
                 settings.SelectedClass = settings.Username;
                 settings.ScheduleKind = "Class";
@@ -134,7 +133,6 @@ public partial class MainWindow : Window
             ReloadNotes();
             ReloadHomework();
             ReloadMissing();
-            ReloadCustomNotes();
             ReloadNotifStyle();
             PopulateThemeCombo(settings.Theme);
             RefreshTeacherCombo();
@@ -158,7 +156,7 @@ public partial class MainWindow : Window
         try
         {
             BackdropService.Start();
-            AppEvents.BackdropChanged += UpdateTrayBackdropText;
+            AppEvents.BackdropChanged += UpdateTrayMenuState;
             AppEvents.BackdropChanged += UpdateMsWpButton;
             AppEvents.HomeworkChanged += ReloadHomework;
             AppEvents.MissingChanged += ReloadMissing;
@@ -411,6 +409,7 @@ public partial class MainWindow : Window
     private void ApplyPermissions()
     {
         bool canData = UserSession.CanManageData;
+        bool canPack = UserSession.CanManagePackage;
         bool canTemp = UserSession.CanImportTemp;
         bool canPublish = UserSession.CanPublish;
 
@@ -425,9 +424,11 @@ public partial class MainWindow : Window
         Set(BtnImport, canData, UserSession.DenyManageData);
         Set(BtnClearOverrides, canData, UserSession.DenyManageData);
         Set(BtnClearImported, canData, UserSession.DenyManageData);
-        Set(BtnExportPackage, canData, UserSession.DenyManageData);
-        Set(BtnImportPackage, canData, UserSession.DenyManageData);
-        Set(BtnBackup, canData, UserSession.DenyManageData);
+
+        // 数据包收发与备份恢复：不动别的机器，班主任默认有（需求二）
+        Set(BtnExportPackage, canPack, UserSession.DenyManagePackage);
+        Set(BtnImportPackage, canPack, UserSession.DenyManagePackage);
+        Set(BtnBackup, canPack, UserSession.DenyManagePackage);
 
         // ★ 单班导入与教师课表刻意留在「总课表」权限下，不跟临时课表一起放开：
         //   这两个入口都能选任意班级 / 任意教师，一旦给班主任开了，
@@ -439,12 +440,27 @@ public partial class MainWindow : Window
         Set(BtnImportTemp, canTemp, UserSession.DenyImportTemp);
 
         // 发布 / 同步策略（一次点击影响 30 台机器）；名单管理能给自己升管理员 —— 这两项恒只给管理员
-        Set(BtnUpdateSettings, canPublish, UserSession.DenyPublish);
+        // ★ 自动更新设置（BtnUpdateSettings）走 CanManageUpdate：所有角色默认都能改本机更新来源，
+        //   否则教室机改了共享文件夹就再也收不到更新（需求三）。
+        Set(BtnUpdateSettings, UserSession.CanManageUpdate, UserSession.DenyManageUpdate);
         Set(BtnPublishNow, canPublish, UserSession.DenyPublish);
         Set(BtnManageUsers, UserSession.CanManageUsers, "只有管理员可以管理用户。");
 
+        // 发全校通知的勾选框：无权限时禁用并强制本班（需求一）。
+        // 防止电教管理员误发全校通知；无权限只能发本班，授权后可发全校。
+        if (ChkNewNoticeSchool != null)
+        {
+            bool canSchool = UserSession.CanSendSchoolNotice;
+            ChkNewNoticeSchool.IsEnabled = canSchool;
+            if (!canSchool) ChkNewNoticeSchool.IsChecked = false;
+            ChkNewNoticeSchool.ToolTip = canSchool ? null : UserSession.DenySendSchoolNotice;
+        }
+
         // 恢复本机被停用的调课（班主任默认有：那是他自己班的记录）
         Set(BtnRestoreSuspended, UserSession.CanRestoreSuspended, UserSession.DenyRestoreSuspended);
+
+        // 作业公示 / 缺交名单：范围受账号所属班级限制（科任老师只能改自己任教的班）
+        ApplyBoardPermissions();
 
         // 改自己的账号信息：游客没有账号可改（点了也只会报"未登录"）
         Set(BtnSaveUser, UserSession.Current != null, "游客模式没有账号可修改，请先切换/登录一个账号。");
@@ -467,6 +483,38 @@ public partial class MainWindow : Window
         // 会让用户以为是程序坏了，写清楚省一轮排查。
         if (TxtRoleLine != null)
             TxtRoleLine.Text = $"当前身份：{UserSession.Caption}　｜　可用权限：{UserSession.PolicySummary}";
+    }
+
+    /// <summary>
+    /// 当前真正在显示的班级。★ 以界面下拉为准、设置文件为兜底：
+    /// 诊断 / 游客模式下 SaveSettings 不落盘，只读文件会拿到上一次的旧班级。
+    /// </summary>
+    private string CurrentDisplayClass()
+        => (CbClass?.SelectedItem as string) ?? Store.LoadSettings().SelectedClass ?? "";
+
+    /// <summary>
+    /// 作业公示 / 缺交名单的入口开关。
+    /// <para>★ 这两块板报是"本机当前显示的那个班"的，所以除了看能力，还要看这个班在不在
+    /// 账号的 <see cref="AppUser.ClassNames"/> 里 —— 科任老师默认只能改自己任教的班。</para>
+    /// </summary>
+    private void ApplyBoardPermissions()
+    {
+        string cur = CurrentDisplayClass();
+        bool ok = UserSession.CanEditBoardFor(cur);
+        string deny = UserSession.DenyEditBoard(cur);
+
+        if (BtnEditHw != null)
+        {
+            BtnEditHw.IsEnabled = ok;
+            BtnEditHw.ToolTip = ok ? null : deny;
+            BtnEditHw.Opacity = ok ? 1.0 : 0.55;
+        }
+        if (BtnEditMs != null)
+        {
+            BtnEditMs.IsEnabled = ok;
+            BtnEditMs.ToolTip = ok ? null : deny;
+            BtnEditMs.Opacity = ok ? 1.0 : 0.55;
+        }
     }
 
     /// <summary>顶栏提示当前悬浮课表显示的是班级课表还是教师个人课表。</summary>
@@ -742,6 +790,12 @@ public partial class MainWindow : Window
 
     private void BtnEditMs_Click(object sender, RoutedEventArgs e)
     {
+        string showClass = CurrentDisplayClass();
+        if (!UserSession.CanEditBoardFor(showClass))
+        {
+            TxtStatus.Text = UserSession.DenyEditBoard(showClass);
+            return;
+        }
         try
         {
             var dlg = new MissingEditWindow(Store.LoadMissingBoard());
@@ -782,7 +836,7 @@ public partial class MainWindow : Window
             BackdropService.ToggleMissing(out string msg);
             TxtStatus.Text = msg;
             UpdateMsWpButton();
-            UpdateTrayBackdropText();
+            UpdateTrayMenuState();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
@@ -793,15 +847,6 @@ public partial class MainWindow : Window
 
     // ---------- 自定义便签（用户自建自由内容） ----------
     private readonly System.Collections.Generic.Dictionary<string, CustomNoteWindow> _customWins = new();
-
-    /// <summary>
-    /// 同步自定义便签状态。入口只有一个「＋ 新增 / 编辑自定义便签」按钮，
-    /// 新建 / 选择 / 删除都在编辑窗口内完成，所以这里只负责刷新托盘菜单与可见窗口。
-    /// </summary>
-    private void ReloadCustomNotes()
-    {
-        try { UpdateTrayCustomMenu(); } catch { }
-    }
 
     private void BtnToggleCustom_Click(object sender, RoutedEventArgs e)
     {
@@ -814,8 +859,6 @@ public partial class MainWindow : Window
             n.Visible = !n.Visible;
             Store.SaveSettings(s);
             if (n.Visible) ShowCustomNote(id); else HideCustomNote(id);
-            ReloadCustomNotes();
-            UpdateTrayCustomMenu();
         }
         catch (Exception ex) { TxtStatus.Text = "切换自定义便签失败：" + ex.Message; }
     }
@@ -884,7 +927,6 @@ public partial class MainWindow : Window
             foreach (var n in Store.LoadSettings().CustomNotes)
                 if (n.Visible && !_customWins.ContainsKey(n.Id)) ShowCustomNote(n.Id);
 
-            ReloadCustomNotes();
             TxtStatus.Text = ok ? "自定义便签已保存。" : "";
         }
         catch (Exception ex) { TxtStatus.Text = "自定义便签操作失败：" + ex.Message; }
@@ -907,8 +949,6 @@ public partial class MainWindow : Window
             var s = Store.LoadSettings();
             var n = s.CustomNotes.FirstOrDefault(x => x.Id == id);
             if (n != null) { n.Visible = false; Store.SaveSettings(s); }
-            ReloadCustomNotes();
-            UpdateTrayCustomMenu();
         };
         _customWins[id] = win;
         win.Show();
@@ -928,49 +968,7 @@ public partial class MainWindow : Window
 
     private void OnCustomNoteChanged(string? id)
     {
-        // 浮动窗已各自刷新；此处仅同步控制面板列表与托盘菜单
-        try { ReloadCustomNotes(); } catch { }
-        UpdateTrayCustomMenu();
-    }
-
-    private void UpdateTrayCustomMenu()
-    {
-        try
-        {
-            if (_miCustom == null) return;
-            _miCustom.DropDownItems.Clear();
-            var notes = Store.LoadSettings().CustomNotes ?? new System.Collections.Generic.List<CustomNote>();
-            if (notes.Count == 0)
-            {
-                var none = new System.Windows.Forms.ToolStripMenuItem("（暂无自定义便签）") { Enabled = false };
-                _miCustom.DropDownItems.Add(none);
-                return;
-            }
-            foreach (var n in notes)
-            {
-                var label = (string.IsNullOrWhiteSpace(n.Title) ? "（未命名）" : n.Title) + (n.Visible ? " · 显示中" : " · 已隐藏");
-                var mi = new System.Windows.Forms.ToolStripMenuItem(label, null, (_, _) => ToggleCustomFromTray(n.Id));
-                mi.Checked = n.Visible;
-                _miCustom.DropDownItems.Add(mi);
-            }
-        }
-        catch { }
-    }
-
-    private void ToggleCustomFromTray(string id)
-    {
-        try
-        {
-            var s = Store.LoadSettings();
-            var n = s.CustomNotes.FirstOrDefault(x => x.Id == id);
-            if (n == null) return;
-            n.Visible = !n.Visible;
-            Store.SaveSettings(s);
-            if (n.Visible) ShowCustomNote(id); else HideCustomNote(id);
-            ReloadCustomNotes();
-            UpdateTrayCustomMenu();
-        }
-        catch { }
+        // 浮动窗已各自刷新；托盘菜单里不再有便签子菜单，无需再同步。
     }
 
     private void BtnLayout_Click(object sender, RoutedEventArgs e)
@@ -1035,6 +1033,8 @@ public partial class MainWindow : Window
     }
 
     // ---------- 托盘 ----------
+    private System.Windows.Forms.ContextMenuStrip? _trayMenu;
+
     private void SetupTray()
     {
         _tray = new System.Windows.Forms.NotifyIcon
@@ -1043,64 +1043,112 @@ public partial class MainWindow : Window
             Text = "班级公布栏",
             Visible = true
         };
-        var menu = new System.Windows.Forms.ContextMenuStrip();
-        var miPanel = new System.Windows.Forms.ToolStripMenuItem("打开控制面板", null, (_, _) => ShowMainWindow());
-        var miUser = new System.Windows.Forms.ToolStripMenuItem("用户中心", null, (_, _) => { ShowMainWindow(); MainTabs.SelectedIndex = 6; });
-        var miSch = new System.Windows.Forms.ToolStripMenuItem("课表悬浮：开/关", null, (_, _) => BtnToggleSch_Click(this, new RoutedEventArgs()));
-        var miNot = new System.Windows.Forms.ToolStripMenuItem("通知悬浮：开/关", null, (_, _) => BtnToggleNot_Click(this, new RoutedEventArgs()));
-        var miHw = new System.Windows.Forms.ToolStripMenuItem("作业悬浮：开/关", null, (_, _) => BtnToggleHw_Click(this, new RoutedEventArgs()));
-        var miMs = new System.Windows.Forms.ToolStripMenuItem("缺交悬浮：开/关", null, (_, _) => BtnToggleMs_Click(this, new RoutedEventArgs()));
-        _miWp = new System.Windows.Forms.ToolStripMenuItem("当天课表 → 桌面背景", null, (_, _) => ToggleBackdropSchedule());
-        _miWpHw = new System.Windows.Forms.ToolStripMenuItem("作业公示 → 桌面背景", null, (_, _) => ToggleBackdropHomework());
-        _miWpMs = new System.Windows.Forms.ToolStripMenuItem("缺交名单 → 桌面背景", null, (_, _) => ToggleBackdropMissing());
-        _miCustom = new System.Windows.Forms.ToolStripMenuItem("自定义便签");
-        var miExit = new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp());
-        menu.Items.AddRange(new System.Windows.Forms.ToolStripItem[]
-        {
-            miPanel, miUser, miSch, miNot, miHw, miMs,
-            new System.Windows.Forms.ToolStripSeparator(),
-            _miWp, _miWpHw, _miWpMs,
-            new System.Windows.Forms.ToolStripSeparator(),
-            _miCustom,
-            new System.Windows.Forms.ToolStripSeparator(),
-            miExit
-        });
-        menu.Opening += (_, _) => { UpdateTrayBackdropText(); UpdateTrayCustomMenu(); };
-        _tray.ContextMenuStrip = menu;
+        RebuildTrayMenu();
         _tray.DoubleClick += (_, _) => ShowMainWindow();
-        UpdateTrayBackdropText();
-        UpdateTrayCustomMenu();
     }
 
-    /// <summary>同步托盘菜单中「当天课表 / 作业公示 → 桌面背景」的勾选状态。</summary>
-    private void UpdateTrayBackdropText()
+    /// <summary>
+    /// 按设置重建托盘右键菜单。
+    /// <para>★ 菜单项来自 <see cref="AppSettings.TrayMenuItems"/>（用户在「任务栏菜单…」里配），
+    /// 默认只留「打开控制面板 / 用户中心 / 退出」—— 以前那排开关和自定义便签子菜单
+    /// 在控制面板里都有，塞进右键只会让菜单又长又容易点错。</para>
+    /// </summary>
+    private void RebuildTrayMenu()
+    {
+        if (_tray == null) return;
+
+        var s = Store.LoadSettings();
+        var items = s.TrayMenuItems != null && s.TrayMenuItems.Count > 0
+            ? s.TrayMenuItems
+            : TrayCommands.Defaults();
+
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        foreach (var it in items)
+        {
+            string cmd = (it.Command ?? "").Trim();
+            if (!TrayCommands.IsValid(cmd)) continue;   // 手改 json 写错的不让它炸掉整个菜单
+
+            if (cmd == TrayCommands.Separator)
+            {
+                menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+                continue;
+            }
+
+            string text = string.IsNullOrWhiteSpace(it.Text) ? TrayCommands.LabelOf(cmd) : it.Text.Trim();
+            menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem(text, null, (_, _) => RunTrayCommand(cmd))
+            {
+                Tag = cmd,
+                ToolTipText = TrayCommands.HintOf(cmd)
+            });
+        }
+
+        // 兜底：配置被删光 / 写坏时至少留一条「退出」，否则托盘图标点不出任何东西，程序关不掉
+        bool hasExit = false;
+        foreach (System.Windows.Forms.ToolStripItem i in menu.Items)
+            if (i is System.Windows.Forms.ToolStripMenuItem m && (m.Tag as string) == TrayCommands.Exit) hasExit = true;
+        if (!hasExit)
+        {
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("退出", null, (_, _) => ExitApp())
+            {
+                Tag = TrayCommands.Exit
+            });
+        }
+
+        menu.Opening += (_, _) => UpdateTrayMenuState();
+
+        var old = _tray.ContextMenuStrip;
+        _tray.ContextMenuStrip = menu;
+        old?.Dispose();
+        _trayMenu = menu;
+        UpdateTrayMenuState();
+    }
+
+    /// <summary>执行托盘菜单里的一条命令（标识见 <see cref="TrayCommands"/>）。</summary>
+    private void RunTrayCommand(string cmd)
+    {
+        switch (cmd)
+        {
+            case TrayCommands.Panel: ShowMainWindow(); break;
+            case TrayCommands.UserCenter: ShowMainWindow(); MainTabs.SelectedIndex = 6; break;
+            case TrayCommands.ToggleSchedule: BtnToggleSch_Click(this, new RoutedEventArgs()); break;
+            case TrayCommands.ToggleNotice: BtnToggleNot_Click(this, new RoutedEventArgs()); break;
+            case TrayCommands.ToggleHomework: BtnToggleHw_Click(this, new RoutedEventArgs()); break;
+            case TrayCommands.ToggleMissing: BtnToggleMs_Click(this, new RoutedEventArgs()); break;
+            case TrayCommands.BackdropSchedule: ToggleBackdropSchedule(); break;
+            case TrayCommands.BackdropHomework: ToggleBackdropHomework(); break;
+            case TrayCommands.BackdropMissing: ToggleBackdropMissing(); break;
+            case TrayCommands.Exit: ExitApp(); break;
+        }
+    }
+
+    /// <summary>打开「任务栏菜单」编辑器；保存后立刻重建（不必重启程序）。</summary>
+    private void BtnTrayMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var w = new TrayMenuWindow { Owner = this };
+        if (w.ShowDialog() == true) RebuildTrayMenu();
+    }
+
+    /// <summary>同步托盘菜单里各开关项的勾选状态（当前开着的打勾）。</summary>
+    private void UpdateTrayMenuState()
     {
         try
         {
+            if (_trayMenu == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
-            if (_miWp != null)
+            foreach (System.Windows.Forms.ToolStripItem item in _trayMenu.Items)
             {
-                _miWp.Checked = b.ShowSchedule;
-                _miWp.Text = b.ShowSchedule ? "当天课表 → 桌面背景（开）" : "当天课表 → 桌面背景（关）";
-                _miWp.ToolTipText = b.ShowSchedule
-                    ? "点击关闭：从桌面背景移除当天课表"
-                    : "点击开启：把当天课表画到桌面壁纸上（位于所有窗口之下）";
-            }
-            if (_miWpHw != null)
-            {
-                _miWpHw.Checked = b.ShowHomework;
-                _miWpHw.Text = b.ShowHomework ? "作业公示 → 桌面背景（开）" : "作业公示 → 桌面背景（关）";
-                _miWpHw.ToolTipText = b.ShowHomework
-                    ? "点击关闭：从桌面背景移除作业公示"
-                    : "点击开启：把作业公示画到桌面壁纸上";
-            }
-            if (_miWpMs != null)
-            {
-                _miWpMs.Checked = b.ShowMissing;
-                _miWpMs.Text = b.ShowMissing ? "缺交名单 → 桌面背景（开）" : "缺交名单 → 桌面背景（关）";
-                _miWpMs.ToolTipText = b.ShowMissing
-                    ? "点击关闭：从桌面背景移除缺交作业名单"
-                    : "点击开启：把缺交作业名单便签画到桌面壁纸上";
+                if (item is not System.Windows.Forms.ToolStripMenuItem mi) continue;
+                switch (mi.Tag as string)
+                {
+                    case TrayCommands.ToggleSchedule: mi.Checked = _schOn; break;
+                    case TrayCommands.ToggleNotice: mi.Checked = _notOn; break;
+                    case TrayCommands.ToggleHomework: mi.Checked = _hwOn; break;
+                    case TrayCommands.ToggleMissing: mi.Checked = _msOn; break;
+                    case TrayCommands.BackdropSchedule: mi.Checked = b.ShowSchedule; break;
+                    case TrayCommands.BackdropHomework: mi.Checked = b.ShowHomework; break;
+                    case TrayCommands.BackdropMissing: mi.Checked = b.ShowMissing; break;
+                }
             }
         }
         catch { }
@@ -1112,7 +1160,7 @@ public partial class MainWindow : Window
         {
             BackdropService.ToggleMissing(out string msg);
             TxtStatus.Text = msg;
-            UpdateTrayBackdropText();
+            UpdateTrayMenuState();
             UpdateMsWpButton();
             AppEvents.RaiseBackdropChanged();
         }
@@ -1128,7 +1176,7 @@ public partial class MainWindow : Window
         {
             BackdropService.ToggleHomework(out string msg);
             TxtStatus.Text = msg;
-            UpdateTrayBackdropText();
+            UpdateTrayMenuState();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
@@ -1143,7 +1191,7 @@ public partial class MainWindow : Window
         {
             BackdropService.ToggleSchedule(out string msg);
             TxtStatus.Text = msg;
-            UpdateTrayBackdropText();
+            UpdateTrayMenuState();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)
@@ -1299,6 +1347,8 @@ public partial class MainWindow : Window
             //   读到的是改之前的旧文件，刚改的角色 / 权限就不生效了。
             UserSession.SignIn(acc, book);
             ApplyPermissions();
+            // 账号填了班级就顺手切到该班（用户中心里改了班也要立刻体现）
+            ApplyOwnClassDefault();
 
             if (TxtCurUser != null) TxtCurUser.Text = acc.Username;
             TxtNewUser.Text = "";
@@ -1306,7 +1356,9 @@ public partial class MainWindow : Window
             TxtNewPwd.Password = "";
             TxtNewPwd2.Password = "";
 
-            string tail = ClassNames.Contains(acc.Username) ? "用户名为班级名，下次启动将默认显示该班课表。" : "";
+            string tail = (acc.Role != UserRole.Admin && acc.ClassNames.Count > 0)
+                ? "该账号填了所属班级：登录后默认显示该班课表。"
+                : (ClassNames.Contains(acc.Username) ? "用户名为班级名，下次启动将默认显示该班课表。" : "");
             string what = changeUser && changePwd ? "用户名和密码都已更新。"
                        : changeUser ? "用户名已更新（密码未变）。"
                        : changePwd ? "密码已更新（用户名未变）。"
@@ -1388,6 +1440,8 @@ public partial class MainWindow : Window
         }
 
         ApplyPermissions();
+        // 换了账号就按新账号的所属班级切一次（教室机上换人值班的常见场景）
+        ApplyOwnClassDefault();
         if (TxtCurUser != null) TxtCurUser.Text = UserSession.Current?.Username ?? "（游客）";
         TxtNewUser.Text = "";
         TxtNewPwd.Password = "";
@@ -1417,6 +1471,52 @@ public partial class MainWindow : Window
     }
 
     // ---------- 班级选择（切换到班级课表） ----------
+
+    /// <summary>
+    /// 登录账号的所属班级优先：电教管理员 / 班主任 / 科任老师登录后，
+    /// 若账号填了班级（<see cref="AppUser.ClassNames"/>），默认把课表切到自己班。
+    ///
+    /// <para>★ 只在「启动加载 / 切换账号 / 保存账号」这几个时机调用，
+    /// <b>不要</b>放进任何刷新流程 —— 否则用户手动切到别的班看课表，一刷新就被拉回去。
+    /// 管理员不参与（管理员看全校，切走才是常态）。</para>
+    /// </summary>
+    /// <returns>是否发生了切换（调用方据此决定要不要再走旧的回退规则）。</returns>
+    private bool ApplyOwnClassDefault()
+    {
+        var u = UserSession.Current;
+        if (u == null || UserSession.IsAdmin) return false;
+        if (ClassNames.Count == 0) return false;
+
+        // 账号可能填了多个班（年级组长），取第一个在已导入课表里存在的
+        string? own = null;
+        foreach (var c in u.ClassNames)
+        {
+            string t = (c ?? "").Trim();
+            if (t.Length > 0 && ClassNames.Contains(t)) { own = t; break; }
+        }
+        if (own == null) return false;
+
+        var s = Store.LoadSettings();
+        bool already = string.Equals(s.SelectedClass, own, StringComparison.Ordinal)
+                       && string.Equals(s.ScheduleKind, "Class", StringComparison.OrdinalIgnoreCase)
+                       && (CbClass.SelectedItem as string) == own;
+        if (already) return true;   // 已经是这个班，算作"已处理"，别再走用户名回退
+
+        s.SelectedClass = own;
+        s.ScheduleKind = "Class";
+        if (Store.EnablePersistence) Store.SaveSettings(s);
+
+        // 自己改 + 自己发通知，走 _classGuard 抑制 SelectionChanged 的二次保存
+        _classGuard = true;
+        try { CbClass.SelectedItem = own; }
+        finally { _classGuard = false; }
+
+        UpdateModeIndicator();
+        ApplyBoardPermissions();
+        AppEvents.RaiseScheduleChanged();
+        return true;
+    }
+
     private void CbClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_classGuard) return;   // 从设置反向同步时跳过，避免递归保存
@@ -1428,6 +1528,8 @@ public partial class MainWindow : Window
             s.ScheduleKind = "Class";
             Store.SaveSettings(s);
             UpdateModeIndicator();
+            // 换班之后"能不能改这个班的作业"可能就变了（科任老师只管自己教的班）
+            ApplyBoardPermissions();
         }
         AppEvents.RaiseScheduleChanged();
     }
@@ -1988,7 +2090,7 @@ public partial class MainWindow : Window
         var r = SchedulePackage.Export(
             dlg.FileName, sf, Store.LoadOverrides(), Store.LoadNotifications(),
             Store.LoadSettings(), Environment.MachineName,
-            users: Store.LoadUsers().Users);
+            userBook: Store.LoadUsers());
 
         if (!r.Ok)
         {
@@ -2322,8 +2424,8 @@ public partial class MainWindow : Window
     /// <summary>
     /// 检查 →（按设置决定是否确认）→ 下载 → 校验 → 应用 → 刷新界面。
     /// <para><paramref name="silent"/>=true 用于定时后台检查：<b>绝不弹窗</b>；
-    /// 虽然 <see cref="AppSettings.UpdateConfirmBeforeApply"/> 开着，后台也只在新版本出现在状态行，
-    /// 等人点「立即检查更新」才应用 —— 教室屏不该在无人值守时冒出对话框。</para>
+    /// 无人值守的教室屏发现新版本必须直接自动应用，否则会"发现却不更新"（需求四修复点）。
+    /// 手动点「立即检查更新」时若不勾「应用前确认」也直接应用，勾了才弹确认框。</para>
     /// </summary>
     private async Task CheckAndApplyAsync(IFeedSource src, AppSettings st, bool silent)
     {
@@ -2347,13 +2449,13 @@ public partial class MainWindow : Window
 
             if (!st.UpdateConfirmBeforeApply)
             {
-                apply = true;              // 全自动：查到就换
+                apply = true;              // 全自动：查到就换（"应用前确认"关着）
             }
             else if (silent)
             {
-                // 后台检查发现新版本：不打扰，只在状态行挂提示
-                TxtUpdateStatus.Text = "　⚠ " + chk.Message + "　→ 点「立即检查更新」应用。";
-                return;
+                // 后台无人值守检查：绝不能弹窗等人工，发现新版本直接自动应用。
+                // 这是需求四的关键修复——之前这里只是挂个提示 return，教室屏永远等不到人点。
+                apply = true;
             }
             else
             {
@@ -2712,6 +2814,18 @@ public partial class MainWindow : Window
         var content = TxtNewContent.Text.Trim();
         if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(content)) return;
         bool school = ChkNewNoticeSchool?.IsChecked == true;
+        // 无发全校通知权限时强制降级为本班，并提示（需求一）
+        if (school && !UserSession.CanSendSchoolNotice)
+        {
+            school = false;
+            TxtStatus.Text = "当前身份不能发布全校通知，已改为本班通知（只在本机显示）。";
+        }
+        else
+        {
+            TxtStatus.Text = school
+                ? "已添加全校通知：会随数据包同步到所有教室机（发布 / 自动更新后生效）。"
+                : "已添加本班通知：只在本机显示。";
+        }
         Notifications.Insert(0, new Notification
         {
             Title = title,
@@ -2724,9 +2838,6 @@ public partial class MainWindow : Window
         TxtNewContent.Text = "";
         // 范围勾选保持用户上一次的选择（连续发多条全校通知时不用每次重勾）
         AppEvents.RaiseNotificationChanged();
-        TxtStatus.Text = school
-            ? "已添加全校通知：会随数据包同步到所有教室机（发布 / 自动更新后生效）。"
-            : "已添加本班通知：只在本机显示。";
     }
 
     /// <summary>切换一条通知的范围（全校 ⇄ 本班）。</summary>
@@ -2735,6 +2846,13 @@ public partial class MainWindow : Window
         if (sender is not System.Windows.Controls.Button b || b.Tag is not string id) return;
         var item = Notifications.FirstOrDefault(n => n.Id == id);
         if (item == null) return;
+
+        // 想从「本班」升到「全校」但无权限：拦截（需求一）。降级（全校→本班）始终允许。
+        if (item.Scope != "school" && !UserSession.CanSendSchoolNotice)
+        {
+            TxtStatus.Text = UserSession.DenySendSchoolNotice;
+            return;
+        }
 
         item.Scope = item.Scope == "school" ? "local" : "school";
         SaveNotes();
@@ -2810,6 +2928,13 @@ public partial class MainWindow : Window
     /// <summary>「＋ 添加 / 编辑作业公示」：内容、文字格式、主题风格都在弹窗里完成。</summary>
     private void BtnEditHw_Click(object sender, RoutedEventArgs e)
     {
+        // 按钮虽然会被禁灰，但快捷键 / 自动化仍可能触发，这里再兜一次
+        string showClass = CurrentDisplayClass();
+        if (!UserSession.CanEditBoardFor(showClass))
+        {
+            TxtStatus.Text = UserSession.DenyEditBoard(showClass);
+            return;
+        }
         try
         {
             var cur = Store.LoadHomework() ?? new HomeworkBoard();
@@ -2853,7 +2978,7 @@ public partial class MainWindow : Window
             BackdropService.ToggleHomework(out string msg);
             TxtStatus.Text = msg;
             UpdateHwWpButton();
-            UpdateTrayBackdropText();
+            UpdateTrayMenuState();
             AppEvents.RaiseBackdropChanged();
         }
         catch (Exception ex)

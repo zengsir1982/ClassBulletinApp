@@ -19,8 +19,8 @@ namespace ClassBulletinApp;
 /// <summary>
 /// 角色权限配置（仅管理员可打开）。
 ///
-/// <para>三行角色 × 五项能力。管理员行<b>恒全权且不可改</b>；「发布」与「管理用户」
-/// 两列<b>刻意不出现</b>，因为它们一旦下放，整套权限会自己失效（详见 <see cref="RolePolicy"/> 注释）。</para>
+/// <para>八项能力 × 三个可配角色（班主任 / 科任老师 / 电教管理员）。管理员列<b>恒全权且不可改</b>；
+/// 「发布」与「管理用户」两项<b>刻意不出现</b>，因为它们一旦下放，整套权限会自己失效（详见 <see cref="RolePolicy"/> 注释）。</para>
 ///
 /// <para>★ 配置存在 <c>users.json</c> 里，<b>随数据包下发</b>，所以只有"发布机"上的修改才有意义。
 /// 其他机器打开只读，否则会出现"在这台改松了、下次同步又被覆盖，而且没人查得出来"。</para>
@@ -68,20 +68,42 @@ public class RolePolicyWindow : Window
         },
         new()
         {
-            Name = "总课表 / 清除 / 备份",
-            Hint = "导入全校总课表、清除调课、备份恢复、导入导出数据包",
+            Name = "总课表 / 清除调课",
+            Hint = "导入全校总课表、单班 / 教师课表、清除调课（整份覆盖，影响面最大）",
             Get = p => p.ManageData,
             Set = (p, v) => p.ManageData = v
+        },
+        new()
+        {
+            Name = "数据包 / 备份恢复",
+            Hint = "导入导出数据包、本机备份与还原（不动别的机器）",
+            Get = p => p.ManagePackage,
+            Set = (p, v) => p.ManagePackage = v
+        },
+        new()
+        {
+            Name = "发全校通知",
+            Hint = "发布随包下发的全校通知；不勾则只能发本班通知",
+            Get = p => p.SendSchoolNotice,
+            Set = (p, v) => p.SendSchoolNotice = v
+        },
+        new()
+        {
+            Name = "自动更新设置",
+            Hint = "修改共享文件夹 / U 盘 / FTP 来源与是否启用自动更新；默认所有角色都开",
+            Get = p => p.ManageUpdate,
+            Set = (p, v) => p.ManageUpdate = v
         }
     };
 
-    /// <summary>「总课表 / 清除 / 备份」在数组里的下标 —— 高危项判断与保存前提醒都用它。</summary>
+    /// <summary>「总课表 / 清除调课」在数组里的下标 —— 高危项判断与保存前提醒都用它。</summary>
     const int CapManageData = 4;
 
-    /// <summary>可配置的角色（管理员不在其中）。</summary>
-    static readonly string[] Roles = { UserRole.Teacher, UserRole.Student };
+    /// <summary>可配置的角色（管理员不在其中，恒全权单独占一列）。</summary>
+    static readonly string[] Roles = { UserRole.Teacher, UserRole.SubjectTeacher, UserRole.Student };
 
-    static readonly double[] ColWidths = { 330, 90, 100, 120 };
+    /// <summary>列宽：能力 + 管理员 + 3 个可配角色。</summary>
+    static readonly double[] ColWidths = { 320, 84, 96, 104, 120 };
 
     readonly UserBook _book;
     readonly bool _canEdit;
@@ -100,13 +122,13 @@ public class RolePolicyWindow : Window
         _canEdit = set.PublishEnabled;
 
         Title = "角色权限";
-        Width = 800;
-        // 高度随内容自适应：标题+说明 / 可选提示条 / 表头 / 五行 / 按钮条，互不挤压。
+        Width = 880;
+        // 高度随内容自适应：标题+说明 / 可选提示条 / 表头 / 八行 / 按钮条，互不挤压。
         // 只读时多一条黄色提示条，窗口自动加高，不会截断底部；非只读时也不会空一大片。
         SizeToContent = SizeToContent.Height;
-        MinWidth = 720;
+        MinWidth = 800;
         MinHeight = 420;
-        MaxHeight = 860;
+        MaxHeight = 900;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var root = new DockPanel { Margin = new Thickness(18), LastChildFill = true };
@@ -211,7 +233,7 @@ public class RolePolicyWindow : Window
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(50) });
 
         // 表头
-        string[] header = { "能力", "管理员", "班主任", "电教管理员" };
+        string[] header = { "能力", "管理员", "班主任", "科任老师", "电教管理员" };
         for (int c = 0; c < header.Length; c++)
         {
             var t = new TextBlock
@@ -299,9 +321,11 @@ public class RolePolicyWindow : Window
     void ResetDefaults()
     {
         if (MessageBox.Show(this,
-                "把「班主任」「电教管理员」两个角色恢复为出厂默认？\n\n"
-                + "班主任：改课表、作业/缺交、恢复停用调课。\n"
-                + "电教管理员：只能控制本机显示。",
+                "把「班主任」「科任老师」「电教管理员」三个角色恢复为出厂默认？\n\n"
+                + "班主任：改课表、作业/缺交、恢复停用调课、数据包/备份恢复、自动更新设置；"
+                + "不能导入总课表；默认不能发全校通知。\n"
+                + "科任老师：只能看课表 + 编辑所任教班级的作业/缺交，其余全关。\n"
+                + "电教管理员：改课表、作业/缺交、恢复停用调课、自动更新设置；不能导数据、不能发全校通知。",
                 "恢复默认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
 
@@ -349,7 +373,7 @@ public class RolePolicyWindow : Window
         if (risky)
         {
             if (MessageBox.Show(this,
-                    "你给「总课表 / 清除 / 备份」开了权限。\n\n"
+                    "你给「总课表 / 清除调课」开了权限。\n\n"
                     + "注意：电教管理员是教室机开机自动登录的身份。开了这一项，"
                     + "那台机器开机就具备导入全校课表、清除调课的能力，学生乱点也可能清掉数据。\n\n"
                     + "确定保存吗？",

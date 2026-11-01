@@ -426,7 +426,7 @@ public static class SourcePublisher
                 overridesAuthoritative: authoritative,
                 includeManualOverrides: includeManual,
                 rev: rev,
-                users: Store.LoadUsers().Users);
+                userBook: Store.LoadUsers());
             if (!exp.Ok)
             {
                 r.Message = "打包失败：" + exp.Error;
