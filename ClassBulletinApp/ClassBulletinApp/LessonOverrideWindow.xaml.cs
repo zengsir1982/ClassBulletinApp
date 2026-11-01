@@ -139,6 +139,11 @@ public partial class LessonOverrideWindow : Window
         ov.Note = note;
         ov.Type = CbType.SelectedIndex == 1 ? "代" : "调";
         ov.IsEmpty = isEmpty;
+        // ★ 手改即重新主张本机修改：清掉任何"被同步停用"的标记，否则被挂起后再编辑，
+        //   内容写进去了却仍是 Suspended=true → IsActiveOn 返回 false → 永远不显示（r14 修复）。
+        ov.Suspended = false;
+        ov.SuspendedAt = null;
+        ov.SuspendedBy = "";
         ov.ValidFrom = DateOnly.FromDateTime(ws);   // 旧记录若没有区间，这里一并补齐
         ov.ValidTo = DateOnly.FromDateTime(we);
         ov.UpdatedAt = DateTime.Now;

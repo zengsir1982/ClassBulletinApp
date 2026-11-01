@@ -31,9 +31,9 @@ public class UserManagerWindow : Window
     public UserManagerWindow()
     {
         Title = "用户管理";
-        Width = 820;
+        Width = 900;
         Height = 560;
-        MinWidth = 660;
+        MinWidth = 700;
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -89,13 +89,26 @@ public class UserManagerWindow : Window
         var btnImport = Mk("从 Excel / CSV 导入名单", "#E8F6EE");
         btnImport.Click += (_, _) => ImportUsers();
 
+        // 角色权限：改完立即落盘（与其他操作一致），回来后刷新本窗口提示
+        var btnPolicy = Mk("角色权限…", "#F3EEFB");
+        btnPolicy.Click += (_, _) =>
+        {
+            var dlg = new RolePolicyWindow(_book) { Owner = this };
+            dlg.ShowDialog();
+            if (dlg.Changed) Reload();
+        };
+
+        // 权限变更记录：倒查"谁在哪次改了哪项权限"
+        var btnLog = Mk("权限变更记录…");
+        btnLog.Click += (_, _) => new PolicyLogWindow { Owner = this }.ShowDialog();
+
         var btnSave = Mk("保存并关闭", "#E8F6EE");
         btnSave.Click += (_, _) => { SaveAll(); DialogResult = true; Close(); };
 
         var btnClose = Mk("取消");
         btnClose.Click += (_, _) => Close();
 
-        foreach (var b in new[] { btnAdd, btnEdit, btnToggle, btnDel, btnImport, btnSave, btnClose })
+        foreach (var b in new[] { btnAdd, btnEdit, btnToggle, btnDel, btnImport, btnPolicy, btnLog, btnSave, btnClose })
             bar.Children.Add(b);
 
         DockPanel.SetDock(bar, Dock.Bottom);
@@ -192,7 +205,10 @@ public class UserManagerWindow : Window
 
         int admins = _book.AdminCount;
         _hint.Text = $"共 {_book.Users.Count} 个账号（管理员 {admins} 个）。"
-            + "角色：管理员可改全部数据并发布；班主任只能改自己班的课表；电教管理员（学生）只能控制本机显示。\n"
+            + "管理员可改全部数据并发布（恒全权，不可配置）；班主任 / 电教管理员能做什么，"
+            + "由下方「角色权限…」决定，改完随数据包下发到各教室机。\n"
+            + $"当前：班主任 = {_book.PolicyFor(UserRole.Teacher).Describe()}；"
+            + $"电教管理员 = {_book.PolicyFor(UserRole.Student).Describe()}。\n"
             + "★ 开机自动登录只允许「班主任 / 电教管理员」，管理员账号永不参与自动登录 —— "
             + "否则谁坐到这台电脑前谁就有管理员权限。";
     }

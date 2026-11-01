@@ -3,7 +3,7 @@
 ; 前置：先执行 publish，生成 ..\dist\portable 目录
 
 #define MyAppName      "班级公布栏"
-#define MyAppVersion   "1.0.3"
+#define MyAppVersion   "1.0.4"
 #define MyAppPublisher "东凤中学"
 #define MyAppURL       ""
 #define MyAppExeName   "ClassBulletinApp.exe"

@@ -411,6 +411,7 @@ public partial class MainWindow : Window
     private void ApplyPermissions()
     {
         bool canData = UserSession.CanManageData;
+        bool canTemp = UserSession.CanImportTemp;
         bool canPublish = UserSession.CanPublish;
 
         void Set(Button? b, bool enabled, string deny)
@@ -420,26 +421,30 @@ public partial class MainWindow : Window
             b.ToolTip = enabled ? null : deny;
         }
 
-        // 课表数据（整份替换 / 影响全部教室机）
+        // 整份数据（影响全部班级 / 全部教室机）
         Set(BtnImport, canData, UserSession.DenyManageData);
-        Set(BtnImportTemp, canData, UserSession.DenyManageData);
-        Set(BtnImportSingle, canData, UserSession.DenyManageData);
-        Set(BtnImportTeacher, canData, UserSession.DenyManageData);
         Set(BtnClearOverrides, canData, UserSession.DenyManageData);
         Set(BtnClearImported, canData, UserSession.DenyManageData);
         Set(BtnExportPackage, canData, UserSession.DenyManageData);
         Set(BtnImportPackage, canData, UserSession.DenyManageData);
         Set(BtnBackup, canData, UserSession.DenyManageData);
 
-        // 发布 / 同步策略（一次点击影响 30 台机器）
+        // ★ 单班导入与教师课表刻意留在「总课表」权限下，不跟临时课表一起放开：
+        //   这两个入口都能选任意班级 / 任意教师，一旦给班主任开了，
+        //   他就能把别的班整份导入覆盖掉 —— 这不是"改本班"的范畴。
+        Set(BtnImportSingle, canData, UserSession.DenyManageData);
+        Set(BtnImportTeacher, canData, UserSession.DenyManageData);
+
+        // 每周的临时课表：影响面较小，可单独授权
+        Set(BtnImportTemp, canTemp, UserSession.DenyImportTemp);
+
+        // 发布 / 同步策略（一次点击影响 30 台机器）；名单管理能给自己升管理员 —— 这两项恒只给管理员
         Set(BtnUpdateSettings, canPublish, UserSession.DenyPublish);
         Set(BtnPublishNow, canPublish, UserSession.DenyPublish);
-
-        // 恢复本机被停用的调课：班主任也需要（那是他自己班的记录）
-        Set(BtnRestoreSuspended, canData || UserSession.IsTeacher,
-            "当前身份不能修改调课记录。");
-
         Set(BtnManageUsers, UserSession.CanManageUsers, "只有管理员可以管理用户。");
+
+        // 恢复本机被停用的调课（班主任默认有：那是他自己班的记录）
+        Set(BtnRestoreSuspended, UserSession.CanRestoreSuspended, UserSession.DenyRestoreSuspended);
 
         // 改自己的账号信息：游客没有账号可改（点了也只会报"未登录"）
         Set(BtnSaveUser, UserSession.Current != null, "游客模式没有账号可修改，请先切换/登录一个账号。");
@@ -458,8 +463,10 @@ public partial class MainWindow : Window
                 : "找回密码信息是这台机器共用的一份（存在设置里），只有管理员可以修改。忘记密码请让管理员重置。";
         }
 
+        // 身份行带上"这个身份到底能干什么"：权限可配之后，"我是班主任但改不了课"
+        // 会让用户以为是程序坏了，写清楚省一轮排查。
         if (TxtRoleLine != null)
-            TxtRoleLine.Text = "当前身份：" + UserSession.Caption;
+            TxtRoleLine.Text = $"当前身份：{UserSession.Caption}　｜　可用权限：{UserSession.PolicySummary}";
     }
 
     /// <summary>顶栏提示当前悬浮课表显示的是班级课表还是教师个人课表。</summary>
@@ -1287,8 +1294,10 @@ public partial class MainWindow : Window
             Store.SaveUsers(book);
             Store.SaveSettings(s);
 
-            // 同一实例：改完立即生效，界面按新角色重算权限
-            UserSession.SignIn(acc);
+            // 同一实例：改完立即生效，界面按新角色重算权限。
+            // ★ 必须把 book 传进去：游客模式下 SaveUsers 不落盘，如果这里让 SignIn 自己去读盘，
+            //   读到的是改之前的旧文件，刚改的角色 / 权限就不生效了。
+            UserSession.SignIn(acc, book);
             ApplyPermissions();
 
             if (TxtCurUser != null) TxtCurUser.Text = acc.Username;
@@ -1338,11 +1347,26 @@ public partial class MainWindow : Window
         }
 
         var dlg = new UserManagerWindow { Owner = this };
-        if (dlg.ShowDialog() == true)
+        bool saved = dlg.ShowDialog() == true;
+
+        // 不管"保存并关闭"还是"取消"，都要重绑一次：用户在窗口里可能改过角色权限
+        // （那是即时落盘的），此时界面按钮必须跟着变，否则要重启才生效。
+        var r = UserSession.Rebind();
+        ApplyPermissions();
+
+        if (r is RebindResult.Removed or RebindResult.Disabled)
         {
-            ApplyPermissions();      // 角色可能被改过，界面入口立刻跟着变
-            ShowUserMsg("用户名单已保存。发布数据包后，各教室机会一并收到。", true);
+            MessageBox.Show(this,
+                r == RebindResult.Disabled
+                    ? "你的账号已被停用，已退出登录。请用其他管理员账号登录后再操作。"
+                    : "你的账号已从用户表里删除，已退出登录。",
+                "需要重新登录", MessageBoxButton.OK, MessageBoxImage.Warning);
+            BtnSwitchUser_Click(this, new RoutedEventArgs());
+            return;
         }
+
+        if (saved)
+            ShowUserMsg("用户名单已保存。发布数据包后，各教室机会一并收到。", true);
     }
 
     private void BtnSwitchUser_Click(object sender, RoutedEventArgs e)
@@ -1358,8 +1382,9 @@ public partial class MainWindow : Window
         else
         {
             UserSession.SignIn(dlg.User);
-            ShowUserMsg($"已切换为「{UserSession.Caption}」。"
-                + (UserSession.IsAdmin ? "" : "本机数据的修改入口已按该身份限制。"), true);
+            // 权限可配之后，不能再按"是不是管理员"猜他能干什么 —— 直接把他实际的权限念出来
+            ShowUserMsg($"已切换为「{UserSession.Caption}」。可用权限：{UserSession.PolicySummary}。"
+                + (UserSession.CanManageData ? "" : "本机数据的修改入口已按该身份限制。"), true);
         }
 
         ApplyPermissions();
@@ -2033,8 +2058,24 @@ public partial class MainWindow : Window
         if (r.NoticeAdded > 0) sb.Append($"；全校通知 {r.NoticeAdded} 条（本班通知保留 {r.NoticeKept} 条）");
         sb.Append($"；教师表 {tc} 位。");
         if (!string.IsNullOrEmpty(r.BackupDir)) sb.Append("　原数据已备份。");
+        if (r.UserCount > 0) sb.Append($"　用户表 {r.UserCount} 个账号已同步。");
         foreach (var w in r.Warnings) sb.Append("　⚠ " + w);
         TxtStatus.Text = sb.ToString();
+
+        // 包内可能带了用户表与角色权限：Apply 内部已经重绑过身份，这里把界面刷新一遍。
+        // 必须处理"自己被打包踢掉"的情况，否则会带着一个已失效的身份继续跑。
+        bool kicked = r.Identity is RebindResult.Removed or RebindResult.Disabled;
+        ApplyPermissions();
+
+        if (kicked)
+        {
+            System.Windows.MessageBox.Show(this,
+                "这个数据包把你当前登录的账号"
+                + (r.Identity == RebindResult.Disabled ? "停用了" : "删除了")
+                + "，因此已退出登录。请用仍然有效的账号重新登录。",
+                "身份已失效", MessageBoxButton.OK, MessageBoxImage.Warning);
+            BtnSwitchUser_Click(this, new RoutedEventArgs());
+        }
     }
 
     private void BtnBackup_Click(object sender, RoutedEventArgs e)
@@ -2358,8 +2399,20 @@ public partial class MainWindow : Window
             if (ap.ManualSuspended > 0)
                 sb.Append($"，另有 {ap.ManualSuspended} 条本机手工调课按主机策略已停用（可在「恢复被主机停用的本机调课」里复活）");
             sb.Append("。");
+            if (ap.UserCount > 0) sb.Append($"　用户表 {ap.UserCount} 个账号已同步。");
+
+            // ★ 自动更新是无人值守跑的，不能弹模态框（会在上课时突然挡住屏幕）。
+            //   身份被包踢掉时只写状态栏 + 立刻把入口全灰，用户一操作就会发现并看到原因。
+            bool kicked = ap.Identity is RebindResult.Removed or RebindResult.Disabled;
+            if (kicked)
+                sb.Append(ap.Identity == RebindResult.Disabled
+                    ? "　⚠ 你的账号已在本版中被停用，已退出登录 —— 请到「用户中心 → 切换账号」用有效账号登录。"
+                    : "　⚠ 你的账号已不在本版用户表里，已退出登录 —— 请到「用户中心 → 切换账号」用有效账号登录。");
+
             foreach (var w in ap.Warnings) sb.Append("　⚠ " + w);
             TxtStatus.Text = sb.ToString();
+
+            ApplyPermissions();   // 角色 / 角色权限可能随包变了，按钮可用性要跟着刷新
             RefreshUpdateStatus();
         }
         catch (Exception ex)

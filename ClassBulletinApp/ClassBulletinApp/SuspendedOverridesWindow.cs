@@ -211,6 +211,9 @@ public class SuspendedOverridesWindow : Window
             o.Suspended = false;
             o.SuspendedAt = null;
             o.SuspendedBy = "";
+            // ★ 刷新更新时间：与来源优先级（manual 压过 temp）配合，确保恢复后这条本机修改
+            //   稳定显示在同步来的 temp 之上，而不是因为 temp 的 UpdatedAt 更新而被盖住（r14）。
+            o.UpdatedAt = DateTime.Now;
             n++;
         }
 

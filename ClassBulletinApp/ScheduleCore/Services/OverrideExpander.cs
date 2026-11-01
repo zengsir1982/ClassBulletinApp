@@ -14,12 +14,14 @@ namespace ScheduleCore.Services;
 ///
 /// 约定：
 /// - 展示层（悬浮课表 / 周视图 / 桌面背面 / 打印）一律先经过这里，不许各自另算；
-/// - 同一格同一日出现多条时，取 <see cref="LessonOverride.UpdatedAt"/> 最新的一条
-///   （手工记录总是后写的，因此天然压过导入/远程记录 —— 这是"手动 &gt; 远程 &gt; 导入"
-///     默认优先级的轻量近似，完整的可调优先级见设计 §5.4，尚未实现）；
+/// - 同一格同一日出现多条时，先按<b>来源优先级</b>取（手动 / 长期改课 &gt; 远程 &gt; 导入临时表），
+///   同级再取 <see cref="LessonOverride.UpdatedAt"/> 更新的一条。
+///   ★ 来源优先级是显式的，不再依赖"手动总是后写所以 UpdatedAt 更新"这个脆弱假设——
+///   否则"被同步软覆盖 → 恢复（取消停用）→ 再手改"这条链路会因为 temp 的 UpdatedAt 比
+///   原 manual 新，导致恢复/再改都看不见（见 r14 修复）。
 /// - 没有区间的旧记录视为长期有效（迁移兜底，避免旧数据凭空消失）；
 /// - <b>被主机同步停用</b>的记录（<see cref="LessonOverride.Suspended"/>）不参与显示，
-///   但仍留在 overrides.json 里，可由管理员一键恢复。
+///   但仍留在 overrides.json 里，可由管理员一键恢复（恢复后来源优先级保证它压过 temp）。
 /// </summary>
 public static class OverrideExpander
 {
@@ -41,7 +43,7 @@ public static class OverrideExpander
             if (!o.IsActiveOn(date)) continue;
 
             var key = o.CellKey;
-            if (!map.TryGetValue(key, out var prev) || IsNewer(o, prev))
+            if (!map.TryGetValue(key, out var prev) || Better(o, prev))
                 map[key] = o;
         }
         return map;
@@ -101,6 +103,27 @@ public static class OverrideExpander
            .OrderBy(o => o.ClassName, StringComparer.Ordinal)
            .ThenBy(o => o.DayIdx).ThenBy(o => o.Period)
            .ToList();
+
+    /// <summary>
+    /// 来源优先级：手动改课 / 长期改课（改的是底表本身，属本机长期决策）最高，远程其次，导入临时表最低。
+    /// <para>★ 这是"本机老师的手工安排应当压过主机下发的临时课表"的显式实现，
+    /// 不再靠 UpdatedAt 谁更新来碰运气（否则恢复 / 再手改会被更晚同步来的 temp 盖住）。</para>
+    /// </summary>
+    static int SourceRank(LessonOverride o) => o.Source switch
+    {
+        "manual" or "basePatch" => 3,
+        "remote" => 2,
+        "temp" => 1,
+        _ => 0
+    };
+
+    /// <summary>两记录争同一格时取更优者：先比来源优先级，同级再比 <see cref="IsNewer"/>。</summary>
+    static bool Better(LessonOverride candidate, LessonOverride current)
+    {
+        int rc = SourceRank(candidate), rr = SourceRank(current);
+        if (rc != rr) return rc > rr;
+        return IsNewer(candidate, current);
+    }
 
     static bool IsNewer(LessonOverride a, LessonOverride b)
     {
