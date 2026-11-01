@@ -8,8 +8,17 @@ namespace ClassBulletinApp;
 
 public partial class App : System.Windows.Application
 {
+    /// <summary>
+    /// 是否为诊断 / 截图模式（<c>--shot</c>、<c>--ui-check</c>、<c>--render-backdrop</c> 等一律以 <c>--</c> 开头）。
+    /// ★ 这类模式绝不能弹模态对话框：自动化流程会卡在一个没人点的确认框上，直到超时。
+    /// </summary>
+    public static bool IsDiagnostic { get; private set; }
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        IsDiagnostic = e.Args.Length >= 1
+                       && e.Args[0].StartsWith("--", StringComparison.Ordinal);
+
         // 由托盘“退出”显式关闭，关闭所有窗口不再自动退出（便于隐藏到托盘常驻）。
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -35,6 +44,40 @@ public partial class App : System.Windows.Application
         }
 
         base.OnStartup(e);
+
+        // 诊断 / 预览模式给一个临时管理员身份：界面上的按钮是否可用取决于角色，
+        // 不给身份的话截图里全是灰按钮，看不出真实效果。诊断模式下 EnablePersistence=false，不写盘。
+        if (e.Args.Length >= 1 && e.Args[0].StartsWith("--", StringComparison.Ordinal))
+        {
+            // 诊断模式不写任何文件：否则跑一次截图就把用户表迁移做了、下次启动身份都变了
+            Store.SuppressWrites = true;
+
+            // 环境变量 CB_DIAG_ROLE=student|teacher|admin 可换预览身份：
+            // 受限身份的界面（灰按钮 / tooltip）必须能截出来目视确认，
+            // 否则"管理员截图里按钮全是亮的"，权限是不是真生效了看不出来。
+            string diagRole = (Environment.GetEnvironmentVariable("CB_DIAG_ROLE") ?? "").Trim().ToLowerInvariant();
+            if (!ScheduleCore.Models.UserRole.IsValid(diagRole))
+                diagRole = ScheduleCore.Models.UserRole.Admin;
+
+            var diagUser = new ScheduleCore.Models.AppUser
+            {
+                Username = "diag",
+                DisplayName = "诊断预览",
+                Role = diagRole
+            };
+            // 班主任身份要真的能改到某个班，否则截图里连本班都是灰的，看不出区别
+            if (diagRole == ScheduleCore.Models.UserRole.Teacher)
+            {
+                try
+                {
+                    var sc = Store.LoadSchedule();
+                    if (sc != null && sc.Classes.Count > 0)
+                        diagUser.ClassNames.Add(sc.Classes[0].ClassName);
+                }
+                catch { }
+            }
+            UserSession.SignIn(diagUser);
+        }
 
         // 诊断：--pos-check 实测作业 / 缺交便签窗口的落点与可见性，结果写入 ClassBulletinApp.poscheck.log
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--pos-check", StringComparison.OrdinalIgnoreCase))
@@ -89,13 +132,26 @@ public partial class App : System.Windows.Application
                     "homeworkwin" => new HomeworkWindow(),
                     "missingwin" => new MissingWindow(),
                     "main" => new MainWindow(),
+                    "maindata" => new MainWindow { InitialTabIndex = 1 },
+                    "maindisplay" => new MainWindow { InitialTabIndex = 2 },
                     "mainnotice" => new MainWindow { InitialTabIndex = 4 },
                     "mainhw" => new MainWindow { InitialTabIndex = 5 },
+                    "mainuser" => new MainWindow { InitialTabIndex = 6 },
+                    "login" => new LoginWindow(),
                     "layout0" => new LayoutWindow { InitialTabIndex = 0 },
                     "layout1" => new LayoutWindow { InitialTabIndex = 1 },
                     "quicklaunch" => new QuickLaunchWindow(),
                     "customnoteedit" => new CustomNoteEditWindow(DiagCustomNoteId()),
                     "customnote" => new CustomNoteWindow(DiagCustomNoteId()),
+                    "backupwin" => new BackupWindow(),
+                    "updatesettings" => new UpdateSettingsWindow(),
+                    "clearoverrides" => new ClearOverridesWindow(),
+                    "suspended" => new SuspendedOverridesWindow(),
+                    "usermanager" => new UserManagerWindow(),
+                    "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
+                    "upgradenotice" => new UpgradeNoticeWindow(
+                        "1.0.3.0",
+                        UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.2.0")),
                     _ => new LayoutWindow { InitialTabIndex = 2 }
                 };
                 w0.WindowStartupLocation = WindowStartupLocation.Manual;
@@ -107,10 +163,13 @@ public partial class App : System.Windows.Application
                 var frame0 = new DispatcherFrame();
                 Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => frame0.Continue = false));
                 Dispatcher.PushFrame(frame0);
+                w0.UpdateLayout();   // 再量一次：Show 后首帧拿到的 ActualWidth/Height 可能还是期望值，会把图裁小
 
                 var root0 = (FrameworkElement)w0.Content;
-                int pw0 = Math.Max(1, (int)Math.Ceiling(root0.ActualWidth));
-                int ph0 = Math.Max(1, (int)Math.Ceiling(root0.ActualHeight));
+                // 截图区域要算上根元素的 Margin（UpdateSettingsWindow 根是 Margin=18 的 DockPanel，
+                // 只按 ActualWidth/Height 开画布会把右、下各切掉 18px，看起来像按钮被裁一半）。
+                int pw0 = Math.Max(1, (int)Math.Ceiling(root0.RenderSize.Width + root0.Margin.Left + root0.Margin.Right));
+                int ph0 = Math.Max(1, (int)Math.Ceiling(root0.RenderSize.Height + root0.Margin.Top + root0.Margin.Bottom));
                 var rtb0 = new System.Windows.Media.Imaging.RenderTargetBitmap(
                     pw0, ph0, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
                 rtb0.Render(root0);
@@ -175,8 +234,13 @@ public partial class App : System.Windows.Application
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
         {
             var sb = new System.Text.StringBuilder();
+            string tracePath = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.trace.log");
+            try { File.WriteAllText(tracePath, ""); } catch { }
+
             void Check(string name, Func<Window> factory)
             {
+                // 每步先落盘：万一某个窗口构造时卡住，日志能指到是哪一个
+                try { File.AppendAllText(tracePath, "> " + name + "\n"); } catch { }
                 try
                 {
                     var w = factory();
@@ -201,6 +265,16 @@ public partial class App : System.Windows.Application
             Check("QuickLaunchWindow", () => new QuickLaunchWindow());
             Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(DiagCustomNoteId()));
             Check("CustomNoteWindow", () => new CustomNoteWindow(DiagCustomNoteId()));
+            Check("BackupWindow", () => new BackupWindow());
+            Check("UpdateSettingsWindow", () => new UpdateSettingsWindow());
+            Check("ClearOverridesWindow", () => new ClearOverridesWindow());
+            Check("SuspendedOverridesWindow", () => new SuspendedOverridesWindow());
+            Check("UserManagerWindow", () => new UserManagerWindow());
+            Check("UserEditWindow", () => new UserEditWindow(null,
+                new ScheduleCore.Models.UserBook(), new[] { "八(22)班" }));
+            Check("UpgradeNoticeWindow", () => new UpgradeNoticeWindow(
+                "1.0.3.0",
+                UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.2.0")));
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
@@ -225,22 +299,53 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--login-state 只判断"这次启动会不会自动登录"，写一行日志后退出（不开任何窗口）
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--login-state", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.login.log");
+            try
+            {
+                var st = Store.LoadSettings();
+                var bk = Store.LoadUsers();
+                var au = ShouldAutoLogin(st, bk);
+                File.WriteAllText(log,
+                    $"AutoLogin={st.AutoLogin} AutoLoginUser={st.AutoLoginUser ?? ""} " +
+                    $"HasPassword={!string.IsNullOrEmpty(st.AutoLoginPassword)} " +
+                    $"Role={(au == null ? "-" : au.Role)} " +
+                    $"→ 本次自动登录={(au != null ? "True" : "False")}");
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(log, "FAIL " + ex.Message); } catch { }
+            }
+            Shutdown(0);
+            return;
+        }
+
         // 应用用户选择的主题配色（标题栏 / 按钮 / 强调色）
         try { ThemeManager.Apply(Store.LoadSettings().Theme); }
         catch { }
 
-        // 登录：未登录（关闭登录窗）直接退出；游客模式不持久化任何数据
+        // 登录：优先用「自动登录账号」（只能是班主任 / 电教管理员）直接进入；
+        // 否则弹登录窗。未登录（关闭登录窗）直接退出；游客模式不持久化任何数据。
         try
         {
-            var login = new LoginWindow();
-            if (login.ShowDialog() != true) { Shutdown(0); return; }
-            Store.EnablePersistence = !login.IsGuest;
-            if (!login.IsGuest)
+            var st0 = Store.LoadSettings();
+            var book = Store.LoadUsers();
+            var autoUser = ShouldAutoLogin(st0, book);
+
+            if (autoUser != null)
             {
-                Store.TryWeeklyOverrideReset();   // 每周首次启动清空全部调代课
-                var s = Store.LoadSettings();     // F9：记住上次登录的用户名，下次预填
-                s.LastUsername = login.EnteredUser;
-                Store.SaveSettings(s);
+                // 直接以保存的受限账号进入（管理员永不参与自动登录，见 ShouldAutoLogin）
+                UserSession.SignIn(autoUser);
+                Store.EnablePersistence = true;
+            }
+            else
+            {
+                var login = new LoginWindow();
+                if (login.ShowDialog() != true) { Shutdown(0); return; }
+                Store.EnablePersistence = !login.IsGuest;
+                if (login.User != null) UserSession.SignIn(login.User);
             }
         }
         catch (Exception ex)
@@ -263,6 +368,27 @@ public partial class App : System.Windows.Application
             LogCrash("MainWindow startup", ex);
             Shutdown(1);
         }
+    }
+
+    /// <summary>
+    /// 是否直接以已保存的账号自动登录（跳过登录窗）。返回 null = 不自动登录。
+    /// <para>必须同时满足：开了自动登录、自动登录账号存在且启用、
+    /// <b>不是管理员</b>、保存的密码校验通过。</para>
+    /// <para>★ 「不是管理员」是硬规则：教室机开机自动进入，如果自动登录的是管理员，
+    /// 谁坐到电脑前谁就有管理员权限，整套角色就白做了。</para>
+    /// </summary>
+    private static ScheduleCore.Models.AppUser? ShouldAutoLogin(
+        ScheduleCore.Models.AppSettings s, ScheduleCore.Models.UserBook book)
+    {
+        if (s == null || !s.AutoLogin) return null;
+        if (string.IsNullOrWhiteSpace(s.AutoLoginUser)) return null;
+
+        var u = book.Find(s.AutoLoginUser);
+        if (u == null || !u.Enabled) return null;
+        if (u.Role == ScheduleCore.Models.UserRole.Admin) return null;
+
+        return ScheduleCore.Services.PasswordHasher.Verify(s.AutoLoginPassword, u.PasswordHash, u.Salt)
+            ? u : null;
     }
 
     private void App_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

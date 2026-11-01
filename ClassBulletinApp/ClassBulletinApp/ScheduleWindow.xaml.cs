@@ -794,11 +794,32 @@ public partial class ScheduleWindow : Window
         return null;
     }
 
+    static DateTime _lastDenyTipAt = DateTime.MinValue;
+
+    /// <summary>
+    /// 权限不足提示。3 秒内只弹一次 —— 悬浮窗上连续拖拽 / 长按很容易连点，
+    /// 弹一屏"无法修改"既没用又挡视线。
+    /// </summary>
+    void TipDeny(string msg)
+    {
+        if ((DateTime.Now - _lastDenyTipAt).TotalSeconds < 3) return;
+        _lastDenyTipAt = DateTime.Now;
+        MessageBox.Show(msg, "无法修改", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
     private void OpenEditor(PeriodRow row)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;
+
+        if (!UserSession.CanEditClass(_selectedName))
+        {
+            TipDeny(UserSession.DenyEditClass(_selectedName));
+            return;
+        }
+
         var current = row.Lessons.Count > 0 ? row.Lessons[0] : new LessonView();
-        var w = new LessonOverrideWindow(_selectedName, row.DayIdx, row.Period, current, _schedule)
+        var w = new LessonOverrideWindow(_selectedName, row.DayIdx, row.Period, current, _schedule,
+            BoardBuilder.ResolveDisplayDate(Store.LoadSettings()))
         {
             Owner = this,
             Topmost = true
@@ -810,6 +831,14 @@ public partial class ScheduleWindow : Window
     private void ApplyDayDrag(PeriodRow src, PeriodRow tgt)
     {
         if (src.Period == tgt.Period || string.IsNullOrEmpty(_selectedName)) return;
+
+        // 班主任只能改自己班；电教管理员（学生）/ 游客不能改任何班
+        if (!UserSession.CanEditClass(_selectedName))
+        {
+            TipDeny(UserSession.DenyEditClass(_selectedName));
+            return;
+        }
+
         var srcLesson = src.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
         if (srcLesson == null) return;
         var tgtLesson = tgt.Lessons.FirstOrDefault(l => !string.IsNullOrEmpty(l.Subject));
@@ -841,14 +870,30 @@ public partial class ScheduleWindow : Window
         string subject, string teacher, string location, string type, bool isEmpty = false)
     {
         if (string.IsNullOrEmpty(_selectedName)) return;
-        string key = $"{_selectedName}|{dayIdx}|{period}";
-        list.RemoveAll(o => o.Key == key);
+
+        // ★ 悬浮窗的改动一律只作用于「当前显示日所在的那一周」（设计 D6/D13）：
+        //   以前不带生效区间 = 永久生效，下周还顶在课表上。
+        //   周起始日跟着设置走，保证与周视图里"本周"是同一段日期。
+        var _st = Store.LoadSettings();
+        var (from, to) = WeekHelper.WeekWindow(BoardBuilder.ResolveDisplayDate(_st), _st.WeekStartDay);
+
+        // 只清本周该格的手工记录：其他周、以及远程/导入来源的记录不动
+        list.RemoveAll(o => o.ClassName == _selectedName && o.DayIdx == dayIdx && o.Period == period
+                            && o.Source == "manual" && o.OverlapsRange(from, to));
+
+        // ★ 拖回原位 = 取消调代：与底表该格完全一致时不留记录（否则格子上一直挂着「已调课」）
+        if (LessonComparer.IsSameAsBase(_schedule, _selectedName, dayIdx, period,
+                                        subject, teacher, location, isEmpty))
+            return;
+
         if (isEmpty)
         {
             list.Add(new LessonOverride
             {
                 ClassName = _selectedName, DayIdx = dayIdx, Period = period,
-                IsEmpty = true, Type = "调", Source = "manual", UpdatedAt = DateTime.Now
+                IsEmpty = true, Type = "调", Source = "manual",
+                ValidFrom = DateOnly.FromDateTime(from), ValidTo = DateOnly.FromDateTime(to),
+                UpdatedAt = DateTime.Now
             });
         }
         else if (!string.IsNullOrWhiteSpace(subject))
@@ -857,7 +902,9 @@ public partial class ScheduleWindow : Window
             {
                 ClassName = _selectedName, DayIdx = dayIdx, Period = period,
                 Subject = subject, Teacher = teacher, Location = location,
-                Type = type, Source = "manual", UpdatedAt = DateTime.Now
+                Type = type, Source = "manual",
+                ValidFrom = DateOnly.FromDateTime(from), ValidTo = DateOnly.FromDateTime(to),
+                UpdatedAt = DateTime.Now
             });
         }
     }

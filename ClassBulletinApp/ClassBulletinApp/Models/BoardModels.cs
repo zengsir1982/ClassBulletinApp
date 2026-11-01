@@ -5,11 +5,17 @@ namespace ClassBulletinApp;
 public class PeriodRow
 {
     public int DayIdx { get; set; }      // 0=周一 .. 4=周五
-    public int Period { get; set; }      // 第几节
+    public int Period { get; set; }      // 第几节（固定行为 0，不参与拖动/编辑/提醒）
     public string PeriodText { get; set; } = "";
     public string TimeRange { get; set; } = "";
     public string CardBg { get; set; } = "#FFFFFF";
     public List<LessonView> Lessons { get; set; } = new();
+
+    /// <summary>
+    /// 固定时段行（大课间 / 眼保健操 / 午休）：由 ErYi 的 commonSectionList 推导，插在某一节之后。
+    /// 这类行 Period=0、Lessons 为空，渲染成紧凑分隔条；不参与拖动调课、编辑与上课提醒。
+    /// </summary>
+    public bool IsFixed { get; set; }
 }
 
 public class LessonView
@@ -54,10 +60,15 @@ public class WeekCell
     public bool HasLesson => !string.IsNullOrEmpty(Subject);
 }
 
-/// <summary>整周课表数据：周一..周日 × 各节次。</summary>
+/// <summary>整周课表数据：一周 7 列 × 各节次（从设置的周起始日开始）。</summary>
 public class WeekGridData
 {
+    /// <summary>这一周的第一天（跟着「周起始日」设置走，默认周日；不是固定的周一）。</summary>
     public DateTime Monday { get; set; }
+
+    /// <summary>每一列对应的 <c>DayIdx</c>（0=周一 … 6=周日）。列号 ≠ DayIdx，见 WeekBuilder 注释。</summary>
+    public List<int> ColumnDayIdx { get; set; } = new();
+
     public int MaxPeriod { get; set; } = 1;
     public List<WeekCell> Cells { get; set; } = new();
     public List<string> DayHeaders { get; set; } = new();   // 7 个，含星期与日期

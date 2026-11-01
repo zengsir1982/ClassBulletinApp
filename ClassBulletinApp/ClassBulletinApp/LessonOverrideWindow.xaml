@@ -13,7 +13,7 @@
         <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="22,22,22,12">
                 <TextBlock x:Name="TxtTitle" FontSize="18" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,6"/>
-                <TextBlock Text="填写后将临时替换该节课（优先于总课表），可随时清除恢复。" FontSize="13" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
+                <TextBlock x:Name="TxtScope" Text="填写后将临时替换该节课（优先于总课表），可随时清除恢复。" FontSize="13" Foreground="#6B7280" Margin="0,0,0,14" TextWrapping="Wrap"/>
 
                 <Label Content="调课类型" FontSize="14" Padding="0,0,0,4"/>
                 <ComboBox x:Name="CbType" FontSize="15" Padding="9" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,8">

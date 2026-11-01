@@ -23,6 +23,52 @@ public static class WeekHelper
     public static string ParityText(DateTime date, string? semesterStartMonday = null)
         => GetParity(date, semesterStartMonday) == 1 ? "单周" : "双周";
 
+    /// <summary>
+    /// "本周"的起始星期。默认 <see cref="DayOfWeek.Sunday"/>（D7：周日晚就要能看到周一的课）。
+    /// 用户可在「显示设置 → 周起始日」改成周一~周六，实际取值来自
+    /// <see cref="ScheduleCore.Models.AppSettings.WeekStartDay"/>。
+    /// </summary>
+    public const int DefaultWeekStartDay = (int)DayOfWeek.Sunday;
+
+    /// <summary>把任意整数规整成合法的 0..6（0=周日）。</summary>
+    public static int NormalizeStartDay(int weekStartDay) => ((weekStartDay % 7) + 7) % 7;
+
+    /// <summary>周起始日的中文名（0=周日）。</summary>
+    public static string StartDayName(int weekStartDay) => NormalizeStartDay(weekStartDay) switch
+    {
+        1 => "周一",
+        2 => "周二",
+        3 => "周三",
+        4 => "周四",
+        5 => "周五",
+        6 => "周六",
+        _ => "周日"
+    };
+
+    /// <summary>取 date 所在周的起始日（周起始日可配：0=周日、1=周一 … 6=周六）。</summary>
+    public static DateTime WeekStart(DateTime date, int weekStartDay = DefaultWeekStartDay)
+    {
+        int cur = (int)date.DayOfWeek;                 // 0=周日 .. 6=周六
+        int diff = (cur - NormalizeStartDay(weekStartDay) + 7) % 7;
+        return date.Date.AddDays(-diff);
+    }
+
+    /// <summary>取 date 所在周的区间（起始日 ~ 起始日+6，含首尾）。</summary>
+    public static (DateTime Start, DateTime End) WeekWindow(
+        DateTime date, int weekStartDay = DefaultWeekStartDay)
+    {
+        var start = WeekStart(date, weekStartDay);
+        return (start, start.AddDays(6));
+    }
+
+    /// <summary>
+    /// 以 <paramref name="weekStart"/> 这天作为"一周的第一天"取区间。
+    /// <b>凡是从调用方拿到"某一周的第一天"的地方都用这个重载</b>——
+    /// 这样周起始日怎么配都不会算错，也不需要把设置传一路。
+    /// </summary>
+    public static (DateTime Start, DateTime End) WeekWindowOf(DateTime weekStart)
+        => WeekWindow(weekStart, (int)weekStart.DayOfWeek);
+
     /// <summary>用于标题展示：返回「第 N 周」，若早于开学第一周则返回「未开学」。</summary>
     public static string WeekLabel(DateTime date, string? semesterStartMonday = null)
     {

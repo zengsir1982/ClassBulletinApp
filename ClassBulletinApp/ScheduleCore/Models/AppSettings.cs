@@ -23,11 +23,35 @@ public class AppSettings
     /// <summary>密保答案（与 SecurityQuestion 对应，明文存储，仅用于本地找回）。</summary>
     public string SecurityAnswer { get; set; } = "";
 
-    /// <summary>本周「清空全部调代课」已执行的周一日期（yyyy-MM-dd）。用于每周只清一次。</summary>
-    public string LastClearedMonday { get; set; } = "";
+    // r8：已删除 LastClearedMonday（"每周一自动清零调代课"的标记）。
+    // 调代课改由 LessonOverride.ValidFrom/ValidTo 生效区间自然过期，旧 settings.json
+    // 里残留的该字段会被 System.Text.Json 自动忽略，下次保存即消失。
+
 
     /// <summary>上次成功登录的用户名（用于登录界面默认记住，下次只需输入密码）。</summary>
     public string LastUsername { get; set; } = "";
+
+    /// <summary>
+    /// 记住账号密码并在启动时自动登录（默认开）。
+    /// <para>教室机每天开机就要用，每次输账号密码太麻烦，因此默认开启；
+    /// 需要重新选择「游客体验」或换账号时，到「用户中心」取消勾选，下次启动就会回到登录界面。</para>
+    /// <para>关闭后账号密码仍留在 <see cref="Username"/> / <see cref="Password"/> 里（登录界面会预填，密码以 * 显示），
+    /// 只是启动时不再自动进入。</para>
+    /// </summary>
+    public bool AutoLogin { get; set; } = true;
+
+    /// <summary>
+    /// 自动登录用的账号名。<b>只能是班主任或电教管理员（学生）</b>，管理员永不参与自动登录。
+    /// <para>理由：教室机开机自动进入，如果这个账号是管理员，等于"谁坐到电脑前谁是管理员"。</para>
+    /// </summary>
+    public string AutoLoginUser { get; set; } = "";
+
+    /// <summary>
+    /// 自动登录账号的密码（明文）。
+    /// <para>为什么这里存明文：自动登录必须在<b>无人输入</b>的情况下完成，哈希没法反推。
+    /// 代价可控：只有受限角色（学生 / 班主任）会被记在这里，管理员密码从不落到这个字段。</para>
+    /// </summary>
+    public string AutoLoginPassword { get; set; } = "";
 
     /// <summary>
     /// 课表「显示日」模式：
@@ -44,6 +68,13 @@ public class AppSettings
     /// 用于把单双周与学校实际教学周对齐。
     /// </summary>
     public string SemesterStartMonday { get; set; } = "";
+
+    /// <summary>
+    /// 一周从星期几开始（0=周日、1=周一 … 6=周六）。默认 <b>周日</b>：
+    /// 周日晚就能看到下周一的课。只影响"周视图的列顺序"与"本周是哪 7 天"，
+    /// 不影响课表格子的 DayIdx（0=周一..6=周日，数据层永远按周一编号）。
+    /// </summary>
+    public int WeekStartDay { get; set; } = 0;   // DayOfWeek.Sunday
 
     /// <summary>是否开机自启（写入当前用户 Run 注册表）。</summary>
     public bool AutoStart { get; set; }
@@ -116,6 +147,24 @@ public class AppSettings
     /// </summary>
     public string ScheduleKind { get; set; } = "Class";
 
+    /// <summary>
+    /// 课表数据源：
+    /// "ErYi" = 从二一排课抓包落盘的 JSON 缓存读取（默认，主通道）；
+    /// "Excel" = 走现有 ScheduleImporter 手动 Excel 导入（兜底）。
+    /// 任一档失败都会在启动逻辑里回退到另一档，避免展示空白。
+    /// </summary>
+    public string ScheduleSource { get; set; } = "ErYi";
+
+    /// <summary>二一缓存目录（project-list / grade-tree-* / class-lectures-* / substitute-list-* 所在目录）。
+    /// 留空则默认使用 AppData 下的 "eryi" 子目录。</summary>
+    public string ErYiDataDir { get; set; } = "";
+
+    /// <summary>二一实时拉取的登录态 Cookie（仅 FetchLive 用）。默认空 = 关闭实时拉取，走缓存/Excel。</summary>
+    public string ErYiCookie { get; set; } = "";
+
+    /// <summary>二一排课 API 基址（默认 https://paike.21cnjy.com/query）。</summary>
+    public string ErYiBaseUrl { get; set; } = "https://paike.21cnjy.com/query";
+
     /// <summary>应用作业公示栏壁纸前系统原有壁纸路径，用于「清除」时恢复。</summary>
     public string SavedWallpaper { get; set; } = "";
 
@@ -124,6 +173,18 @@ public class AppSettings
 
     /// <summary>桌面背面（当天课表 / 作业公示合成壁纸）设置。</summary>
     public BackdropSettings Backdrop { get; set; } = new();
+
+    /// <summary>
+    /// 已提示过「升级说明」的程序版本（如 <c>1.0.2.0</c>）。与当前版本不同则启动时提示一次，
+    /// 提示后写入当前版本，同版本不再打扰。空 = 从未提示过。
+    /// </summary>
+    public string UpgradeNoticeShownFor { get; set; } = "";
+
+    /// <summary>
+    /// 旧调课记录被自动归入"各自所在周"的时间（yyyy-MM-dd HH:mm）。空 = 从未发生迁移。
+    /// 用于升级提示里说明"你原来的调课记录已经被限定到具体某几天"。
+    /// </summary>
+    public string OverridesMigratedAt { get; set; } = "";
 
     /// <summary>界面主题配色方案名称（见 ThemeManager 预设）。</summary>
     public string Theme { get; set; } = "ClassicBlue";
@@ -175,6 +236,93 @@ public class AppSettings
         FontSize = 28,
         MarqueeSpeed = 120
     };
+
+    // ==================== 自动更新（离线版分发） ====================
+
+    /// <summary>是否启用"定时检查数据包更新"。</summary>
+    public bool AutoUpdateEnabled { get; set; }
+
+    /// <summary>
+    /// 数据源类型：<c>"Off"</c> / <c>"Folder"</c>（共享文件夹或 U 盘）/ <c>"Ftp"</c>。
+    /// </summary>
+    public string UpdateSourceKind { get; set; } = "Off";
+
+    /// <summary>共享文件夹路径，如 <c>\\server\课表</c> 或 <c>F:\课表</c>（U 盘）。</summary>
+    public string UpdateFolderPath { get; set; } = "";
+
+    /// <summary>FTP 根地址，如 <c>ftp://10.0.0.5/schedule/</c>（末尾带斜杠）。</summary>
+    public string UpdateFtpUrl { get; set; } = "";
+    public string UpdateFtpUser { get; set; } = "";
+    public string UpdateFtpPassword { get; set; } = "";
+
+    /// <summary>
+    /// 检查间隔的合法下限（分钟）。设置界面、运行期定时器、状态行文案**必须共用这一份**，
+    /// 否则会出现"设置窗写 3、实际按 5 跑"这种静默改写（r9 修过一次，别再写成两处字面量）。
+    /// </summary>
+    public const int MinUpdateIntervalMinutes = 5;
+
+    /// <summary>检查间隔的合法上限（分钟）。</summary>
+    public const int MaxUpdateIntervalMinutes = 720;
+
+    /// <summary>
+    /// 检查间隔（分钟），默认 30。合法区间 <see cref="MinUpdateIntervalMinutes"/>~<see cref="MaxUpdateIntervalMinutes"/>，
+    /// 越界值在 <c>Store.LoadSettings</c> 里自动归一。
+    /// <para>注意：数据新鲜度主要由发布侧的自动发布保证，调小它只影响"本机多久去拉一次"，
+    /// 30 台机器同时设成 1~2 分钟会给共享盘/FTP 带来不必要的登录压力。</para>
+    /// </summary>
+    public int UpdateIntervalMinutes { get; set; } = 30;
+
+    /// <summary>发现新版本时是否先弹窗确认（false = 静默自动应用）。</summary>
+    public bool UpdateConfirmBeforeApply { get; set; } = true;
+
+    /// <summary>启动后延迟多少秒开始第一次检查（错开 30 台同时拉取）。</summary>
+    public int UpdateStartupDelaySeconds { get; set; } = 30;
+
+    /// <summary>本机是否兼任"发布机"（把 source 目录里的 Excel 解析后生成数据包上传到 publish）。</summary>
+    public bool PublishEnabled { get; set; }
+
+    /// <summary>发布源目录（存 Excel 的地方），默认与 UpdateFolderPath 同级的 source 子目录。</summary>
+    public string PublishSourcePath { get; set; } = "";
+
+    /// <summary>
+    /// 发布机是否监视 source 目录：里面的 Excel 一变（含文件名、大小、最后写入时间）
+    /// 就自动重新打包上传，不必每次手动点「发布到数据源」。默认开。
+    /// </summary>
+    public bool AutoPublishOnSourceChange { get; set; } = true;
+
+    /// <summary>
+    /// 同步策略：是否连<b>本机手工调课</b>一起覆盖。默认 <c>false</c>（保留）。
+    /// <para>打开后，教室机上老师自己拖的调课会在下一次同步时被<b>停用</b>（不是删除），
+    /// 可由管理员在「恢复被主机停用的本机调课」里复活。</para>
+    /// <para>★ 这个值只在勾了「发布机」的机器上可编辑，且<b>实际生效的是包里的值</b>
+    /// （<c>manifest.OverrideIncludeManual</c>）；本机这份只是发布时决定往包里写什么。</para>
+    /// <para>长期改课（basePatch）任何时候都不受影响。</para>
+    /// </summary>
+    public bool OverwriteManualOverrides { get; set; }
+
+    /// <summary>
+    /// 内容版本号（写进 <c>manifest.Rev</c>）。
+    /// <para>★ 存在的唯一理由：策略开关变了但 Excel 没变时，文件摘要不变 → 各机会认为
+    /// "已是最新" → 策略永远下发不下去。这时 Rev 自增，摘要随之变化，强制各机重新 Apply。</para>
+    /// </summary>
+    public int PackageRev { get; set; }
+
+    /// <summary>
+    /// 最近一次收到的数据包所声明的同步策略（教室机只读）。
+    /// <para>null = 还没收到过带策略的包（旧版本）→ 按「保留手工调课」显示。</para>
+    /// <para>★ 教室机上真正生效的是这个值，不是 <see cref="OverwriteManualOverrides"/>
+    /// （后者只在发布机上可编辑，表示"我要往包里写什么"）。</para>
+    /// </summary>
+    public bool? PackageOverwriteManual { get; set; }
+
+    /// <summary>上一次成功应用的数据包 SHA-256（用于判断"是否已是最新"）。</summary>
+    public string LastAppliedSha { get; set; } = "";
+
+    /// <summary>上一次成功应用的时间（yyyy-MM-dd HH:mm）。</summary>
+    public string LastAppliedAt { get; set; } = "";
+
+    /// <summary>上一次检查的结果描述（显示在数据管理页，便于排查）。</summary>
+    public string LastUpdateCheckInfo { get; set; } = "";
 }
 
 /// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口项。</summary>

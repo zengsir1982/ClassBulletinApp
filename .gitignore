@@ -43,3 +43,10 @@ nul
 *令牌*
 *token*
 *.key
+
+# ===== 一次性调试 / 抓包脚本与原始数据（研究用，体积大，不入库）=====
+_td_*.py
+_td_dump.json
+_td_tsv.txt
+数据对接方案/data/
+ClassBulletinApp/_buildcheck/

@@ -53,9 +53,13 @@ public static class TeacherOverrideApplier
                     list.Add(l);
                 }
 
+        // ★ 按「班级|星期|节次」三元组归并（不能用 o.Key：它带生效起始日，同一格不同周会是多条），
+        //   同一格取最近改的那条；衍生出的教师覆盖会继承它的生效区间。
         var ovMap = all
-            .GroupBy(o => o.Key, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Last(), StringComparer.Ordinal);
+            .GroupBy(o => o.CellKey, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key,
+                          g => g.OrderBy(o => o.UpdatedAt).Last(),
+                          StringComparer.Ordinal);
 
         // ---- ① ② ③：逐格按班级层面的记录修正 ----
         foreach (var kv in slots)
@@ -66,6 +70,7 @@ public static class TeacherOverrideApplier
 
             var kept = new List<(Lesson Lesson, string Type)>();
             bool changed = false;
+            LessonOverride? srcOv = null;   // 该格实际命中的班级层面记录（用于继承生效区间）
 
             foreach (var l in lessons)
             {
@@ -77,6 +82,7 @@ public static class TeacherOverrideApplier
                 }
 
                 changed = true;
+                srcOv = ov;
 
                 // ① 调空：教师少一节课
                 if (ov.IsEmpty) continue;
@@ -101,13 +107,13 @@ public static class TeacherOverrideApplier
 
             if (kept.Count == 0)
             {
-                result.Add(MakeOverride(teacherName!, dayIdx, period, "", "", "", "调", true));
+                result.Add(MakeOverride(teacherName!, dayIdx, period, "", "", "", "调", true, srcOv));
             }
             else if (kept.Count == 1)
             {
                 var k = kept[0];
                 result.Add(MakeOverride(teacherName!, dayIdx, period, k.Lesson.Subject,
-                    k.Lesson.Teacher, k.Lesson.Location, string.IsNullOrEmpty(k.Type) ? "调" : k.Type, false));
+                    k.Lesson.Teacher, k.Lesson.Location, string.IsNullOrEmpty(k.Type) ? "调" : k.Type, false, srcOv));
             }
             // 同一格有多个班/多门课的复杂情形：不下覆盖，保留整理结果，避免丢数据
         }
@@ -128,7 +134,7 @@ public static class TeacherOverrideApplier
             if (alreadyKnown) continue;
 
             string type = string.IsNullOrWhiteSpace(ov.Type) ? "调" : ov.Type;
-            result.Add(MakeOverride(teacherName!, ov.DayIdx, ov.Period, ov.Subject, ov.ClassName, ov.Location, type, false));
+            result.Add(MakeOverride(teacherName!, ov.DayIdx, ov.Period, ov.Subject, ov.ClassName, ov.Location, type, false, ov));
         }
 
         return result
@@ -139,7 +145,8 @@ public static class TeacherOverrideApplier
     }
 
     private static LessonOverride MakeOverride(string teacherName, int dayIdx, int period,
-        string subject, string className, string location, string type, bool isEmpty)
+        string subject, string className, string location, string type, bool isEmpty,
+        LessonOverride? src = null)
         => new LessonOverride
         {
             ClassName = teacherName,
@@ -150,6 +157,9 @@ public static class TeacherOverrideApplier
             Location = location,
             Type = type,
             IsEmpty = isEmpty,
+            // ★ 继承来源记录的生效区间，否则衍生的教师覆盖会变成"永久生效"
+            ValidFrom = src?.ValidFrom,
+            ValidTo = src?.ValidTo,
             // 视图层派生数据，不落盘，避免与 classes 的原始记录混淆
             Source = "teacher-view",
             UpdatedAt = DateTime.Now

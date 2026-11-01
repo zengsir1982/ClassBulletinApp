@@ -1,4 +1,11 @@
 ; ============================================================================
+; !! 已废弃草稿，不要用这份 !!
+; 实际发版编译的是仓库根目录的 installer/ClassBulletinApp.iss（154 行那版，
+; 输出 ..\dist\ClassBulletinApp-<版本>-setup-win-x64.exe）。
+; 曾经因为改错了这一份、编译出旧版本号的安装包，白折腾一次。
+; 保留仅作历史参考。
+; ============================================================================
+; ============================================================================
 ; 班级公布栏 (ClassBulletinApp) 安装脚本 —— Inno Setup 6
 ; 用法：安装 Inno Setup 6 后，右键本文件「用 Inno Setup 编译」，或命令行：
 ;       "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ClassBulletinApp.iss
@@ -6,7 +13,7 @@
 ; ============================================================================
 
 #define MyAppName "班级公布栏"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "ClassBulletinApp"
 #define MyAppExeName "ClassBulletinApp.exe"
 #define MyAppId "8F3C9A1E-2B7D-4E55-9C1A-1B6E2F3D4C5A"

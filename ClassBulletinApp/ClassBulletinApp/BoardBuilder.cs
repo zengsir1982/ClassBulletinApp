@@ -47,9 +47,10 @@ public static class BoardBuilder
         if (cs == null) return res;
 
         int dayIdx = ((int)displayDate.DayOfWeek + 6) % 7;
-        // 用索引器而不是 ToDictionary：历史数据里可能出现重复键，重复时后者覆盖前者
-        var ovDict = new Dictionary<string, LessonOverride>();
-        foreach (var o in overrides ?? Store.LoadOverrides()) ovDict[o.Key] = o;
+        // ★ 只取「在 displayDate 这天生效」的覆盖：临时调整自带生效区间，
+        //   上周的调代课不会再顶到本周课表上（见 OverrideExpander 注释）。
+        //   用索引器而不是 ToDictionary：同一格可能残留多条，取 UpdatedAt 最新那条。
+        var ovDict = OverrideExpander.MapForDate(overrides ?? Store.LoadOverrides(), selectedClass, displayDate);
         int parity = WeekHelper.GetParity(displayDate, semesterStart);
 
         if (!cs.Data.TryGetValue(dayIdx, out var dayMap))
@@ -102,6 +103,9 @@ public static class BoardBuilder
             if (!periods.Contains(ov.Period)) periods.Add(ov.Period);
         }
 
+        // 固定时段（大课间/眼保健操/午休）单独收集，最后按「第 N 节之后」插进 body
+        var body = new List<PeriodRow>();
+
         LessonView MakeOverrideView(LessonOverride ov, int period)
         {
             string t = string.IsNullOrEmpty(ov.Type) ? "调" : ov.Type;
@@ -126,13 +130,13 @@ public static class BoardBuilder
         foreach (var period in periods.OrderBy(k => k))
         {
             dayMap.TryGetValue(period, out var lessons);
-            string key = $"{selectedClass}|{dayIdx}|{period}";
+            string key = OverrideExpander.CellKey(selectedClass, dayIdx, period);
 
             // 原课表没有这一节：若临时课表新增了课，整行都由覆盖记录构成
             if (lessons == null || lessons.Count == 0)
             {
                 if (!ovDict.TryGetValue(key, out var nov) || nov.IsEmpty) continue;
-                res.Rows.Add(new PeriodRow
+                body.Add(new PeriodRow
                 {
                     DayIdx = dayIdx,
                     Period = period,
@@ -158,7 +162,7 @@ public static class BoardBuilder
                 if (ov.IsEmpty)
                 {
                     // 被调为空课：仍显示节次行，但内容空白
-                    res.Rows.Add(row);
+                    body.Add(row);
                     continue;
                 }
                 row.Lessons.Add(MakeOverrideView(ov, period));
@@ -175,15 +179,60 @@ public static class BoardBuilder
                         Subject = l.Subject,
                         Teacher = l.Teacher,
                         LocationText = string.IsNullOrEmpty(l.Location) ? "" : " · " + l.Location,
-                        WeekTag = l.Week == 0 ? "" : $"（第{WeekHelper.TeachingWeek(displayDate, semesterStart)}周）",
+                        WeekTag = l.Week == 1 ? "（单周）" : l.Week == 2 ? "（双周）" : "",
                         SubjectColor = active ? "#222222" : "#BBBBBB"
                     });
                 }
             }
-            res.Rows.Add(row);
+            body.Add(row);
         }
+
+        res.Rows.AddRange(InsertFixedSlots(body, FixedSlotsFor(schedule, selectedClass), dayIdx));
         return res;
     }
+
+    /// <summary>取该班所在年级的固定时段；无（Excel 导入路径 / 非二一数据）时返回 null。</summary>
+    private static List<FixedSlot>? FixedSlotsFor(ScheduleFile schedule, string? className)
+    {
+        if (schedule.FixedByGrade == null || schedule.FixedByGrade.Count == 0) return null;
+        var grade = ErYiClient.ParseGrade(className ?? "");
+        if (string.IsNullOrEmpty(grade)) return null;
+        return schedule.FixedByGrade.TryGetValue(grade, out var list) && list.Count > 0 ? list : null;
+    }
+
+    /// <summary>
+    /// 把固定时段行插到对应节次之后，形成「第1节 → 大课间 → 第2节 …」的顺序。
+    /// 固定行 Period=0、Lessons 为空：悬浮窗渲染成灰色紧凑分隔条，
+    /// 拖动调课的命中判断（Period &gt; 0）与上课提醒都会自动跳过它们。
+    /// </summary>
+    private static List<PeriodRow> InsertFixedSlots(List<PeriodRow> body, List<FixedSlot>? fixedSlots, int dayIdx)
+    {
+        if (fixedSlots == null || fixedSlots.Count == 0) return body;
+
+        var outp = new List<PeriodRow>(body.Count + fixedSlots.Count);
+
+        // 第1节之前（after <= 0）的固定项
+        foreach (var f in fixedSlots.Where(f => f.AfterPeriod <= 0))
+            outp.Add(MakeFixedRow(f, dayIdx));
+
+        foreach (var r in body)
+        {
+            outp.Add(r);
+            foreach (var f in fixedSlots.Where(f => f.AfterPeriod == r.Period))
+                outp.Add(MakeFixedRow(f, dayIdx));
+        }
+        return outp;
+    }
+
+    private static PeriodRow MakeFixedRow(FixedSlot f, int dayIdx) => new()
+    {
+        DayIdx = dayIdx,
+        Period = 0,                 // 0 = 固定时段，不参与拖动/编辑/提醒
+        PeriodText = f.Name,
+        TimeRange = f.TimeRange,
+        CardBg = "#F1F3F6",
+        IsFixed = true
+    };
 
     private static bool IsCurrent(string timeRange, DateTime now)
     {

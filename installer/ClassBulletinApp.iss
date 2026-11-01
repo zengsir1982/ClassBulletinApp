@@ -3,7 +3,7 @@
 ; 前置：先执行 publish，生成 ..\dist\portable 目录
 
 #define MyAppName      "班级公布栏"
-#define MyAppVersion   "1.0.1"
+#define MyAppVersion   "1.0.3"
 #define MyAppPublisher "东凤中学"
 #define MyAppURL       ""
 #define MyAppExeName   "ClassBulletinApp.exe"
@@ -75,6 +75,16 @@ Filename: "{app}\{#MyAppExeName}"; Description: "立即启动 {#MyAppName}"; Fla
 var
   DeleteUserData: Boolean;
 
+// 安装 / 升级前先结束常驻进程（关闭按钮只是隐藏，进程仍在托盘里占用文件）。
+// 不结束的话升级时会撞上"文件正在使用"，要么弹窗要用户手动关，要么装到一半失败。
+function InitializeSetup(): Boolean;
+var
+  RC: Integer;
+begin
+  Exec('taskkill.exe', '/f /im ClassBulletinApp.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
+  Result := True;
+end;
+
 function InitializeUninstall(): Boolean;
 var
   RC: Integer;
@@ -82,6 +92,15 @@ var
 begin
   // 程序常驻托盘（关闭只隐藏不退出），卸载前先强制结束，解除文件占用
   Exec('taskkill.exe', '/f /im ClassBulletinApp.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
+
+  // ★ 静默卸载必须先返回：MsgBox 在 /VERYSILENT 下依然会弹窗，
+  //   在无人值守 / 脚本批量卸载时就是永远卡住（实测卡死过一次）。
+  if UninstallSilent then
+  begin
+    DeleteUserData := False;   // 静默卸载默认保留用户数据
+    Result := True;
+    exit;
+  end;
 
   // 卸载窗体(UninstallProgressForm)不支持向导页，改用系统消息框询问。
   // 用 MB_YESNO + MB_DEFBUTTON2 让「否」(保留用户数据) 预聚焦，最安全，避免误删。

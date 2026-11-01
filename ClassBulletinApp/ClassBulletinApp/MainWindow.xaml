@@ -7,9 +7,12 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <Style x:Key="TabBtn" TargetType="Button">
-            <Setter Property="Margin" Value="6"/>
-            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="Margin" Value="0,0,10,10"/>
+            <Setter Property="Padding" Value="14,9"/>
             <Setter Property="FontSize" Value="14"/>
+            <Setter Property="MinWidth" Value="132"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
     </Window.Resources>
 
@@ -58,56 +61,122 @@
                 <!-- 数据管理 -->
                 <TabItem Header="数据管理">
                     <ScrollViewer Margin="14">
-                        <StackPanel MaxWidth="640">
-                            <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
-                            <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
-                            <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportTemp_Click"/>
-                            <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportSingle_Click"/>
-                            <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportTeacher_Click"/>
-                            <Button x:Name="BtnClearOverrides" Content="清除全部临时调课 / 代课" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
-                            <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）" Margin="0,0,0,18" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearImported_Click"/>
-                            <TextBlock Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
-                            <TextBlock Text="若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
-                            <TextBlock Text="导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10"/>
-                            <TextBlock Text="调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap"/>
+                        <StackPanel>
+                            <!-- 两列：左边「课表数据」，右边「数据包分发 / 自动更新」——
+                                 单列排下来在 1366×768 的教室屏上要滚两屏，自动更新状态会被藏在最底下 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" MaxWidth="400" Margin="0,0,32,0">
+                                    <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
+                                    <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
+                                    <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportTemp_Click"/>
+                                    <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportSingle_Click"/>
+                                    <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportTeacher_Click"/>
+                                    <Button x:Name="BtnClearOverrides" Content="清除临时调课 / 代课…（本周 / 指定范围 / 全部）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearOverrides_Click"/>
+                                    <Button x:Name="BtnRestoreSuspended" Content="恢复被主机停用的本机调课…" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FFF7E6" BorderBrush="#E0C080" Click="BtnRestoreSuspended_Click"/>
+                                    <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）" Margin="0,0,0,0" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#FDE8E8" BorderBrush="#E0A0A0" Click="BtnClearImported_Click"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" MaxWidth="600">
+                                    <TextBlock Text="数据包分发（离线版 / 多教室机同步）" FontSize="17" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,10"/>
+                                    <Button x:Name="BtnExportPackage" Content="导出数据包（发到其他教室机）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#EAF2FD" BorderBrush="#9EC1F0" Click="BtnExportPackage_Click"/>
+                                    <Button x:Name="BtnImportPackage" Content="导入数据包（接收校务课表更新）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportPackage_Click"/>
+                                    <Button x:Name="BtnBackup" Content="备份与恢复" Margin="0,0,0,20" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnBackup_Click"/>
+
+                                    <TextBlock Text="自动更新（共享文件夹 / FTP）" FontSize="17" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,10"/>
+                                    <Button x:Name="BtnUpdateSettings" Content="自动更新设置…" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnUpdateSettings_Click"/>
+                                    <Button x:Name="BtnUpdateCheck" Content="立即检查更新" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateCheck_Click"/>
+                                    <Button x:Name="BtnPublishNow" Content="发布到数据源（供其他教室机更新）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnPublishNow_Click"/>
+                                    <TextBlock x:Name="TxtUpdateStatus" Text="自动更新：未配置" FontSize="13" Foreground="#4B5563" TextWrapping="Wrap" Margin="0,2,0,12" LineHeight="19"/>
+                                    <TextBlock Text="勾选「本机兼任发布机」并指定 source 目录后，程序会把该目录里的 Excel（临时课表文件名需以日期开头，如 2026-10-26_临时课表_八年级.xlsx）打包上传；其余教室机定时读取 publish 目录自动更新。连不上数据源时继续用本地数据，不影响使用。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,8" LineHeight="19"/>
+                                    <TextBlock Text="数据包只包含全校一致的内容：基础课表、调代课、标记为「全校」的通知、开学周等。本机的显示班级、窗口布局、密码、作业公示、缺交名单、自定义便签不会被打包，也不会被覆盖。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,8" LineHeight="19"/>
+                                    <TextBlock Text="每次导入数据包前会自动备份当前数据到 backup 目录（保留最近 20 份），可在「备份与恢复」里回滚。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,0" LineHeight="19"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,18,0,10" LineHeight="20"/>
+                            <TextBlock Text="若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10" LineHeight="20"/>
+                            <TextBlock Text="导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,10" LineHeight="20"/>
+                            <TextBlock Text="调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" LineHeight="20"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
 
                 <!-- 显示设置 -->
                 <TabItem Header="显示设置">
-                    <ScrollViewer Margin="14">
-                        <StackPanel MaxWidth="860">
-                            <TextBlock Text="悬浮窗与展示" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
-                            <WrapPanel Orientation="Horizontal">
-                                <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                                <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                                <Button x:Name="BtnToggleHw" Content="作业悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleHw_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                                <Button x:Name="BtnToggleMs" Content="缺交悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleMs_Click" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                                <Button x:Name="BtnLayout" Content="布局设置" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"/>
-                                <Button x:Name="BtnFull" Content="全屏" Style="{StaticResource TabBtn}" Click="BtnFull_Click"/>
-                                <Button x:Name="BtnLock" Content="锁定" Style="{StaticResource TabBtn}" Click="BtnLock_Click"/>
-                                <Button x:Name="BtnHideTray" Content="隐藏到托盘" Style="{StaticResource TabBtn}" Click="BtnHideTray_Click"/>
-                                <Button x:Name="BtnSettings" Content="启动选项（全屏 / 锁定）" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"/>
-                            </WrapPanel>
-                            <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
-                                      FontSize="14" Foreground="#1F2A37" Margin="8,16,0,0" Click="ChkMaxHide_Click"/>
-                            <TextBlock Text="位置和大小不用进设置页调：按住悬浮课表的标题区拖动即可移动，鼠标移到窗口边沿出现双向箭头时拖动即可改变大小，松手自动记住。布局设置里只剩透明度、置顶、鼠标穿透与自动靠边隐藏；「把悬浮课表放回屏幕中央」可应付找不到窗口的情况。「置顶显示」为半透明常驻，隐藏按钮、标题双击、拖动调课均可正常操作；如需纯展示可在布局设置勾选「鼠标穿透」。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,8,0,0"/>
-                            <TextBlock Text="自动隐藏默认把窗口完全移出屏幕（不在屏幕上留任何边缘），只把鼠标移到 / 手指触到屏幕对应边沿时才平滑滑出；需要保留一条可点细边时，可在布局设置里把「露出像素」调成 1~48。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,4,0,0"/>
-                            <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="8,6,0,0"/>
+                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="900">
+                            <TextBlock Text="悬浮窗与展示" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                            <TextBlock Text="作业便签、缺交名单便签的显示 / 隐藏，统一在「作业公示」标签页里开关，这里不再重复放。"
+                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
-                            <!-- 主题配色 -->
-                            <TextBlock Text="界面主题" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,20,0,12"/>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="配色方案" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                <ComboBox x:Name="CbTheme" Width="200" FontSize="14" SelectionChanged="CbTheme_SelectionChanged"/>
-                                <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,6" FontSize="13" Margin="12,0,0,0" Click="BtnThemeReset_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                            </StackPanel>
-                            <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单三张便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,14,0,0"/>
+                            <!-- ① 悬浮窗 -->
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16,14">
+                                <StackPanel>
+                                    <TextBlock Text="① 悬浮窗" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,12,0,2">
+                                        <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click"
+                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                        <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click"
+                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
+                                        <Button x:Name="BtnLayout" Content="布局设置…" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"
+                                                ToolTip="透明度、置顶、鼠标穿透、自动靠边隐藏，以及恢复默认位置"/>
+                                        <Button x:Name="BtnSettings" Content="启动选项…" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"
+                                                ToolTip="开机自启、启动即全屏 / 锁定、启动时自动弹出哪些悬浮窗"/>
+                                    </WrapPanel>
+                                    <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
+                                              FontSize="14" Foreground="#1F2A37" Margin="2,6,0,0" Click="ChkMaxHide_Click"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ② 展示控制 -->
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="② 展示控制" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,12,0,2">
+                                        <Button x:Name="BtnFull" Content="全屏展示" Style="{StaticResource TabBtn}" Click="BtnFull_Click"
+                                                ToolTip="隐藏控制面板，只留课表 / 通知 / 便签在屏幕上"/>
+                                        <Button x:Name="BtnLock" Content="锁定（防误触）" Style="{StaticResource TabBtn}" Click="BtnLock_Click"
+                                                ToolTip="锁定后屏幕上的一切点击都不生效，按 Ctrl+L 解锁"/>
+                                        <Button x:Name="BtnHideTray" Content="隐藏到托盘" Style="{StaticResource TabBtn}" Click="BtnHideTray_Click"
+                                                ToolTip="把控制面板收到右下角托盘，双击图标可再打开"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ③ 界面主题 -->
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="③ 界面主题" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <TextBlock Text="配色方案" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <ComboBox x:Name="CbTheme" Width="200" FontSize="14" SelectionChanged="CbTheme_SelectionChanged"/>
+                                        <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,7" FontSize="13" Margin="12,0,0,0"
+                                                Click="BtnThemeReset_Click" Background="White" BorderBrush="#D1D5DB" Cursor="Hand"/>
+                                    </StackPanel>
+                                    <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单三张便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- ④ 课表周视图：周起始日已移到「周课程表」标签的工具栏（清除本周调课右边），此处不再重复 -->
+
+                            <!-- 操作提示（保留原有说明，压缩成一段） -->
+                            <Border Background="#F4F8FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="操作提示" FontSize="14" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <TextBlock Text="位置和大小不用进设置页调：按住悬浮课表的标题区拖动即可移动，鼠标移到窗口边沿出现双向箭头时拖动即可改变大小，松手自动记住。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                    <TextBlock Text="自动隐藏默认把窗口完全移出屏幕，只把鼠标移到 / 手指触到屏幕对应边沿时才平滑滑出；需要保留一条可点细边时，可在布局设置里把「露出像素」调成 1~48。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。「置顶显示」为半透明常驻，如需纯展示可在布局设置勾选「鼠标穿透」。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -330,6 +399,17 @@
                                     <TextBox Grid.Column="1" x:Name="TxtNewContent" FontSize="14" Padding="10" Height="72" TextWrapping="Wrap" AcceptsReturn="True" Background="White" BorderBrush="#D1D5DB"
                                              ToolTip="通知 / 公告内容：输入后点「添加通知」，顶部字幕条会滚动显示"/>
                                 </Grid>
+                                <!-- 通知范围：全校 / 本班。全校的会随数据包同步到所有教室机 -->
+                                <Border Background="#EEF5FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1"
+                                        CornerRadius="8" Padding="12,10" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <CheckBox x:Name="ChkNewNoticeSchool" FontSize="14" FontWeight="Bold" Foreground="#1F2A37"
+                                                  Content="设为全校通知（随数据包同步到所有教室机）"
+                                                  ToolTip="勾选后这条通知会写进数据包，各教室机导入 / 自动更新后都会滚动显示；不勾选只在本机显示。"/>
+                                        <TextBlock Text="默认「本班通知」：只在本机显示，不打进数据包。「发布到数据源」或勾选「本机兼任发布机」时，全校通知才会同步出去。"
+                                                   FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                    </StackPanel>
+                                </Border>
                                 <DockPanel>
                                     <Button x:Name="BtnAddNotice" Content="添加通知" Padding="12,7" FontSize="15" DockPanel.Dock="Left" Click="BtnAddNotice_Click"/>
                                     <TextBlock Text="标题选填；内容支持多行。添加后立即在顶部字幕条滚动显示。" FontSize="12" Foreground="#9CA3AF"
@@ -342,8 +422,24 @@
                                         <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,0,0,12">
                                             <StackPanel>
                                                 <DockPanel>
-                                                    <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" Foreground="#1F2A37"/>
+                                                    <Border DockPanel.Dock="Left" CornerRadius="4" Padding="6,1" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="#9CA3AF"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Scope}" Value="school">
+                                                                        <Setter Property="Background" Value="#2D6CDF"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <TextBlock Text="{Binding ScopeText}" FontSize="11" Foreground="White"/>
+                                                    </Border>
+                                                    <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
                                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                                                        <Button Content="{Binding ScopeButtonText}" FontSize="12" Padding="10,3" Margin="0,0,6,0"
+                                                                Click="BtnNoticeScope_Click" Tag="{Binding Id}"
+                                                                ToolTip="切换这条通知的范围：全校 = 随数据包同步到所有教室机；本班 = 只在本机显示"/>
                                                         <Button Content="{Binding PinButtonText}" FontSize="12" Padding="10,3" Margin="0,0,6,0"
                                                                 Click="BtnPin_Click" Tag="{Binding Id}"/>
                                                         <Button Content="删除" FontSize="12" Padding="10,3"
@@ -440,43 +536,94 @@
                 <!-- 用户中心：修改用户名与密码 -->
                 <TabItem Header="用户中心">
                     <ScrollViewer Margin="14">
-                        <StackPanel MaxWidth="560">
+                        <StackPanel MaxWidth="900">
                             <TextBlock Text="👤 用户中心" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="登录后可在此修改用户名、密码（默认 admin / 000），并设置电子邮箱、手机号码与密保问题，便于忘记密码时找回。当「用户名」设置为某个班级名时，下次启动将默认显示该班课表。"
+                            <TextBlock Text="这里显示当前登录的账号，可修改自己的用户名和密码。升级后原账号即「管理员」（密码沿用你以前登录用的那套）；教室机开机自动登录的是受限账号 local / 000，只能控制显示，改设置请点下方「切换账号…」用管理员登录，不用重启程序。右侧找回密码信息全机共用一份，只有管理员能改。"
                                        FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
-                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16" Margin="0,0,0,14">
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="18,16">
                                 <StackPanel>
-                                    <TextBlock Text="当前用户名" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="TxtCurUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" IsReadOnly="True" Margin="0,0,0,12"/>
-                                    <TextBlock Text="新用户名" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="TxtNewUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <TextBlock Text="新密码（留空表示不修改）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <PasswordBox x:Name="TxtNewPwd" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <TextBlock Text="确认新密码" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <PasswordBox x:Name="TxtNewPwd2" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <TextBlock Text="电子邮箱（用于找回密码，可留空）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="TxtEmail" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <TextBlock Text="手机号码（用于找回密码，可留空）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="TxtPhone" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <TextBlock Text="密保问题（用于找回密码，可选）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="CbSecQuestion" FontSize="14" Padding="6" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12">
-                                        <ComboBoxItem Content="（不设密保问题）"/>
-                                        <ComboBoxItem Content="您母亲的姓名是？"/>
-                                        <ComboBoxItem Content="您父亲的姓名是？"/>
-                                        <ComboBoxItem Content="您就读的第一所学校的名称？"/>
-                                        <ComboBoxItem Content="您最喜欢的老师是谁？"/>
-                                        <ComboBoxItem Content="您的出生城市是？"/>
-                                        <ComboBoxItem Content="您宠物的名字是？"/>
-                                    </ComboBox>
-                                    <TextBlock Text="密保答案（设置了密保问题时填写）" FontSize="14" Foreground="#4B5563" Margin="0,0,0,4"/>
-                                    <TextBox x:Name="TxtSecAnswer" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
-                                    <Button x:Name="BtnSaveUser" Content="保存修改" Padding="14,8" FontSize="15" HorizontalAlignment="Left"
-                                            Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" Click="BtnSaveUser_Click"/>
-                                    <TextBlock x:Name="TxtUserMsg" FontSize="13" Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="28"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 左列：账号与密码 -->
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="账号与密码" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,10"/>
+                                            <TextBlock Text="当前用户名" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <TextBox x:Name="TxtCurUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" IsReadOnly="True" Margin="0,0,0,12"/>
+                                            <TextBlock Text="当前密码（修改用户名或密码时必填，只改其他信息可留空）" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="TxtCurPwd" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" PasswordChar="*" Margin="0,0,0,12"
+                                                         ToolTip="为防止他人误改 / 冒改，改用户名或改密码都要先输入当前密码"/>
+                                            <TextBlock Text="新用户名（留空 = 不修改用户名）" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <TextBox x:Name="TxtNewUser" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"
+                                                     ToolTip="只想改密码时，这里留空即可"/>
+                                            <TextBlock Text="新密码（留空 = 不修改密码）" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="TxtNewPwd" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" PasswordChar="*" Margin="0,0,0,12"/>
+                                            <TextBlock Text="确认新密码" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="TxtNewPwd2" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" PasswordChar="*" Margin="0,0,0,0"/>
+                                        </StackPanel>
+
+                                        <!-- 右列：找回密码信息 -->
+                                        <StackPanel x:Name="PanelRecovery" Grid.Column="2">
+                                            <TextBlock Text="找回密码信息（都可留空）" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,10"/>
+                                            <TextBlock Text="电子邮箱" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <TextBox x:Name="TxtEmail" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                            <TextBlock Text="手机号码" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <TextBox x:Name="TxtPhone" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12"/>
+                                            <TextBlock Text="密保问题" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <ComboBox x:Name="CbSecQuestion" FontSize="14" Padding="6" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,12">
+                                                <ComboBoxItem Content="（不设密保问题）"/>
+                                                <ComboBoxItem Content="您母亲的姓名是？"/>
+                                                <ComboBoxItem Content="您父亲的姓名是？"/>
+                                                <ComboBoxItem Content="您就读的第一所学校的名称？"/>
+                                                <ComboBoxItem Content="您最喜欢的老师是谁？"/>
+                                                <ComboBoxItem Content="您的出生城市是？"/>
+                                                <ComboBoxItem Content="您宠物的名字是？"/>
+                                            </ComboBox>
+                                            <TextBlock Text="密保答案（设置了密保问题时填写）" FontSize="13" Foreground="#4B5563" Margin="0,0,0,4"/>
+                                            <TextBox x:Name="TxtSecAnswer" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB" Margin="0,0,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- 自动登录 -->
+                                    <Border Background="#EEF5FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14,12" Margin="0,16,0,0">
+                                        <StackPanel>
+                                            <CheckBox x:Name="ChkAutoLogin" Content="记住账号密码，下次开机自动登录" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                            <TextBlock Text="默认开启：教室机每天开机直接进入，不再询问账号密码（登录界面上密码以 * 显示）。取消勾选后，下次启动会回到登录界面，可以换账号或改用「游客体验」。"
+                                                       FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <StackPanel Margin="0,16,0,0">
+                                        <Button x:Name="BtnSaveUser" Content="保存修改" Padding="18,9" FontSize="15" HorizontalAlignment="Left"
+                                                Background="{DynamicResource PrimaryBrush}" Foreground="White"
+                                                BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnSaveUser_Click"/>
+                                        <TextBlock x:Name="TxtUserMsg" FontSize="13" Margin="0,10,0,0"
+                                                   TextWrapping="Wrap" Visibility="Collapsed"/>
+                                        <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1"
+                                                CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
+                                            <StackPanel>
+                                                <TextBlock x:Name="TxtRoleLine" Text="当前身份：—" FontSize="13"
+                                                           FontWeight="Bold" Foreground="#1F2A37"/>
+                                                <TextBlock Text="管理员可以在这里管理全校账号（新增 / 改角色 / 重置密码 / 从 Excel 导入名单）；切换账号不需要重启程序。"
+                                                           FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,8"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Button x:Name="BtnManageUsers" Content="用户管理…" Padding="14,7" FontSize="13"
+                                                            Margin="0,0,8,0" Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                                            Click="BtnManageUsers_Click"/>
+                                                    <Button x:Name="BtnSwitchUser" Content="切换账号…" Padding="14,7" FontSize="13"
+                                                            Click="BtnSwitchUser_Click"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <TextBlock Text="提示：修改后立即生效并保存；以「游客」身份进入时不保存任何改动。"
-                                       FontSize="13" Foreground="#9CA3AF" TextWrapping="Wrap"/>
+                            <TextBlock Text="提示：改用户名或改密码都要先输入「当前密码」；只想换密码时，把「新用户名」留空即可。修改后立即生效并保存；以「游客」身份进入时不保存任何改动。"
+                                       FontSize="13" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,12,0,0"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

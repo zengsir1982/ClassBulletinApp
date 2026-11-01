@@ -37,6 +37,7 @@ public partial class NotificationEditWindow : Window
         {
             TxtTitle.Text = n.Title;
             TxtContent.Text = n.Content;
+            ChkSchool.IsChecked = n.Scope == "school";
         }
     }
 
@@ -45,11 +46,18 @@ public partial class NotificationEditWindow : Window
         var title = TxtTitle.Text.Trim();
         var content = TxtContent.Text.Trim();
         if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(content)) return;
-        var n = new Notification { Title = title, Content = content, CreatedAt = DateTime.Now };
+        var n = new Notification
+        {
+            Title = title,
+            Content = content,
+            CreatedAt = DateTime.Now,
+            Scope = ChkSchool.IsChecked == true ? "school" : "local"
+        };
         _items.Insert(0, n);
         Persist();
         TxtTitle.Text = "";
         TxtContent.Text = "";
+        ChkSchool.IsChecked = false;
         AppEvents.RaiseNotificationChanged();
     }
 
@@ -63,6 +71,7 @@ public partial class NotificationEditWindow : Window
         }
         n.Title = TxtTitle.Text.Trim();
         n.Content = TxtContent.Text.Trim();
+        n.Scope = ChkSchool.IsChecked == true ? "school" : "local";
         Persist();
         Lst.Items.Refresh();
         AppEvents.RaiseNotificationChanged();
@@ -83,6 +92,7 @@ public partial class NotificationEditWindow : Window
         Persist();
         TxtTitle.Text = "";
         TxtContent.Text = "";
+        ChkSchool.IsChecked = false;
         AppEvents.RaiseNotificationChanged();
     }
 
