@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
@@ -22,6 +23,20 @@ var policyDefaultsMode = args.Length > 1 && args[1] == "policydefaults";
 if (policyDefaultsMode)
 {
     RunPolicyDefaultTests();
+    return;
+}
+
+var artifactMode = args.Length > 1 && args[1] == "artifacts";
+if (artifactMode)
+{
+    RunArtifactTests();
+    return;
+}
+
+var updateVerMode = args.Length > 1 && args[1] == "updatever";
+if (updateVerMode)
+{
+    RunUpdateVersionTests();
     return;
 }
 
@@ -318,4 +333,97 @@ static void RunPolicyDefaultTests()
     Assert(!book.EnsurePolicyDefaults(), "第二次补齐应无改动（幂等）");
 
     Console.WriteLine("POLICYDEFAULTS DONE");
+}
+
+// ===== 回归：副本文件过滤（r17）=====
+// 现场背景：三台发布机都能往共享目录拖课表，两个人同时打开同一份 Excel 时，
+// Excel 会生成「xxx (用户的冲突副本).xlsx」。这类文件同样以 .xlsx 结尾，
+// 若不排除会被当成真课表导入，且按文件名排序后可能盖掉正本 —— 发布报告里看不出异常。
+/// <summary>「软件更新」版本比较回归：Gitee 标签 vs 当前版本（r22）。</summary>
+static void RunUpdateVersionTests()
+{
+    Console.WriteLine("\n=== 版本号比较回归（r22）===");
+
+    // 真新版本
+    Assert(AppVersionCompare.IsNewer("v1.0.6", "1.0.5"), "v1.0.6 > 1.0.5");
+    Assert(AppVersionCompare.IsNewer("v1.0.10", "1.0.9"), "v1.0.10 > 1.0.9（不能按字符串比）");
+    Assert(AppVersionCompare.IsNewer("2.0.0", "1.9.9"), "2.0.0 > 1.9.9");
+    Assert(AppVersionCompare.IsNewer("1.0.6.1", "1.0.6"), "1.0.6.1 > 1.0.6");
+    Assert(AppVersionCompare.IsNewer("v1.0.6-beta", "1.0.5"), "带后缀的标签也能比");
+
+    // 同版本 / 更旧
+    Assert(!AppVersionCompare.IsNewer("v1.0.5", "1.0.5"), "同版本不算新");
+    Assert(!AppVersionCompare.IsNewer("1.0.5.0", "1.0.5"), "1.0.5.0 与 1.0.5 等价");
+    Assert(!AppVersionCompare.IsNewer("v1.0.4", "1.0.5"), "1.0.4 不比 1.0.5 新");
+    Assert(!AppVersionCompare.IsNewer("v0.9.9", "1.0.5"), "0.9.9 不比 1.0.5 新");
+
+    // 归一化
+    Assert(AppVersionCompare.Clean("v1.0.5") == "1.0.5", "Clean 去掉 v 前缀");
+    Assert(AppVersionCompare.Clean("1.0.5-beta") == "1.0.5", "Clean 截掉后缀");
+    Assert(AppVersionCompare.Clean("") == "", "Clean 空串");
+}
+
+static void RunArtifactTests()
+{
+    Console.WriteLine("\n=== 副本文件过滤回归（r17）===");
+
+    // 正例：Office / WPS / 手工复制留下的副本命名
+    foreach (var n in new[]
+    {
+        "中山市东凤中学2026-2027第一学期课程表(八年级)-全校班级总课表 (ZENGSIR 的冲突副本).xlsx",
+        "中山市东凤中学2026-2027第一学期课程表(八年级)-全校班级总课表 (用户的冲突副本).xlsx",
+        "八年级总课表 - 副本.xlsx",
+        "八年级总课表 - 副本 (2).xlsx",
+        "2026-11-02_临时课表_八年级 - 副本.xlsx",
+        "八年级总课表 - 复制.xlsx",
+        "Copy of 八年级总课表.xlsx",
+        "八年级总课表 copy.xlsx",
+        "八年级总课表~RF12345.xlsx",
+    })
+        Assert(SourcePublisher.IsArtifactName(n), "应判为副本：" + n);
+
+    // 反例：真实课表名里带年份、年级括号，绝不能误杀
+    foreach (var n in new[]
+    {
+        "中山市东凤中学2026-2027第一学期课程表(八年级)-全校班级总课表.xlsx",
+        "中山市东凤中学2026-2027第一学期课程表(九年级)-全校班级总课表.xlsx",
+        "2026-11-02_临时课表_八年级.xlsx",
+        "八年级(14)班-班级课程表.xlsx",
+    })
+        Assert(!SourcePublisher.IsArtifactName(n), "不应判为副本：" + n);
+
+    // 端到端：目录里混入副本，预检必须跳过并列出来
+    var dir = Path.Combine(Path.GetTempPath(), "cbartifact-" + Guid.NewGuid().ToString("N")[..8]);
+    Directory.CreateDirectory(dir);
+    try
+    {
+        foreach (var n in new[] { "七年级总课表.xlsx", "八年级总课表.xlsx", "九年级总课表.xlsx" })
+            File.WriteAllText(Path.Combine(dir, n), "x");
+        File.WriteAllText(Path.Combine(dir, "八年级总课表 - 副本.xlsx"), "x");
+
+        var p = SourcePublisher.Scan(dir);
+        Assert(p.Ok, "预检应通过（有 3 份正本）");
+        Assert(p.BaseFiles.Count == 3, $"正本应为 3 份，实际 {p.BaseFiles.Count}");
+        Assert(p.IgnoredFiles.Count == 1, $"副本应被跳过 1 个，实际 {p.IgnoredFiles.Count}");
+        Assert(p.HasRisk, "发现副本时预检应标记有风险，才能提醒用户去清理");
+
+        string f1 = SourcePublisher.SourceFingerprint(dir);
+        File.Delete(Path.Combine(dir, "八年级总课表 - 副本.xlsx"));
+        string f2 = SourcePublisher.SourceFingerprint(dir);
+        Assert(f1.Length > 0 && f1 != f2,
+            "清理副本后指纹必须变化（否则各机会认为没有新内容，一直不重新发布）");
+
+        // 只剩副本时必须明确报错，不能当成"目录空了"糊过去
+        var dir2 = Path.Combine(dir, "only");
+        Directory.CreateDirectory(dir2);
+        File.WriteAllText(Path.Combine(dir2, "七年级总课表 - 副本.xlsx"), "x");
+        var p2 = SourcePublisher.Scan(dir2);
+        Assert(!p2.Ok && p2.Message.Contains("副本"), "只剩副本时应报「只有副本文件」");
+    }
+    finally
+    {
+        try { Directory.Delete(dir, true); } catch { }
+    }
+
+    Console.WriteLine("ARTIFACTS DONE");
 }

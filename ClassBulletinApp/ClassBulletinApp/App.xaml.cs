@@ -19,6 +19,15 @@ public partial class App : System.Windows.Application
         IsDiagnostic = e.Args.Length >= 1
                        && e.Args[0].StartsWith("--", StringComparison.Ordinal);
 
+        // 诊断 / 测试：CB_DATA_DIR 可把数据目录指到别处。
+        // 典型用法：复制一份真实配置到临时目录再跑截图 / 渲染，既能看到真实数据，又不会改动用户的 settings.json。
+        try
+        {
+            var dataDir = Environment.GetEnvironmentVariable("CB_DATA_DIR");
+            if (!string.IsNullOrWhiteSpace(dataDir)) Store.SetAppDir(dataDir!.Trim().Trim('"'));
+        }
+        catch { }
+
         // 由托盘“退出”显式关闭，关闭所有窗口不再自动退出（便于隐藏到托盘常驻）。
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
@@ -80,6 +89,95 @@ public partial class App : System.Windows.Application
             UserSession.SignIn(diagUser);
         }
 
+        // 诊断：--dir-check <路径> 把"路径到底能不能读"的每一步都打出来。
+        // 起因：Directory.Exists 对 UNC 共享会吞异常返回 false，导致"目录明明能进、程序却说不可达"，
+        // 光看结果分不清是路径错、权限错还是网络不通，这里把 Exists / 列目录 / 异常类型分三行报。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--dir-check", StringComparison.OrdinalIgnoreCase))
+        {
+            var sb = new System.Text.StringBuilder();
+            var p2 = e.Args[1];
+            sb.AppendLine("path=" + p2 + "  len=" + p2.Length);
+            sb.AppendLine("dotnet_dir_exists=" + Directory.Exists(p2));
+            try
+            {
+                var ents = Directory.GetFileSystemEntries(p2);
+                sb.AppendLine("getentries=ok count=" + ents.Length);
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("getentries=FAIL " + ex.GetType().Name + " hresult=" + ex.HResult
+                    + " msg=" + ex.Message);
+            }
+            try
+            {
+                var di = new DirectoryInfo(p2);
+                sb.AppendLine("directoryinfo_exists=" + di.Exists);
+            }
+            catch (Exception ex) { sb.AppendLine("directoryinfo=FAIL " + ex.Message); }
+
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.dircheck.log"), sb.ToString()); }
+            catch { }
+            Shutdown(0);
+            return;
+        }
+
+        // 诊断：--cred-check 验证「凭据管理器读写」这条通路是否正常（写入 / 读回 / 删除 往返）。
+        // ★ 一律用假目标名和假密码，绝不碰真实共享凭据：这个命令是给现场排查用的，
+        //   不能因为它把用户已经存好的账号密码覆盖掉。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--cred-check", StringComparison.OrdinalIgnoreCase))
+        {
+            var sb = new System.Text.StringBuilder();
+            const string target = "CB_DIAG_SELFCHECK";
+            const string user = "diaguser";
+            const string pwd = "diag-p@ss-123";
+            try
+            {
+                SmbCredential.Write(target, user, pwd);
+                var back = SmbCredential.ReadUser(target);
+                SmbCredential.Delete(target);
+                var after = SmbCredential.ReadUser(target);
+
+                sb.AppendLine($"write=ok  read={(back ?? "null")}  read_matches={string.Equals(back, user, StringComparison.Ordinal)}");
+                sb.AppendLine($"delete=ok  after_delete={(after ?? "null")}");
+
+                // 可选第二个参数：顺手探一次共享路径，验证"权限不足"和"路径不存在"能不能分开报
+                if (e.Args.Length >= 2)
+                {
+                    // 先实测"断开旧连接"：换凭据后必须断开，否则测出来的是旧账号的结果。
+                    // 这一步也会让 P/Invoke 签名在真机上跑一遍（签名错会直接抛异常，比上线才发现好）。
+                    bool disconnected = SmbCredential.DisconnectHost(e.Args[1]);
+                    sb.AppendLine($"disconnect({e.Args[1]}) = {disconnected}");
+
+                    var (ok, msg, cnt, canWrite) = SmbCredential.Probe(e.Args[1]);
+                    sb.AppendLine($"probe({e.Args[1]}) ok={ok} xlsx={cnt} writable={canWrite}");
+                    sb.AppendLine("  " + msg.Replace("\n", "\n  "));
+
+                    // 可选第三个参数 map：真建一个盘符再删掉，验证映射功能（会临时出现在"此电脑"里）
+                    if (e.Args.Length >= 3 && string.Equals(e.Args[2], "map", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var (mok, mmsg, drive) = SmbCredential.MapDrive(e.Args[1]);
+                        sb.AppendLine($"map={mok} drive={drive} msg={mmsg}");
+                        if (mok)
+                        {
+                            sb.AppendLine($"  drive_readable={Directory.Exists(drive + "\\")}");
+                            sb.AppendLine($"  unmap={SmbCredential.UnmapDrive(drive)}");
+                            sb.AppendLine($"  after_unmap={Directory.Exists(drive + "\\")}");
+                        }
+                    }
+                }
+
+                sb.AppendLine(string.Equals(back, user, StringComparison.Ordinal) && after == null ? "RESULT=PASS" : "RESULT=FAIL");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine($"RESULT=FAIL {ex.GetType().Name}: {ex.Message}");
+            }
+            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.credcheck.log"), sb.ToString()); }
+            catch { }
+            Shutdown(0);
+            return;
+        }
+
         // 诊断：--pos-check 实测作业 / 缺交便签窗口的落点与可见性，结果写入 ClassBulletinApp.poscheck.log
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--pos-check", StringComparison.OrdinalIgnoreCase))
         {
@@ -129,6 +227,7 @@ public partial class App : System.Windows.Application
                     "homeworkedit" => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()),
                     "missingedit" => new MissingEditWindow(Store.LoadMissingBoard()),
                     "schedulewin" => new ScheduleWindow(),
+                    "schedulewinfail" => DiagScheduleUpdateFail(),
                     "notifywin" => new NotificationWindow(),
                     "homeworkwin" => new HomeworkWindow(),
                     "missingwin" => new MissingWindow(),
@@ -138,6 +237,7 @@ public partial class App : System.Windows.Application
                     "mainnotice" => new MainWindow { InitialTabIndex = 4 },
                     "mainhw" => new MainWindow { InitialTabIndex = 5 },
                     "mainuser" => new MainWindow { InitialTabIndex = 6 },
+                    "mainabout" => new MainWindow { InitialTabIndex = 7 },
                     "login" => new LoginWindow(),
                     "layout0" => new LayoutWindow { InitialTabIndex = 0 },
                     "layout1" => new LayoutWindow { InitialTabIndex = 1 },
@@ -146,12 +246,16 @@ public partial class App : System.Windows.Application
                     "customnote" => new CustomNoteWindow(DiagCustomNoteId()),
                     "backupwin" => new BackupWindow(),
                     "updatesettings" => new UpdateSettingsWindow(),
+                    "sharewizard" => new ShareAccessWizardWindow(),
+                    "sharewizard1" => new ShareAccessWizardWindow { InitialStep = 1 },
+                    "sharewizard2" => new ShareAccessWizardWindow { InitialStep = 2 },
                     "clearoverrides" => new ClearOverridesWindow(),
                     "suspended" => new SuspendedOverridesWindow(),
                     "usermanager" => new UserManagerWindow(),
                     "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
                     "rolepolicy" => new RolePolicyWindow(Store.LoadUsers()),
                     "traymenu" => new TrayMenuWindow(),
+                    "about" => new AboutWindow(),
                     "upgradenotice" => new UpgradeNoticeWindow(
                         "1.0.4.0",
                         UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.0.0")),
@@ -162,6 +266,21 @@ public partial class App : System.Windows.Application
                 w0.Top = 40;
                 w0.Show();
                 w0.UpdateLayout();
+
+                // 可选等待：CB_SHOT_WAIT_MS=8000 让窗口先跑一会儿再截图。
+                // 有些状态是异步才出现的（比如启动后探测共享目录、网络超时后的红字提示），
+                // 不等就截只能拍到初始画面，会误判成"功能没生效"。
+                // 用 DispatcherFrame 而不是 Thread.Sleep：消息泵要继续跑，async 回调才有机会执行。
+                if (int.TryParse(Environment.GetEnvironmentVariable("CB_SHOT_WAIT_MS"), out int shotWait)
+                    && shotWait > 0)
+                {
+                    var waitFrame = new DispatcherFrame();
+                    var waitTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(shotWait) };
+                    waitTimer.Tick += (_, _) => { waitTimer.Stop(); waitFrame.Continue = false; };
+                    waitTimer.Start();
+                    Dispatcher.PushFrame(waitFrame);
+                    w0.UpdateLayout();
+                }
 
                 var frame0 = new DispatcherFrame();
                 Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() => frame0.Continue = false));
@@ -232,6 +351,21 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--test-backdrop-off <日志路径> 验证「取消背景 → 恢复悬浮窗」整条链路后退出。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--test-backdrop-off", StringComparison.OrdinalIgnoreCase))
+        {
+            RunBackdropOffDiag(e.Args[1]);
+            return;
+        }
+
+        // 诊断：--check-update 联网检查 Gitee 上的最新发布版本（不发请求给数据源），
+        // 结果写到临时目录 ClassBulletinApp.updcheck.log 后退出。用于验证「关于 → 检查更新」的取值。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--check-update", StringComparison.OrdinalIgnoreCase))
+        {
+            RunUpdateCheckDiag();
+            return;
+        }
+
         // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
         // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
@@ -270,12 +404,15 @@ public partial class App : System.Windows.Application
             Check("CustomNoteWindow", () => new CustomNoteWindow(DiagCustomNoteId()));
             Check("BackupWindow", () => new BackupWindow());
             Check("UpdateSettingsWindow", () => new UpdateSettingsWindow());
+            Check("ShareAccessWizardWindow", () => new ShareAccessWizardWindow());
             Check("ClearOverridesWindow", () => new ClearOverridesWindow());
             Check("SuspendedOverridesWindow", () => new SuspendedOverridesWindow());
             Check("UserManagerWindow", () => new UserManagerWindow());
             Check("UserEditWindow", () => new UserEditWindow(null,
                 new ScheduleCore.Models.UserBook(), new[] { "八(22)班" }));
             Check("RolePolicyWindow", () => new RolePolicyWindow(Store.LoadUsers()));
+            Check("TrayMenuWindow", () => new TrayMenuWindow());
+            Check("AboutWindow", () => new AboutWindow());
             Check("UpgradeNoticeWindow", () => new UpgradeNoticeWindow(
                 "1.0.4.0",
                 UpgradeNoticeWindow.BuildItems(new AppSettingsSnapshot(0, "2026-10-31 23:40"), "1.0.0.0")));
@@ -443,6 +580,17 @@ public partial class App : System.Windows.Application
     /// </summary>
     private static string? _diagTempNoteId;
 
+    /// <summary>
+    /// 诊断：悬浮课表的「更新课表」按钮切到失败态后截图，用来核对红字「更新失败」的样式
+    /// （正常情况要等真的更新失败才能看到，截图流程里没法触发）。
+    /// </summary>
+    private static Window DiagScheduleUpdateFail()
+    {
+        var w = new ScheduleWindow();
+        w.Loaded += (_, _) => w.SimulateQaFailure("模拟：数据源不可用，本次更新失败（诊断截图用）。");
+        return w;
+    }
+
     private static string DiagCustomNoteId()
     {
         var s = Store.LoadSettings();
@@ -470,6 +618,122 @@ public partial class App : System.Windows.Application
         }
         catch { }
         finally { _diagTempNoteId = null; }
+    }
+
+    /// <summary>
+    /// 诊断：验证「取消背景 → 恢复悬浮窗」。造一份"已经设为背景"的状态，跑一遍
+    /// <see cref="BackdropPin.Unpin"/>，把取消后的开关 / 窗口可见性写进日志。
+    /// </summary>
+    private void RunBackdropOffDiag(string logPath)
+    {
+        var sb = new System.Text.StringBuilder();
+        void Log(string line)
+        {
+            sb.AppendLine(line);
+            try { File.WriteAllText(logPath, sb.ToString()); } catch { }
+        }
+
+        void Pump(int ms)
+        {
+            var frame = new DispatcherFrame();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+            timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+            timer.Start();
+            Dispatcher.PushFrame(frame);
+        }
+
+        MainWindow? w = null;
+        try
+        {
+            // ★ 诊断模式默认不写盘（EnablePersistence=false），这个测试恰恰要验证"写盘后的状态"，
+            //   所以临时打开 —— 但只允许在 CB_DATA_DIR 指向的数据副本上跑，绝不碰真实设置。
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CB_DATA_DIR")))
+            {
+                Log("请在 CB_DATA_DIR 指向数据副本的情况下运行本测试（避免改到真实设置）。");
+                Shutdown(0);
+                return;
+            }
+            Store.EnablePersistence = true;
+
+            // ① 造状态：课表 + 作业画在壁纸上，并记下"当初藏了哪些窗口"
+            var s = Store.LoadSettings();
+            s.Backdrop ??= new ScheduleCore.Models.BackdropSettings();
+            s.Backdrop.ShowSchedule = true;
+            s.Backdrop.ShowHomework = true;
+            s.Backdrop.ShowMissing = false;
+            string noteId = s.CustomNotes.FirstOrDefault()?.Id ?? "";
+            if (noteId.Length > 0) s.Backdrop.EntryOf(noteId).Visible = true;
+            s.Backdrop.PinnedRestores = new List<string> { "Schedule", "Homework" };
+            if (noteId.Length > 0) s.Backdrop.PinnedRestores.Add("note:" + noteId);
+
+            // 启动时自动显示的窗口一律关掉，避免干扰"取消背景放回来的窗口"判断
+            s.AutoShowSchedule = false;
+            s.AutoShowNotification = false;
+            s.AutoShowHomework = false;
+            s.AutoShowMissing = false;
+            Store.SaveSettings(s);
+            Log($"① 准备：ShowSchedule={s.Backdrop.ShowSchedule} ShowHomework={s.Backdrop.ShowHomework} note={noteId}");
+
+            w = new MainWindow { ShowInTaskbar = false };
+            w.Show();
+            Pump(800);
+
+            bool ok = BackdropPin.Unpin(out string msg);
+            Log($"② Unpin={ok}　{msg}");
+            Pump(800);
+
+            var s2 = Store.LoadSettings();
+            Log($"③ 取消后开关：ShowSchedule={s2.Backdrop?.ShowSchedule} ShowHomework={s2.Backdrop?.ShowHomework} " +
+                $"便签Visible={(noteId.Length > 0 ? s2.Backdrop?.EntryOf(noteId).Visible.ToString() : "-")} " +
+                $"PinnedRestores={s2.Backdrop?.PinnedRestores?.Count ?? 0} AutoHide={s2.ScheduleLayout?.AutoHide}");
+
+            foreach (Window win in System.Windows.Application.Current.Windows)
+            {
+                if (ReferenceEquals(win, w)) continue;
+                Log($"④ 窗口 {win.GetType().Name} IsVisible={win.IsVisible}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("FAIL " + ex);
+        }
+        finally
+        {
+            try { w?.Close(); } catch { }
+            Shutdown(0);
+        }
+    }
+
+    /// <summary>
+    /// 诊断：<c>--check-update</c> 联网检查 Gitee 上的最新发布版本，结果写入
+    /// <c>%TEMP%\ClassBulletinApp.updcheck.log</c>。只读，不改任何设置、不动数据源。
+    /// </summary>
+    private async void RunUpdateCheckDiag()
+    {
+        string log = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.updcheck.log");
+        try
+        {
+            var (ok, msg, info) = await UpdateChecker.CheckAsync();
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("Ok=" + ok);
+            sb.AppendLine("Message=" + msg);
+            if (info != null)
+            {
+                sb.AppendLine("Tag=" + info.Tag);
+                sb.AppendLine("Name=" + info.Name);
+                sb.AppendLine("IsNewer=" + info.IsNewer);
+                sb.AppendLine("PageUrl=" + info.PageUrl);
+                sb.AppendLine("AssetUrl=" + info.AssetUrl);
+                sb.AppendLine("AssetName=" + info.AssetName);
+                sb.AppendLine("BodyLen=" + (info.Body?.Length ?? 0));
+            }
+            File.WriteAllText(log, sb.ToString());
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(log, "FAIL " + ex); } catch { }
+        }
+        Shutdown(0);
     }
 
     /// <summary>日志超过 1MB 时只保留末尾 256KB，避免反复写日志把临时目录撑大。</summary>

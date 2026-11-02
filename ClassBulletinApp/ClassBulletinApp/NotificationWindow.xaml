@@ -24,7 +24,7 @@
             <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
                     VerticalAlignment="Center" Margin="6,0,4,0" Padding="8,3" FontSize="12"
                     Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
+                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
         </Grid>
     </Border>
 </Window>

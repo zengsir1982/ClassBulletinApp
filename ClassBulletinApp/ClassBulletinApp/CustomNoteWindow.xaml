@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="自定义便签" WindowStyle="None" ResizeMode="CanResize"
         ShowInTaskbar="False" AllowsTransparency="True" Background="Transparent"
-        Width="360" Height="420" MinWidth="220" MinHeight="180"
+        Width="360" Height="420" MinWidth="260" MinHeight="180"
         Loaded="Window_Loaded" SourceInitialized="Window_SourceInitialized"
         LocationChanged="Window_LocationChanged" SizeChanged="Window_SizeChanged">
     <Border x:Name="NoteBorder" CornerRadius="12" BorderThickness="1"
@@ -35,7 +35,7 @@
                 <StackPanel x:Name="ContentPanel"/>
             </ScrollViewer>
 
-            <!-- 底部：编辑 + 置顶 + 锁定 -->
+            <!-- 底部：编辑 + 置顶 + 锁定 + 桌面背景（位置 / 设为背景） -->
             <Border Grid.Row="2" Padding="10,6" BorderThickness="0,1,0,0"
                     BorderBrush="#22000000" Background="#12000000">
                 <DockPanel LastChildFill="True">
@@ -48,7 +48,14 @@
                     <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
                             Padding="8,3" FontSize="11" Margin="6,0,0,0"
                             ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
-                    <TextBlock x:Name="TxtHint" Text="拖动摆放 · 拉边沿改大小 · 双击编辑" FontSize="11"
+                    <!-- 主操作「设为背景」放最右（与作业 / 缺交便签一致）；「位置」用于在排版窗口里微调 -->
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="设为背景" Click="BtnWp_Click"
+                            Padding="8,3" FontSize="11" Margin="6,0,0,0"
+                            ToolTip="按「现在的位置和大小」一键设为桌面背景，并隐藏本便签。要取消：布局设置 → 桌面背景 取消勾选"/>
+                    <Button x:Name="BtnPos" DockPanel.Dock="Right" Content="位置" Click="BtnPos_Click"
+                            Padding="8,3" FontSize="11" Margin="6,0,0,0"
+                            ToolTip="在模拟屏幕上拖动便签，微调桌面背景里这张便签的位置与大小"/>
+                    <TextBlock x:Name="TxtHint" Text="拖动·双击编辑" FontSize="11"
                                Foreground="#5B6472" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </DockPanel>
             </Border>

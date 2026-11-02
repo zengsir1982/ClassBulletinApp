@@ -23,6 +23,12 @@ public partial class QuickLaunchWindow : Window
     private bool _iconOnly;
     private double _size = 28;
 
+    /// <summary>内置快捷（作业 / 缺交 / 便签）胶囊的字号；0 = 随悬浮课表宽度自动。</summary>
+    private double _builtinSize;
+
+    /// <summary>初始化期间 ComboBox 会触发 SelectionChanged，此标志避免把初始值当成用户改动。</summary>
+    private bool _builtinReady;
+
     public QuickLaunchWindow()
     {
         InitializeComponent();
@@ -31,14 +37,96 @@ public partial class QuickLaunchWindow : Window
             _items.Add(it);
         _iconOnly = s.QlIconOnly;
         _size = s.QlIconSize > 0 ? s.QlIconSize : 28;
+        _builtinSize = s.QaBuiltinFontSize;
 
         ChkIconOnly.IsChecked = _iconOnly;
         SlIconSize.Value = _size;
         TxtIconSize.Text = ((int)_size) + " px";
 
+        SelectBuiltinSizeOption();
         RenderList();
         RenderPreview();
+        RenderBuiltinPreview();
     }
+
+    // ---------- 内置快捷（作业 / 缺交 / 便签）的大小 ----------
+
+    /// <summary>把设置值对应到下拉项（找不到就回到「自动」）。</summary>
+    private void SelectBuiltinSizeOption()
+    {
+        _builtinReady = false;
+        try
+        {
+            foreach (var obj in CbBuiltinSize.Items)
+            {
+                if (obj is ComboBoxItem it && TryParseTag(it, out double v)
+                    && Math.Abs(v - _builtinSize) < 0.01)
+                {
+                    it.IsSelected = true;
+                    return;
+                }
+            }
+            if (CbBuiltinSize.Items.Count > 0)
+                ((ComboBoxItem)CbBuiltinSize.Items[0]).IsSelected = true;
+        }
+        finally { _builtinReady = true; }
+    }
+
+    private static bool TryParseTag(ComboBoxItem item, out double value)
+        => double.TryParse(item.Tag as string ?? "", System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture, out value);
+
+    private double SelectedBuiltinSize()
+        => CbBuiltinSize.SelectedItem is ComboBoxItem it && TryParseTag(it, out double v) ? v : 0;
+
+    private void CbBuiltinSize_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_builtinReady) return;
+        _builtinSize = SelectedBuiltinSize();
+        RenderBuiltinPreview();
+    }
+
+    /// <summary>
+    /// 预览三个内置快捷胶囊（与悬浮课表底部同一套样式 + 同一套大小换算）。
+    /// 「自动」档按悬浮课表当前宽度换算，所以这里能直接看出窄窗下会不会挤成两行。
+    /// </summary>
+    private void RenderBuiltinPreview()
+    {
+        if (BuiltinPreview == null) return;
+        BuiltinPreview.Children.Clear();
+
+        double ownerWidth = Owner is Window w && w.ActualWidth > 0 ? w.ActualWidth : 420;
+        double fs = QuickActionStyle.Resolve(_builtinSize, ownerWidth);
+        var style = TryFindResource("QuickActionBtn") as Style;
+
+        void Add(string text, string bg, string border)
+        {
+            var b = new Button
+            {
+                Style = style,
+                Background = HexBrush(bg),
+                BorderBrush = HexBrush(border),
+                Content = new TextBlock { Text = text },
+                IsTabStop = false,
+                Focusable = false,
+                IsHitTestVisible = false          // 纯预览，点了不该触发任何事
+            };
+            QuickActionStyle.Apply(b, fs);
+            BuiltinPreview.Children.Add(b);
+        }
+
+        Add("📋 作业", "#EAF2FD", "#9EC1F0");
+        Add("📝 缺交", "#FFF4E5", "#F0C48A");
+        Add("📌 便签", "#F2EDFD", "#BFAFE8");
+
+        if (TxtBuiltinHint != null)
+            TxtBuiltinHint.Text = _builtinSize > 0
+                ? $"当前按字号 {fs:0.#} 显示（固定档）"
+                : $"自动：按悬浮课表宽度 {Math.Round(ownerWidth)} 换算为字号 {fs:0.#}";
+    }
+
+    private static WpfBrush HexBrush(string hex)
+        => new SolidColorBrush((WpfColor)System.Windows.Media.ColorConverter.ConvertFromString(hex));
 
     // ---------- 预览（与悬浮课表底部应用栏完全一致） ----------
     private void RenderPreview()
@@ -225,6 +313,7 @@ public partial class QuickLaunchWindow : Window
             s.QuickLaunchers = new System.Collections.Generic.List<QuickLaunchItem>(_items);
             s.QlIconOnly = _iconOnly;
             s.QlIconSize = _size;
+            s.QaBuiltinFontSize = _builtinSize;   // 0 = 自动（随悬浮课表宽度）
             Store.SaveSettings(s);
             DialogResult = true;
         }

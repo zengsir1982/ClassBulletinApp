@@ -20,14 +20,20 @@ using Brushes = System.Windows.Media.Brushes;
 namespace ClassBulletinApp;
 
 /// <summary>
-/// 「桌面背面」渲染器：把「当天课表」「作业公示」「缺交作业名单」三张便签绘制成一张与屏幕等大的 PNG，用作桌面壁纸。
+/// 「桌面背面」渲染器：把「当天课表」「作业公示」「缺交作业名单」「自定义便签」绘制成一张与屏幕等大的 PNG，用作桌面壁纸。
 /// 每张便签的便签主题、位置 / 大小（九宫格锚点 + 像素偏移 + 宽度比例或固定像素）各自独立，可只显示其中任意几张。
-/// 固定大小时内容按比例缩小以完整放进便签内（不溢出、不截断）；底图优先使用系统原壁纸（铺满裁切），读不到时回退为浅色渐变。
+/// <para>★ 字号口径：所有字号 / 内边距都直接取悬浮便签、悬浮课表里的 <b>DIP 数值</b>，再乘以主屏 DPI 缩放得到物理像素。
+/// 这样壁纸上的字与屏幕上的悬浮窗<b>一样大</b>（壁纸按物理分辨率渲染，悬浮窗按 DIP 渲染后由系统放大）。
+/// 早期版本用「屏高/1080」当比例尺，在 125% / 150% 缩放的机器上会与悬浮窗差 20%~50%，故改为此口径。</para>
+/// <para>固定大小时内容按比例缩小以完整放进便签内（不溢出、不截断）；底图优先使用系统原壁纸（铺满裁切），读不到时回退为浅色渐变。</para>
 /// </summary>
 public static class BackdropRenderer
 {
-    /// <summary>卡片内边距（以 1080 高度为基准比例缩放），供构建与内容自适应共用。</summary>
-    private const double PAD_BASE = 36;
+    /// <summary>卡片内边距（DIP）：与悬浮便签「外框 1 + 内容边距 12」对齐，保证折行位置一致。</summary>
+    private const double PAD_DIP = 13;
+
+    /// <summary>卡片圆角（DIP）：与悬浮便签 CornerRadius=12 一致。</summary>
+    private const double RADIUS_DIP = 12;
 
     /// <summary>
     /// 生成桌面背面壁纸。
@@ -37,14 +43,18 @@ public static class BackdropRenderer
     /// <param name="subtitle">课表便签副标题（日期 + 周次 + 星期）。</param>
     /// <param name="homework">作业公示内容（可为 null）。</param>
     /// <param name="missing">缺交作业名单（可为 null）。</param>
+    /// <param name="customNotes">要画到壁纸上的自定义便签（调用方已按各自开关筛选；可为 null）。</param>
     /// <param name="b">桌面背面设置。</param>
+    /// <param name="dpi">主屏 DPI 缩放（物理像素 / 逻辑像素），用于把 DIP 字号换算成壁纸上的像素。</param>
     /// <param name="backgroundPath">系统原壁纸路径（可为空）。</param>
     public static string RenderToPng(TodayResult? today, string title, string dateText, string weekText,
-        HomeworkBoard? homework, MissingBoard? missing, BackdropSettings b, int width, int height,
+        HomeworkBoard? homework, MissingBoard? missing, IReadOnlyList<CustomNote>? customNotes,
+        BackdropSettings b, int width, int height, double dpi,
         string? backgroundPath, string outPath)
     {
-        double scale = height / 1080.0;
-        double ScaleFont(double v) => Math.Max(12, v * scale);
+        // typo = 每个 DIP 对应多少像素；所有字号 / 间距都按它换算，与悬浮窗保持同一视觉大小
+        double typo = dpi > 0.1 ? dpi : 1.0;
+        double ScaleFont(double v) => Math.Max(8, v * typo);
 
         var root = new Grid
         {
@@ -60,7 +70,7 @@ public static class BackdropRenderer
         {
             var lay = b.ScheduleLayout ?? new HomeworkWallpaperLayout();
             var theme = HomeworkThemes.Find(b.ScheduleTheme);
-            var card = BuildScheduleCard(today, title, dateText, weekText, scale, ScaleFont,
+            var card = BuildScheduleCard(today, title, dateText, weekText, typo, ScaleFont,
                 ResolveCardWidth(lay, width, 0.38), theme);
             Place(canvas, card, lay, width, height, 0.38);
         }
@@ -68,14 +78,27 @@ public static class BackdropRenderer
         if (b.ShowHomework && homework != null)
         {
             var lay = b.HomeworkLayout ?? new HomeworkWallpaperLayout();
-            var card = BuildHomeworkCard(homework, scale, ScaleFont);
+            var card = BuildHomeworkCard(homework, typo, ScaleFont);
             Place(canvas, card, lay, width, height);
         }
 
         if (b.ShowMissing && missing != null)
         {
-            var card = BuildMissingCard(missing, scale, ScaleFont);
+            var card = BuildMissingCard(missing, typo, ScaleFont);
             Place(canvas, card, b.MissingLayout ?? new HomeworkWallpaperLayout(), width, height);
+        }
+
+        // 自定义便签：每张各自的位置 / 大小，各自的主题（取自便签自身）
+        if (customNotes != null)
+        {
+            foreach (var note in customNotes)
+            {
+                if (note == null || string.IsNullOrEmpty(note.Id)) continue;
+                var entry = b.EntryOf(note.Id);
+                if (!entry.Visible) continue;
+                var card = BuildCustomNoteCard(note, typo, ScaleFont);
+                Place(canvas, card, entry.Layout ?? new HomeworkWallpaperLayout(), width, height);
+            }
         }
 
         root.Measure(new Size(width, height));
@@ -194,6 +217,11 @@ public static class BackdropRenderer
     }
 
     // ---------- 当天课表便签 ----------
+    /// <summary>
+    /// 课表便签。<b>字号与行距全部对齐悬浮课表</b>（标题 23 / 日期 14 / 周次 14 / 节次 18 / 时间 11 / 课名 19 / 教师 13，
+    /// 课程行内边距 10、圆角 10、行间距 8，左列固定 74 DIP），保证「设为背景」后与屏幕上的悬浮课表看起来是同一张。
+    /// </summary>
+    /// <param name="scale">每个 DIP 对应的像素数（主屏 DPI 缩放）。</param>
     internal static Border BuildScheduleCard(TodayResult today, string title, string dateText, string weekText,
         double scale, Func<double, double> ScaleFont, double cardWidth, HomeworkTheme theme)
     {
@@ -205,14 +233,14 @@ public static class BackdropRenderer
 
         var stack = new StackPanel();
 
-        var head = new StackPanel { Margin = new Thickness(0, 0, 0, 16 * scale) };
+        var head = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
         string titleText = string.IsNullOrWhiteSpace(title) ? "当天课表" : title;
 
-        // 标题：按便签实际宽度自适应字号（窄便签自动缩小，宽便签可更大），避免溢出或过小
-        double pad = PAD_BASE * scale;
+        // 标题：基准 23（与悬浮课表标题一致），仅在便签过窄时按宽度自适应缩小，避免溢出
+        double pad = PAD_DIP * scale;
         double availW = Math.Max(80, cardWidth - 2 * pad);
         var titleFamily = new FontFamily("Microsoft YaHei");
-        double titleSize = FitFontSize(titleText, availW, 42 * scale, 22 * scale, 56 * scale, titleFamily);
+        double titleSize = FitFontSize(titleText, availW, 23 * scale, 14 * scale, 23 * scale, titleFamily);
 
         head.Children.Add(new TextBlock
         {
@@ -228,16 +256,16 @@ public static class BackdropRenderer
         // 分隔线：标题与日期/周次之间留一道主题色横线，视觉分组更清爽
         head.Children.Add(new Border
         {
-            Height = 2 * scale,
+            Height = 1 * scale,
             Background = BrushOf(border),
-            Margin = new Thickness(0, 12 * scale, 0, 12 * scale)
+            Margin = new Thickness(0, 8 * scale, 0, 8 * scale)
         });
 
         // 日期（单独一行）
         head.Children.Add(new TextBlock
         {
             Text = dateText ?? "",
-            FontSize = ScaleFont(20),
+            FontSize = ScaleFont(14),
             Foreground = BrushOf(fg, 0xD0),
             Margin = new Thickness(0, 0, 0, 6 * scale),
             TextWrapping = TextWrapping.Wrap
@@ -247,14 +275,14 @@ public static class BackdropRenderer
         var weekWrap = new StackPanel { Orientation = Orientation.Horizontal };
         var weekPill = new Border
         {
-            CornerRadius = new CornerRadius(8 * scale),
+            CornerRadius = new CornerRadius(6 * scale),
             Background = BrushOf(accent, 0x2E),
-            Padding = new Thickness(12 * scale, 4 * scale, 12 * scale, 4 * scale)
+            Padding = new Thickness(8 * scale, 2 * scale, 8 * scale, 2 * scale)
         };
         weekPill.Child = new TextBlock
         {
             Text = weekText ?? "",
-            FontSize = ScaleFont(19),
+            FontSize = ScaleFont(14),
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(accent)
         };
@@ -267,20 +295,17 @@ public static class BackdropRenderer
         {
             // 固定时段（大课间/眼保健操/午休）不占壁纸空间：壁纸卡片高度紧张，优先保留 8 节课
             if (row.IsFixed) continue;
-            // 左列：节次 + 时间段；给定最小宽度并允许折行，避免窄便签 / 固定小尺寸时时间被裁掉
-            var line = new Grid { Margin = new Thickness(0, 0, 0, 10 * scale) };
-            line.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = new GridLength(1.35, GridUnitType.Star),
-                MinWidth = 96 * scale
-            });
-            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.65, GridUnitType.Star) });
+
+            // 课程行：白描边圆角卡片，与悬浮课表的课程行同结构（左列节次+时间，右列课名+教师）
+            var line = new Grid();
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(74 * scale) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             left.Children.Add(new TextBlock
             {
                 Text = string.IsNullOrWhiteSpace(row.PeriodText) ? "" : row.PeriodText,
-                FontSize = ScaleFont(19),
+                FontSize = ScaleFont(18),
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(accent),
                 TextWrapping = TextWrapping.Wrap
@@ -290,7 +315,7 @@ public static class BackdropRenderer
                 left.Children.Add(new TextBlock
                 {
                     Text = row.TimeRange,
-                    FontSize = ScaleFont(13),
+                    FontSize = ScaleFont(11),
                     Foreground = new SolidColorBrush(muted),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 3 * scale, 0, 0)
@@ -299,15 +324,14 @@ public static class BackdropRenderer
             Grid.SetColumn(left, 0);
             line.Children.Add(left);
 
-            // 右列：课程 + 教师 / 地点；左侧留出间距，节次与课名不再贴在一起
-            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(16 * scale, 0, 0, 0) };
+            var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var lesson = row.Lessons.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.Subject));
             bool empty = lesson == null || string.IsNullOrWhiteSpace(lesson.Subject);
 
             right.Children.Add(new TextBlock
             {
                 Text = empty ? "—" : lesson!.Subject,
-                FontSize = ScaleFont(22),
+                FontSize = ScaleFont(19),
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(empty ? muted : fg),
                 TextWrapping = TextWrapping.Wrap
@@ -327,7 +351,7 @@ public static class BackdropRenderer
                     right.Children.Add(new TextBlock
                     {
                         Text = sub,
-                        FontSize = ScaleFont(15),
+                        FontSize = ScaleFont(13),
                         Foreground = lesson.IsOverridden
                             ? BrushOf(ParseHwColor(theme.MissingColor, Color.FromRgb(0xE6, 0x7E, 0x22)))
                             : BrushOf(fg, 0xB8),
@@ -339,7 +363,16 @@ public static class BackdropRenderer
 
             Grid.SetColumn(right, 1);
             line.Children.Add(right);
-            stack.Children.Add(line);
+
+            stack.Children.Add(new Border
+            {
+                CornerRadius = new CornerRadius(10 * scale),
+                BorderThickness = new Thickness(1 * scale),
+                BorderBrush = BrushOf(border, 0x66),
+                Padding = new Thickness(10 * scale),
+                Margin = new Thickness(0, 0, 0, 8 * scale),
+                Child = line
+            });
         }
 
         if (today.Rows.Count == 0)
@@ -347,7 +380,7 @@ public static class BackdropRenderer
             stack.Children.Add(new TextBlock
             {
                 Text = "今日休息，无课程安排",
-                FontSize = ScaleFont(20),
+                FontSize = ScaleFont(14),
                 Foreground = new SolidColorBrush(muted)
             });
         }
@@ -359,27 +392,33 @@ public static class BackdropRenderer
 
     /// <summary>解析文本颜色（#RRGGBB）；为空或非法时返回默认色。</summary>
     // ---------- 控制面板预览：把便签渲染成位图 ----------
+    /// <summary>
+    /// 控制面板里的缩略图。字号按「默认便签宽度 380 DIP」等比缩小，
+    /// 因此缩略图与屏幕上 380 宽的便签观感一致（尺寸不同、比例相同）。
+    /// </summary>
+    private static double PreviewScale(double width) => Math.Max(0.45, width / 380.0);
+
     /// <summary>作业公示便签预览图（与桌面便签 / 悬浮便签同一套渲染，所见即所得）。</summary>
     internal static BitmapSource RenderHomeworkPreview(HomeworkBoard board, double width = 320, double maxHeight = 400)
     {
-        double scale = Math.Max(0.35, width / 760.0);
-        var card = BuildHomeworkCard(board, scale, v => Math.Max(11, v * scale));
+        double scale = PreviewScale(width);
+        var card = BuildHomeworkCard(board, scale, v => Math.Max(9, v * scale));
         return RenderCardBitmap(card, width, maxHeight);
     }
 
     /// <summary>缺交作业名单便签预览图。</summary>
     internal static BitmapSource RenderMissingPreview(MissingBoard board, double width = 320, double maxHeight = 400)
     {
-        double scale = Math.Max(0.35, width / 760.0);
-        var card = BuildMissingCard(board, scale, v => Math.Max(11, v * scale));
+        double scale = PreviewScale(width);
+        var card = BuildMissingCard(board, scale, v => Math.Max(9, v * scale));
         return RenderCardBitmap(card, width, maxHeight);
     }
 
     /// <summary>自定义便签预览图（与控制面板 / 悬浮便签同一套渲染）。</summary>
     internal static BitmapSource RenderCustomNotePreview(CustomNote note, double width = 320, double maxHeight = 400)
     {
-        double scale = Math.Max(0.35, width / 760.0);
-        var card = BuildCustomNoteCard(note, scale, v => Math.Max(11, v * scale));
+        double scale = PreviewScale(width);
+        var card = BuildCustomNoteCard(note, scale, v => Math.Max(9, v * scale));
         return RenderCardBitmap(card, width, maxHeight);
     }
 
@@ -416,6 +455,9 @@ public static class BackdropRenderer
         catch { return fallback; }
     }
 
+    /// <summary>
+    /// 作业公示便签。<b>字号与间距对齐悬浮便签</b>（标题 17 / 科目 15 / 正文 档位-4 / 更新时间 11，行间距 10）。
+    /// </summary>
     internal static Border BuildHomeworkCard(HomeworkBoard board, double scale, Func<double, double> ScaleFont)
     {
         var theme = HomeworkThemes.Find(board.Theme);
@@ -428,10 +470,10 @@ public static class BackdropRenderer
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title,
-            FontSize = ScaleFont(34),
+            FontSize = ScaleFont(17),
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(titleColor),
-            Margin = new Thickness(0, 0, 0, 16 * scale),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -440,7 +482,7 @@ public static class BackdropRenderer
             stack.Children.Add(new TextBlock
             {
                 Text = "（暂无作业）",
-                FontSize = ScaleFont(20),
+                FontSize = ScaleFont(14),
                 Foreground = new SolidColorBrush(muted)
             });
         }
@@ -448,23 +490,24 @@ public static class BackdropRenderer
         {
             foreach (var it in board.Items)
             {
-                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 12 * scale) };
-                row.Children.Add(new TextBlock
-                {
-                    Text = "【" + (it.Subject ?? "") + "】",
-                    FontSize = ScaleFont(22),
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(accent),
-                    TextWrapping = TextWrapping.Wrap
-                });
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
+                if (!string.IsNullOrWhiteSpace(it.Subject))
+                    row.Children.Add(new TextBlock
+                    {
+                        Text = "【" + (it.Subject ?? "") + "】",
+                        FontSize = ScaleFont(15),
+                        FontWeight = FontWeights.Bold,
+                        Foreground = new SolidColorBrush(accent),
+                        TextWrapping = TextWrapping.Wrap
+                    });
                 row.Children.Add(new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,
-                    FontSize = ScaleFont(HwTextStyle.SizeOf(it.SizeLevel)),
+                    FontSize = ScaleFont(Math.Max(10, HwTextStyle.SizeOf(it.SizeLevel) - 4)),
                     FontWeight = it.Bold ? FontWeights.Bold : FontWeights.Normal,
                     Foreground = new SolidColorBrush(ParseHwColor(it.Color, fg)),
                     TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 4 * scale, 0, 0)
+                    Margin = new Thickness(0, 2 * scale, 0, 0)
                 });
                 stack.Children.Add(row);
             }
@@ -472,16 +515,19 @@ public static class BackdropRenderer
 
         stack.Children.Add(new TextBlock
         {
-            Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
-            FontSize = ScaleFont(14),
+            Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
             Foreground = new SolidColorBrush(muted),
-            Margin = new Thickness(0, 14 * scale, 0, 0)
+            Margin = new Thickness(0, 8 * scale, 0, 0)
         });
 
         return Card(stack, scale, theme);
     }
 
     // ---------- 缺交作业名单便签（独立） ----------
+    /// <summary>
+    /// 缺交作业名单便签。<b>字号与间距对齐悬浮便签</b>（标题 17 / 科目标签 14 / 名单 档位-4 / 更新时间 11）。
+    /// </summary>
     internal static Border BuildMissingCard(MissingBoard board, double scale, Func<double, double> ScaleFont)
     {
         var theme = HomeworkThemes.Find(board.Theme);
@@ -494,10 +540,10 @@ public static class BackdropRenderer
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(board.Title) ? "缺交作业名单" : board.Title,
-            FontSize = ScaleFont(32),
+            FontSize = ScaleFont(17),
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(titleColor),
-            Margin = new Thickness(0, 0, 0, 14 * scale),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -510,7 +556,7 @@ public static class BackdropRenderer
             stack.Children.Add(new TextBlock
             {
                 Text = "（无人缺交）",
-                FontSize = ScaleFont(20),
+                FontSize = ScaleFont(14),
                 Foreground = new SolidColorBrush(muted)
             });
         }
@@ -523,7 +569,7 @@ public static class BackdropRenderer
                 row.Children.Add(new TextBlock
                 {
                     Text = label,
-                    FontSize = ScaleFont(19),
+                    FontSize = ScaleFont(14),
                     FontWeight = FontWeights.Bold,
                     Foreground = new SolidColorBrush(missingColor),
                     TextWrapping = TextWrapping.Wrap
@@ -533,7 +579,7 @@ public static class BackdropRenderer
                     row.Children.Add(new TextBlock
                     {
                         Text = m.Students,
-                        FontSize = ScaleFont(HwTextStyle.SizeOf(m.SizeLevel)),
+                        FontSize = ScaleFont(Math.Max(10, HwTextStyle.SizeOf(m.SizeLevel) - 4)),
                         FontWeight = m.Bold ? FontWeights.Bold : FontWeights.Normal,
                         Foreground = new SolidColorBrush(ParseHwColor(m.Color, fg)),
                         TextWrapping = TextWrapping.Wrap,
@@ -546,16 +592,19 @@ public static class BackdropRenderer
 
         stack.Children.Add(new TextBlock
         {
-            Text = "更新于 " + board.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
-            FontSize = ScaleFont(14),
+            Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
             Foreground = new SolidColorBrush(muted),
-            Margin = new Thickness(0, 12 * scale, 0, 0)
+            Margin = new Thickness(0, 8 * scale, 0, 0)
         });
 
         return Card(stack, scale, theme);
     }
 
     // ---------- 自定义便签（用户自建，仅标题 + 自由正文） ----------
+    /// <summary>
+    /// 自定义便签。<b>字号与间距对齐悬浮便签</b>（标题 17 / 正文 档位-4 / 更新时间 11）。
+    /// </summary>
     internal static Border BuildCustomNoteCard(CustomNote note, double scale, Func<double, double> ScaleFont)
     {
         var theme = HomeworkThemes.Find(note.Theme);
@@ -567,10 +616,10 @@ public static class BackdropRenderer
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(note.Title) ? "自定义便签" : note.Title,
-            FontSize = ScaleFont(32),
+            FontSize = ScaleFont(17),
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(titleColor),
-            Margin = new Thickness(0, 0, 0, 14 * scale),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
 
@@ -580,7 +629,7 @@ public static class BackdropRenderer
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(note.Content) ? "（暂无内容）" : note.Content,
-            FontSize = ScaleFont(18) + (HwTextStyle.SizeOf(note.SizeLevel) - HwTextStyle.SizeOf(0)) * scale,
+            FontSize = ScaleFont(Math.Max(10, HwTextStyle.SizeOf(note.SizeLevel) - 4)),
             FontWeight = note.Bold ? FontWeights.Bold : FontWeights.Normal,
             Foreground = new SolidColorBrush(bodyColor),
             TextWrapping = TextWrapping.Wrap,
@@ -589,10 +638,10 @@ public static class BackdropRenderer
 
         stack.Children.Add(new TextBlock
         {
-            Text = "更新于 " + note.UpdatedAt.ToString("yyyy-MM-dd HH:mm"),
-            FontSize = ScaleFont(14),
+            Text = "更新于 " + note.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
             Foreground = new SolidColorBrush(muted),
-            Margin = new Thickness(0, 14 * scale, 0, 0)
+            Margin = new Thickness(0, 8 * scale, 0, 0)
         });
 
         return Card(stack, scale, theme);
@@ -602,25 +651,25 @@ public static class BackdropRenderer
     private static SolidColorBrush BrushOf(Color c, byte alpha = 0xFF)
         => new(Color.FromArgb(alpha, c.R, c.G, c.B));
 
-    /// <summary>便签外框：按便签主题配色（与悬浮便签观感一致）。</summary>
+    /// <summary>便签外框：圆角 / 描边 / 内边距与悬浮便签一致（12 / 1 / 13 DIP），按便签主题配色。</summary>
     private static Border Card(StackPanel content, double scale, HomeworkTheme? theme = null) => new()
     {
-        CornerRadius = new CornerRadius(18 * scale),
+        CornerRadius = new CornerRadius(RADIUS_DIP * scale),
         Background = theme == null
             ? BrushOf(Color.FromRgb(0xFF, 0xFF, 0xFF), 0xF6)
             : BrushOf(ParseHwColor(theme.Background, Color.FromRgb(0xFF, 0xFF, 0xFF)), 0xF7),
         BorderBrush = theme == null
             ? new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC))
             : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC9, 0xD6, 0xEC))),
-        BorderThickness = new Thickness(2 * scale),
-        Padding = new Thickness(PAD_BASE * scale),
+        BorderThickness = new Thickness(1 * scale),
+        Padding = new Thickness(PAD_DIP * scale),
         HorizontalAlignment = HorizontalAlignment.Left,
         VerticalAlignment = VerticalAlignment.Top,
         Effect = new System.Windows.Media.Effects.DropShadowEffect
         {
-            BlurRadius = 24 * scale,
-            Opacity = 0.25,
-            ShadowDepth = 6 * scale
+            BlurRadius = 14 * scale,
+            Opacity = 0.28,
+            ShadowDepth = 4 * scale
         },
         Child = content
     };

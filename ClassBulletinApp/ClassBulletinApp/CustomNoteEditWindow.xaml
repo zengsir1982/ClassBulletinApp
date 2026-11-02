@@ -58,7 +58,8 @@
                 <CheckBox x:Name="ChkBold" Content="加粗" FontSize="14" VerticalAlignment="Center" Margin="0,0,16,0"
                           Checked="Format_Changed" Unchecked="Format_Changed"/>
                 <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <ComboBox x:Name="CbColor" Width="132" FontSize="14" SelectionChanged="Format_Changed">
+                <ComboBox x:Name="CbColor" Width="132" FontSize="14" SelectionChanged="Format_Changed"
+                          ToolTip="12 种预设颜色；要别的颜色点右侧「调色…」">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="2">
@@ -69,8 +70,18 @@
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
+                <Button x:Name="BtnPickColor" Content="调色…" Padding="8,3" FontSize="12" Margin="4,0,0,0"
+                        Background="White" BorderBrush="#D1D5DB" Click="BtnPickColor_Click"
+                        ToolTip="从系统调色板里选任意颜色"/>
                 <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="16,0,8,0"/>
-                <ComboBox x:Name="CbSize" Width="96" FontSize="14" SelectionChanged="Format_Changed"/>
+                <ComboBox x:Name="CbSize" Width="100" FontSize="14" SelectionChanged="Format_Changed"
+                          ToolTip="文字大小（小 → 巨大 共 7 档）">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" FontSize="{Binding PreviewSize}" VerticalAlignment="Center"/>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
             </WrapPanel>
         </Border>
 

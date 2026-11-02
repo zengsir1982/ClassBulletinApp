@@ -11,14 +11,14 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
 
     <!-- 版本信息：发版时只需改这里 -->
-    <Version>1.0.5</Version>
-    <AssemblyVersion>1.0.5.0</AssemblyVersion>
-    <FileVersion>1.0.5.0</FileVersion>
-    <Company>东凤中学</Company>
+    <Version>1.0.6</Version>
+    <AssemblyVersion>1.0.6.0</AssemblyVersion>
+    <FileVersion>1.0.6.0</FileVersion>
+    <Company>逆流的鱼</Company>
     <Product>班级公布栏</Product>
     <Title>班级公布栏</Title>
     <Description>教室多媒体屏班级公布栏：当日课表、通知公告、作业公示与自定义便签</Description>
-    <Copyright>Copyright (c) 2026 东凤中学</Copyright>
+    <Copyright>Copyright (c) 2026 逆流的鱼</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ScheduleCore\ScheduleCore.csproj" />

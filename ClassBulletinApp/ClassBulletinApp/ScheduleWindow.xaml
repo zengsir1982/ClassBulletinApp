@@ -17,6 +17,11 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:QlIconConverter x:Key="QlIcon"/>
 
+        <!--
+            底部内置快捷按钮（作业 / 缺交 / 便签）的胶囊外观定义在 App.xaml（QuickActionBtn），
+            与「管理」窗口里的预览共用同一份，字号 / 内边距由 QuickActionStyle 统一计算。
+        -->
+
         <!-- 普通课程行 -->
         <DataTemplate x:Key="LessonRowTpl">
             <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
@@ -36,17 +41,29 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Margin="0,2">
-                                        <Border Background="{Binding OverrideBadgeColor}" CornerRadius="4" Padding="5,1" Margin="0,0,0,5"
-                                                HorizontalAlignment="Left"
-                                                Visibility="{Binding IsOverridden, Converter={StaticResource BoolToVis}}"
-                                                ToolTip="{Binding OverrideNote}">
-                                            <TextBlock Text="{Binding OverrideBadgeText}" Foreground="White" FontSize="10"/>
-                                        </Border>
-                                        <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}">
-                                            <Run Text="{Binding Subject}"/>
-                                            <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
-                                        </TextBlock>
+                                        <!--
+                                            调 / 代课标记：与科目同一行、靠右显示的小胶囊。
+                                            以前是单独占一行（在科目上方），一出现就把这一格撑高，
+                                            整列课表跟着往下挤；挂在同一行后格子高度与普通课完全一致。
+                                            科目过长时省略号收尾，不会把胶囊挤出格子。
+                                        -->
+                                        <DockPanel LastChildFill="True">
+                                            <Border DockPanel.Dock="Right" Background="{Binding OverrideBadgeColor}"
+                                                    CornerRadius="4" Padding="5,0" Margin="6,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding IsOverridden, Converter={StaticResource BoolToVis}}"
+                                                    ToolTip="{Binding OverrideNote}">
+                                                <TextBlock Text="{Binding OverrideBadgeText}" Foreground="White" FontSize="10"/>
+                                            </Border>
+                                            <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}"
+                                                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center">
+                                                <Run Text="{Binding Subject}"/>
+                                                <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
+                                            </TextBlock>
+                                        </DockPanel>
                                         <TextBlock FontSize="13" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
+                                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                    ToolTip="双击可切换到该教师 / 班级的课表">
                                             <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
                                             <Run Text="{Binding Teacher}"/>
@@ -81,6 +98,7 @@
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期；空白处按住可拖动整个窗口 -->
@@ -106,10 +124,19 @@
                             <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" Margin="0,1,0,0"/>
                         </StackPanel>
                     </StackPanel>
-                    <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
-                            VerticalAlignment="Top" Padding="8,3" FontSize="12"
-                            Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                            ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「置顶显示」则常驻最前"/>
+                    <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼 -->
+                    <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Right">
+                        <Button x:Name="BtnHide" Content="自动隐藏" Click="BtnHide_Click"
+                                VerticalAlignment="Top" Padding="8,3" FontSize="12" Margin="0,0,0,4"
+                                Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                                ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
+                        <Button x:Name="BtnQaUpdate" Click="BtnQaUpdate_Click"
+                                VerticalAlignment="Top" Padding="8,3" FontSize="12"
+                                Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                                ToolTip="立即从数据源检查并应用最新的课表 / 调代课">
+                            <TextBlock x:Name="TxtQaUpdate" Text="更新课表"/>
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -138,10 +165,57 @@
                 </StackPanel>
             </ScrollViewer>
 
+            <!-- 状态栏：课表更新时间 + 更新失败红字，拼成一条字幕；文字比宽度长时自动匀速滚过，
+                 放得下就静态显示（短句滚动反而难读）。右侧「背景：已设/未设」固定不动，方便一眼看到 -->
+            <Border Grid.Row="2" Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+                    Padding="10,4" ClipToBounds="True">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 字幕视口：Canvas 让文字按真实宽度排版（不被窗口宽度挤断），ClipToBounds 负责裁边 -->
+                    <Canvas x:Name="MarqueeView" Grid.Column="0" Height="15" ClipToBounds="True"
+                            SizeChanged="MarqueeView_SizeChanged">
+                        <TextBlock x:Name="TxtMarquee" Canvas.Top="0" FontSize="11" Foreground="#8A94A6"
+                                   VerticalAlignment="Center" TextWrapping="NoWrap">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform X="0"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Canvas>
+
+                    <TextBlock x:Name="TxtWpState" Grid.Column="1" FontSize="11" Foreground="#8A94A6"
+                               VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"
+                               Text="未设为背景"/>
+                </Grid>
+            </Border>
+
             <!-- 底部应用快捷栏：常用软件 / 文件夹入口，点击直达；图标模式 + 大小可在「布局设置 → 课表」或右下「管理」里调 -->
-            <Border Grid.Row="2" Background="#F5F7FA" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <Border Grid.Row="3" Background="#F5F7FA" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
                     Padding="8,6">
                 <StackPanel>
+                    <!-- 内置快捷：作业 / 缺交 / 便签。三个都是「图标 + 两个字」，宽度天然一致、一眼能认。
+                         按账号权限显示，没权限的整条隐藏（更新课表已移至标题栏） -->
+                    <WrapPanel x:Name="BuiltinWrap" Orientation="Horizontal">
+                        <Button x:Name="BtnQaHomework" Style="{StaticResource QuickActionBtn}" Click="BtnQaHomework_Click"
+                                Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                ToolTip="打开「作业公示」便签，可以直接编辑各科作业内容">
+                            <TextBlock Text="📋 作业"/>
+                        </Button>
+                        <Button x:Name="BtnQaMissing" Style="{StaticResource QuickActionBtn}" Click="BtnQaMissing_Click"
+                                Background="#FFF4E5" BorderBrush="#F0C48A"
+                                ToolTip="打开「缺交作业名单」便签，可以直接登记谁没交">
+                            <TextBlock Text="📝 缺交"/>
+                        </Button>
+                        <Button x:Name="BtnQaNote" Style="{StaticResource QuickActionBtn}" Click="BtnQaNote_Click"
+                                Background="#F2EDFD" BorderBrush="#BFAFE8"
+                                ToolTip="打开自定义便签（教师寄语 / 温馨提示等）；还没有便签时会新建一张">
+                            <TextBlock Text="📌 便签"/>
+                        </Button>
+                    </WrapPanel>
+
                     <TextBlock x:Name="TxtQlEmpty" Text="点击下方「＋」添加常用软件 / 文件夹"
                                FontSize="11" Foreground="#9CA3AF" Margin="2,0,0,4"
                                Visibility="Collapsed"/>
@@ -158,22 +232,26 @@
                 </StackPanel>
             </Border>
 
-            <!-- 最下方：锁定（左侧） + 位置 / 桌面背景（右侧，位置在桌面背景右边）。置顶由标题栏「自动隐藏 / 置顶显示」统一控制，避免两个置顶按钮冲突 -->
-            <Border Grid.Row="3" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <!-- 最下方：置顶（最左，与便签同风格同功能，切换始终置顶）/ 锁定 + 位置 / 桌面背景（右侧）。
+                 注意：标题栏「自动隐藏 / 常驻显示」管的是「是否始终显示（不靠边隐藏）」，本处「置顶」管的是「是否始终在最上层」，
+                 两者语义不同，故各保留一个按钮，不冲突。 -->
+            <Border Grid.Row="4" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,12,12" Padding="10,7">
-                <DockPanel LastChildFill="True">
+                <DockPanel LastChildFill="False">
+                    <Button x:Name="BtnTop" DockPanel.Dock="Left" Content="置顶" Click="BtnTop_Click"
+                            Padding="8,3" FontSize="11" Margin="6,0,0,0"
+                            Background="White" BorderBrush="#D1D5DB" Foreground="Black"
+                            ToolTip="切换置顶（始终显示在所有窗口最上层）/ 普通层级"/>
                     <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
                             Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
                             ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
+                    <!-- 主操作「设为背景」放最右（与便签一致）；「位置」用于在排版窗口里微调 -->
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="设为背景" Click="BtnWp_Click"
+                            Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                            ToolTip="按「现在的位置和大小」一键设为桌面背景，并把本悬浮课表改为靠边自动隐藏。要取消：布局设置 → 桌面背景 取消勾选"/>
                     <Button x:Name="BtnPos" DockPanel.Dock="Right" Content="位置" Click="BtnPos_Click"
                             Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                            ToolTip="调整课表在桌面背景上的位置与大小（所见即所得，与作业 / 缺交便签同一排版窗口）"/>
-                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="桌面背景：关" Click="BtnWp_Click"
-                            Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                            ToolTip="把「当天课表」画到桌面壁纸上：位于所有窗口之下、不遮挡操作，可与作业公示一起显示"/>
-                    <TextBlock x:Name="TxtWpState" VerticalAlignment="Center" FontSize="11"
-                               Foreground="#6B7280" TextTrimming="CharacterEllipsis"
-                               Text="当天课表可设为桌面背景（壁纸层显示）"/>
+                            ToolTip="在模拟屏幕上拖动便签，微调桌面背景里课表的位置与大小"/>
                 </DockPanel>
             </Border>
         </Grid>

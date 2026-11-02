@@ -52,6 +52,10 @@ public partial class BackdropEditorWindow : Window
     private sealed class CardEdit
     {
         public string Kind = "";
+        /// <summary>自定义便签的 Id（Kind 以 "note:" 开头时有效）。</summary>
+        public string NoteId = "";
+        /// <summary>侧栏 / 提示里显示的名字（自定义便签用便签标题）。</summary>
+        public string Label = "";
         public Border Card = null!;
         public double X, Y, W, H;
         public bool Fixed;
@@ -79,7 +83,8 @@ public partial class BackdropEditorWindow : Window
         var b = System.Windows.Forms.Screen.PrimaryScreen?.Bounds ?? new System.Drawing.Rectangle(0, 0, 1920, 1080);
         _W = b.Width;
         _H = b.Height;
-        _scale = _H / 1080.0;
+        _scale = _H / 1080.0;                       // 只用于偏移换算（与渲染器 Place 一致）
+        _typo = BackdropService.PrimaryDpiScale();   // 字号比例尺（与壁纸一致）
         _canvas = PreviewCanvas;
         _canvas.MouseLeftButtonDown += (_, e) =>
         {
@@ -100,7 +105,7 @@ public partial class BackdropEditorWindow : Window
         SetBackground();
         BuildCards();
         if (_cards.Count == 0)
-            TxtSel.Text = "当前没有勾选要显示的便签。请先在「布局设置 → 桌面背景」里勾选「当天课表 / 作业公示 / 缺交作业名单」之一，再打开本窗口。";
+            TxtSel.Text = "当前没有勾选要显示的便签。请先在「布局设置 → 桌面背景」里勾选「当天课表 / 作业公示 / 缺交作业名单 / 自定义便签」之一，再打开本窗口。";
     }
 
     // ---------- 底图 ----------
@@ -130,7 +135,13 @@ public partial class BackdropEditorWindow : Window
     }
 
     // ---------- 构建便签 ----------
-    private Func<double, double> ScaleFont => v => Math.Max(12, v * _scale);
+    /// <summary>
+    /// 字号比例尺：壁纸按物理像素渲染，便签字号是 DIP 值，必须乘主屏 DPI 才和悬浮窗一样大。
+    /// 注意与 <c>_scale</c>（屏高/1080，只用于偏移换算）区分：混用会让字号与悬浮窗不一致。
+    /// </summary>
+    private readonly double _typo;
+
+    private Func<double, double> ScaleFont => v => Math.Max(8, v * _typo);
 
     private void BuildCards()
     {
@@ -148,7 +159,7 @@ public partial class BackdropEditorWindow : Window
                 {
                     double ww = BackdropRenderer.ResolveCardWidth(lay, _W, 0.38);
                     return BackdropRenderer.BuildScheduleCard(built.Value.Res, built.Value.Title,
-                        built.Value.DateText, built.Value.WeekText, _scale, sf, ww, theme);
+                        built.Value.DateText, built.Value.WeekText, _typo, sf, ww, theme);
                 }, lay));
             }
         }
@@ -159,7 +170,7 @@ public partial class BackdropEditorWindow : Window
             if (board != null)
             {
                 var lay = b.HomeworkLayout ?? board.Layout ?? new HomeworkWallpaperLayout { Anchor = "MiddleRight", WidthRatio = 0.4 };
-                _cards.Add(MakeCard("homework", () => BackdropRenderer.BuildHomeworkCard(board, _scale, sf), lay));
+                _cards.Add(MakeCard("homework", () => BackdropRenderer.BuildHomeworkCard(board, _typo, sf), lay));
             }
         }
 
@@ -167,7 +178,18 @@ public partial class BackdropEditorWindow : Window
         {
             var mb = Store.LoadMissingBoard();
             var lay = b.MissingLayout ?? new HomeworkWallpaperLayout { Anchor = "BottomRight", UseFixedSize = true, FixedWidth = 420, FixedHeight = 360 };
-            _cards.Add(MakeCard("missing", () => BackdropRenderer.BuildMissingCard(mb, _scale, sf), lay));
+            _cards.Add(MakeCard("missing", () => BackdropRenderer.BuildMissingCard(mb, _typo, sf), lay));
+        }
+
+        // 自定义便签：按设置里的显示开关，一张一卡（各自独立位置 / 大小）
+        foreach (var note in BackdropService.VisibleCustomNotes(_s, b))
+        {
+            var entry = b.EntryOf(note.Id);
+            var lay = entry.Layout ?? (entry.Layout = new HomeworkWallpaperLayout());
+            var captured = note;
+            _cards.Add(MakeCard("note:" + note.Id,
+                () => BackdropRenderer.BuildCustomNoteCard(captured, _typo, sf), lay,
+                string.IsNullOrWhiteSpace(note.Title) ? "自定义便签" : note.Title, note.Id));
         }
 
         foreach (var ce in _cards) AddProxy(ce);
@@ -175,7 +197,8 @@ public partial class BackdropEditorWindow : Window
         DumpCards("build");
     }
 
-    private CardEdit MakeCard(string kind, Func<Border> build, HomeworkWallpaperLayout lay)
+    private CardEdit MakeCard(string kind, Func<Border> build, HomeworkWallpaperLayout lay,
+        string? label = null, string noteId = "")
     {
         var card = build();
         double defRatio = kind == "schedule" ? 0.38 : 0.4;
@@ -196,6 +219,8 @@ public partial class BackdropEditorWindow : Window
         return new CardEdit
         {
             Kind = kind,
+            NoteId = noteId,
+            Label = string.IsNullOrWhiteSpace(label) ? DefaultKindName(kind) : label!,
             Card = card,
             Lay = lay,
             Fixed = lay.UseFixedSize,
@@ -312,7 +337,7 @@ public partial class BackdropEditorWindow : Window
         }
         TxtSel.Text = ce == null
             ? "点击任意便签即可选中：拖动便签移动位置，拖动四角 / 四边改变大小。"
-            : $"正在编辑：{KindName(ce.Kind)}（{SizeText(ce)}）";
+            : $"正在编辑：{ce.Label}（{SizeText(ce)}）";
     }
 
     // ---------- 拖动移动 ----------
@@ -340,7 +365,7 @@ public partial class BackdropEditorWindow : Window
         _move.Y = Math.Clamp(_startY + dy, 0, Math.Max(0, _H - _move.H));
         Canvas.SetLeft(_move.Proxy, _move.X * _disp);
         Canvas.SetTop(_move.Proxy, _move.Y * _disp);
-        if (ReferenceEquals(_sel, _move)) TxtSel.Text = $"正在编辑：{KindName(_move.Kind)}（{SizeText(_move)}）";
+        if (ReferenceEquals(_sel, _move)) TxtSel.Text = $"正在编辑：{_move.Label}（{SizeText(_move)}）";
     }
 
     private void OnProxyUp(object sender, MouseButtonEventArgs e)
@@ -470,7 +495,7 @@ public partial class BackdropEditorWindow : Window
         }
 
         UpdateSizeLabel(ce);
-        if (ReferenceEquals(_sel, ce)) TxtSel.Text = $"正在编辑：{KindName(ce.Kind)}（{SizeText(ce)}）";
+        if (ReferenceEquals(_sel, ce)) TxtSel.Text = $"正在编辑：{ce.Label}（{SizeText(ce)}）";
     }
 
     // ---------- 侧栏 ----------
@@ -482,7 +507,7 @@ public partial class BackdropEditorWindow : Window
             var row = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
             row.Children.Add(new TextBlock
             {
-                Text = KindName(ce.Kind),
+                Text = ce.Label,
                 FontSize = 14,
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37))
@@ -534,14 +559,129 @@ public partial class BackdropEditorWindow : Window
         ce.SizeLabel.Text = $"大小：{ce.W:0} × {ce.H:0} 像素（占屏宽 {ce.W / _W * 100:0}%）{tip}";
     }
 
-    private static string KindName(string kind) => kind switch
+    private static string DefaultKindName(string kind) => kind switch
     {
         "schedule" => "当天课表",
         "homework" => "作业公示",
-        _ => "缺交作业名单"
+        "missing" => "缺交作业名单",
+        _ => "自定义便签"
     };
 
     private static string SizeText(CardEdit ce) => $"{ce.W:0} × {ce.H:0} 像素";
+
+    // ---------- 读取悬浮窗当前位置 / 大小 ----------
+    /// <summary>
+    /// 把当前悬浮窗（当天课表 / 作业公示 / 缺交名单 / 自定义便签）的实际位置与大小，直接读取为本排版的对应便签矩形，
+    /// 并自动勾选「固定大小」，使桌面背景与悬浮窗的位置、尺寸完全一致。
+    /// <para>· 只处理当前已勾选显示的便签（未显示的没有排版卡片）。</para>
+    /// <para>· 桌面背景只按主屏渲染：中心点落在副屏 / 主屏之外的悬浮窗会被跳过并提示。</para>
+    /// <para>· 位置取自悬浮窗的持久化坐标（窗口可见时即其当前位置），从未摆放过的会被跳过。</para>
+    /// <para>读取结果只作用于本窗口的预览，确认无误后仍需点「应用并关闭」才会写入并重绘壁纸。</para>
+    /// </summary>
+    private void BtnCapture_Click(object sender, RoutedEventArgs e)
+    {
+        if (_cards.Count == 0)
+        {
+            TxtSel.Text = "当前没有勾选要显示的便签。请先在「布局设置 → 桌面背景」里勾选「当天课表 / 作业公示 / 缺交作业名单 / 自定义便签」之一，再打开本窗口。";
+            return;
+        }
+
+        var s = Store.LoadSettings();
+        var b = s.Backdrop ?? new BackdropSettings();
+
+        // WPF 逻辑像素(DIP) → 主屏物理像素（桌面背景按主屏物理分辨率渲染）。
+        // 教室机通常单屏，本窗口与悬浮窗同在（主）屏；按本窗口 DPI 换算即可。
+        double k = 1.0;
+        try { var d = VisualTreeHelper.GetDpi(this); if (d.DpiScaleX > 0) k = d.DpiScaleX; } catch { }
+
+        var notes = new List<string>();
+        int done = 0;
+
+        foreach (var ce in _cards)
+        {
+            string name = ce.Label;
+            double? dl = null, dt = null, dw = null, dh = null;
+
+            switch (ce.Kind)
+            {
+                case "schedule":
+                    var sl = s.ScheduleLayout;
+                    if (sl?.Left is double l1 && sl.Top is double t1 && sl.Width > 0 && sl.Height > 0)
+                    { dl = l1; dt = t1; dw = sl.Width; dh = sl.Height; }
+                    break;
+                case "homework":
+                    if (s.HwWinLeft is double l2 && s.HwWinTop is double t2
+                        && s.HwWinWidth is double w2 && s.HwWinHeight is double h2)
+                    { dl = l2; dt = t2; dw = w2; dh = h2; }
+                    break;
+                case "missing":
+                    if (s.MsWinLeft is double l3 && s.MsWinTop is double t3
+                        && s.MsWinWidth is double w3 && s.MsWinHeight is double h3)
+                    { dl = l3; dt = t3; dw = w3; dh = h3; }
+                    break;
+                default:
+                    if (ce.NoteId.Length > 0)
+                    {
+                        var note = s.CustomNotes?.FirstOrDefault(n => n.Id == ce.NoteId);
+                        if (note?.Left is double l4 && note.Top is double t4
+                            && note.Width is double w4 && note.Height is double h4)
+                        { dl = l4; dt = t4; dw = w4; dh = h4; }
+                    }
+                    break;
+            }
+
+            if (dl == null || dt == null || dw == null || dh == null)
+            {
+                notes.Add($"{name}：没有可用的悬浮窗位置（请先打开该便签，摆放好并调整好大小）");
+                continue;
+            }
+
+            // DIP → 物理像素
+            double px = dl.Value * k, py = dt.Value * k, pw = dw.Value * k, ph = dh.Value * k;
+
+            // 桌面背景只渲染主屏：中心点需落在主屏范围内
+            double cx = px + pw / 2, cy = py + ph / 2;
+            if (cx < 0 || cy < 0 || cx > _W || cy > _H)
+            {
+                notes.Add($"{name}：在副屏或主屏之外（桌面背景只渲染主屏），已跳过");
+                continue;
+            }
+
+            // 夹进主屏，保证整块便签完整可见
+            pw = Math.Clamp(pw, MINW, Math.Max(MINW, _W));
+            ph = Math.Clamp(ph, MINH, Math.Max(MINH, _H));
+            px = Math.Clamp(px, 0, Math.Max(0, _W - pw));
+            py = Math.Clamp(py, 0, Math.Max(0, _H - ph));
+
+            ce.X = px; ce.Y = py; ce.W = pw; ce.H = ph;
+            ce.Fixed = true;                 // 锁定尺寸：高度不随内容漂移
+            RebuildAndPosition(ce);          // 按新矩形重建卡片并刷新预览
+            done++;
+        }
+
+        // 补充提示：有悬浮窗、但桌面背景没勾选的项目
+        if (!b.ShowSchedule && s.ScheduleLayout?.Left.HasValue == true)
+            notes.Add("当天课表未勾选「显示在桌面背景」，未同步");
+        if (!b.ShowHomework && s.HwWinLeft.HasValue)
+            notes.Add("作业公示未勾选「显示在桌面背景」，未同步");
+        if (!b.ShowMissing && s.MsWinLeft.HasValue)
+            notes.Add("缺交作业名单未勾选「显示在桌面背景」，未同步");
+        foreach (var note in s.CustomNotes ?? new List<CustomNote>())
+            if (note.Left.HasValue && !b.EntryOf(note.Id).Visible)
+                notes.Add($"{(string.IsNullOrWhiteSpace(note.Title) ? "自定义便签" : note.Title)}未勾选「显示在桌面背景」，未同步");
+
+        if (done > 0)
+        {
+            string extra = notes.Count > 0 ? "\n" + string.Join("；", notes) + "。" : "";
+            TxtSel.Text = $"已读取 {done} 张便签的位置与大小，并锁定为固定尺寸。确认无误后点「应用并关闭」。{extra}";
+        }
+        else
+        {
+            TxtSel.Text = "未能读取到可用的悬浮窗位置。\n" + string.Join("；", notes) + "。";
+        }
+
+        DumpCards("capture");
+    }
 
     // ---------- 提交 ----------
     private void BtnApply_Click(object sender, RoutedEventArgs e)
@@ -558,6 +698,7 @@ public partial class BackdropEditorWindow : Window
             ce.Lay.FixedHeight = ce.Fixed ? ce.H : 0;
             if (ce.Kind == "schedule") b.ScheduleLayout = ce.Lay;
             else if (ce.Kind == "homework") b.HomeworkLayout = ce.Lay;
+            else if (ce.NoteId.Length > 0) b.EntryOf(ce.NoteId).Layout = ce.Lay;
             else b.MissingLayout = ce.Lay;
         }
 

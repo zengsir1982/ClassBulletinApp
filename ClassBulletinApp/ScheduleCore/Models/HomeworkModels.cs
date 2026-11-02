@@ -1,38 +1,76 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace ScheduleCore.Models;
 
-/// <summary>单科作业条目。</summary>
-public class HomeworkItem
+/// <summary>
+/// 单科作业条目。
+/// <para>实现 <see cref="INotifyPropertyChanged"/>：编辑窗口里改格式（加粗 / 颜色 / 字号）后，
+/// 行内输入框的即时预览与桌面背景能立刻跟着变，不必关掉重开。</para>
+/// </summary>
+public class HomeworkItem : INotifyPropertyChanged
 {
-    public string Subject { get; set; } = "";
-    public string Content { get; set; } = "";
+    private string _subject = "";
+    private string _content = "";
+    private bool _bold;
+    private string _color = "";
+    private int _sizeLevel;
+
+    public string Subject { get => _subject; set => Set(ref _subject, value); }
+    public string Content { get => _content; set => Set(ref _content, value); }
 
     /// <summary>作业内容是否加粗。</summary>
-    public bool Bold { get; set; }
+    public bool Bold { get => _bold; set => Set(ref _bold, value); }
 
     /// <summary>作业内容颜色（#RRGGBB；空表示默认墨色，实际取主题正文色）。</summary>
-    public string Color { get; set; } = "";
+    public string Color { get => _color; set => Set(ref _color, value); }
 
-    /// <summary>作业内容字号档位：0=标准 1=小 2=大 3=特大。</summary>
-    public int SizeLevel { get; set; }
+    /// <summary>作业内容字号档位（见 <see cref="HwTextStyle.LevelNames"/>）。</summary>
+    public int SizeLevel { get => _sizeLevel; set => Set(ref _sizeLevel, value); }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }
 
-/// <summary>作业文本样式档位工具：悬浮窗与桌面背景渲染共用，保证两边显示一致。</summary>
+/// <summary>
+/// 作业 / 缺交 / 自定义便签共用的文本样式档位。
+/// <para>★ 字号档位是持久化值（SizeLevel 存的就是数组下标），只能在末尾追加，不能重排或删除，
+/// 否则老数据（users.json / homework.json 里的 sizeLevel）会变成别的字号。</para>
+/// </summary>
 public static class HwTextStyle
 {
-    /// <summary>字号档位对应的基准字号（0=标准 1=小 2=大 3=特大），渲染时再按卡片比例缩放。</summary>
-    public static readonly double[] Sizes = { 19, 16, 23, 27 };
+    /// <summary>
+    /// 字号档位对应的基准字号（按档位索引）。前四个是历史档位，顺序不可动；
+    /// 4 起的「更小 / 超大 / 巨大」是后加的，只追加不动前面。
+    /// </summary>
+    public static readonly double[] Sizes = { 19, 16, 23, 27, 14, 32, 38 };
 
     /// <summary>取指定档位的字号（越界自动收敛到合法范围）。</summary>
     public static double SizeOf(int level) => Sizes[Math.Clamp(level, 0, Sizes.Length - 1)];
 
-    /// <summary>档位名称，用于下拉与提示。</summary>
-    public static readonly string[] LevelNames = { "标准", "小", "大", "特大" };
+    /// <summary>档位名称（下标即档位）。</summary>
+    public static readonly string[] LevelNames = { "标准", "小", "大", "特大", "更小", "超大", "巨大" };
 
-    /// <summary>预设颜色（值 / 显示名），悬浮窗下拉与桌面背景渲染共用。</summary>
+    /// <summary>下拉框的显示顺序：按字号从小到大排列的档位下标（持久化仍用档位本身）。</summary>
+    public static readonly int[] SizeOrder = { 4, 1, 0, 2, 3, 5, 6 };
+
+    /// <summary>档位下标 → 在 <see cref="SizeOrder"/> 里的位置；找不到返回 0。</summary>
+    public static int OrderIndexOf(int level)
+    {
+        int i = Array.IndexOf(SizeOrder, Math.Clamp(level, 0, Sizes.Length - 1));
+        return i < 0 ? 0 : i;
+    }
+
+    /// <summary>预设颜色（值 / 显示名），悬浮窗下拉与桌面背景渲染共用。前六项为历史值，不要改。</summary>
     public static readonly (string Value, string Name)[] PresetColors =
     {
         ("", "默认墨色"),
@@ -40,8 +78,23 @@ public static class HwTextStyle
         ("#2D6CDF", "蓝色"),
         ("#1E8E3E", "绿色"),
         ("#E07B00", "橙色"),
-        ("#7B3FBF", "紫色")
+        ("#7B3FBF", "紫色"),
+        ("#0F766E", "青色"),
+        ("#1E40AF", "深蓝"),
+        ("#C2185B", "玫红"),
+        ("#795548", "棕色"),
+        ("#4B5563", "灰色"),
+        ("#000000", "黑色")
     };
+
+    /// <summary>颜色值 → 显示名；不在预设里时返回 hex 本身（自定义颜色）。</summary>
+    public static string ColorName(string? hex)
+    {
+        var v = (hex ?? "").Trim();
+        foreach (var c in PresetColors)
+            if (string.Equals(c.Value, v, StringComparison.OrdinalIgnoreCase)) return c.Name;
+        return string.IsNullOrEmpty(v) ? PresetColors[0].Name : v.ToUpperInvariant();
+    }
 }
 
 /// <summary>
@@ -182,22 +235,37 @@ public class HomeworkWallpaperLayout
 }
 
 /// <summary>单条缺交作业记录：可指定科目（留空表示通用），以及缺交学生姓名（换行 / 逗号分隔）。</summary>
-public class MissingHomeworkItem
+public class MissingHomeworkItem : INotifyPropertyChanged
 {
+    private string _subject = "";
+    private string _students = "";
+    private bool _bold;
+    private string _color = "";
+    private int _sizeLevel;
+
     /// <summary>科目（留空表示通用 / 不区分科目）。</summary>
-    public string Subject { get; set; } = "";
+    public string Subject { get => _subject; set => Set(ref _subject, value); }
 
     /// <summary>缺交学生姓名：每行一个或用逗号 / 顿号分隔均可。</summary>
-    public string Students { get; set; } = "";
+    public string Students { get => _students; set => Set(ref _students, value); }
 
     /// <summary>名单是否加粗。</summary>
-    public bool Bold { get; set; }
+    public bool Bold { get => _bold; set => Set(ref _bold, value); }
 
     /// <summary>名单颜色（#RRGGBB；空表示默认墨色）。</summary>
-    public string Color { get; set; } = "";
+    public string Color { get => _color; set => Set(ref _color, value); }
 
-    /// <summary>名单字号档位：0=标准 1=小 2=大 3=特大。</summary>
-    public int SizeLevel { get; set; }
+    /// <summary>名单字号档位（见 <see cref="HwTextStyle.LevelNames"/>）。</summary>
+    public int SizeLevel { get => _sizeLevel; set => Set(ref _sizeLevel, value); }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }
 
 /// <summary>作业公示栏内容：标题 + 各科目作业 + 主题风格 + 桌面背景摆放位置。</summary>

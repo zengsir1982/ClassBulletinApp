@@ -297,7 +297,11 @@ public partial class MissingWindow : Window
         catch { }
     }
 
-    // ---------- 桌面背景 ----------
+    // ---------- 设为背景 ----------
+    /// <summary>
+    /// 同步「设为背景」按钮状态：文案恒为「设为背景」（再点一次 = 按当前大小位置重新锁一次），
+    /// 蓝底表示缺交名单当前已在桌面背景显示。
+    /// </summary>
     private void UpdateBackdropButton()
     {
         try
@@ -305,18 +309,29 @@ public partial class MissingWindow : Window
             if (BtnWp == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             bool on = b.ShowMissing;
-            BtnWp.Content = on ? "桌面背景：开" : "桌面背景：关";
             BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
             BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
+            BtnWp.ToolTip = on
+                ? "缺交名单已在桌面背景显示；再点一次会按「现在的位置和大小」重新锁定。要取消：布局设置 → 桌面背景 取消勾选"
+                : "按「现在的位置和大小」一键设为桌面背景，并隐藏本便签";
         }
         catch { }
     }
 
+    /// <summary>
+    /// 一步「设为背景」：把当前的位置与大小锁进桌面背景排版 → 打开显示并重绘壁纸 → 隐藏本便签。
+    /// 失败（如便签在副屏）时不隐藏，弹框说明原因。
+    /// </summary>
     private void BtnWp_Click(object sender, RoutedEventArgs e)
     {
-        BackdropService.ToggleMissing(out _);
+        if (!BackdropPin.Pin(BackdropPin.Kind.Missing, this, out string msg))
+        {
+            System.Windows.MessageBox.Show(msg, "设为背景", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
         UpdateBackdropButton();
         AppEvents.RaiseBackdropChanged();
+        Hide();   // 已画到桌面背景上，便签不必再占着屏幕（控制面板可再次显示）
     }
 
     // ---------- 置顶 ----------

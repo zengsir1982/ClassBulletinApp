@@ -1,25 +1,23 @@
 <Window x:Class="ClassBulletinApp.HomeworkEditWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ClassBulletinApp"
         Title="作业公示 · 编辑内容、格式与主题" Height="700" Width="780"
         MinWidth="640" MinHeight="520" WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip" Background="#F2F5FA">
     <Window.Resources>
-        <!-- 正文：按条目的加粗 / 颜色 / 字号档位即时呈现（与便签、桌面背景一致） -->
+        <local:HexToBrushConverter x:Key="HexToBrush"/>
+        <local:SizeLevelToFontSizeConverter x:Key="LevelToFont"/>
+
+        <!-- 正文：按条目的加粗 / 颜色 / 字号档位即时呈现（与便签、桌面背景一致）。
+             颜色与字号用转换器解析，因此预设色之外的「自定义颜色」也能正确预览。 -->
         <Style x:Key="HwStyledBox" TargetType="TextBox">
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontSize" Value="{Binding SizeLevel, Converter={StaticResource LevelToFont}}"/>
+            <Setter Property="Foreground" Value="{Binding Color, Converter={StaticResource HexToBrush}}"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Bold}" Value="True">
                     <Setter Property="FontWeight" Value="Bold"/>
                 </DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#C0392B"><Setter Property="Foreground" Value="#C0392B"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#2D6CDF"><Setter Property="Foreground" Value="#2D6CDF"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#1E8E3E"><Setter Property="Foreground" Value="#1E8E3E"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#E07B00"><Setter Property="Foreground" Value="#E07B00"/></DataTrigger>
-                <DataTrigger Binding="{Binding Color}" Value="#7B3FBF"><Setter Property="Foreground" Value="#7B3FBF"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="1"><Setter Property="FontSize" Value="12"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="2"><Setter Property="FontSize" Value="17"/></DataTrigger>
-                <DataTrigger Binding="{Binding SizeLevel}" Value="3"><Setter Property="FontSize" Value="20"/></DataTrigger>
             </Style.Triggers>
         </Style>
     </Window.Resources>
@@ -87,19 +85,35 @@
                                     </Grid>
                                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                         <ToggleButton Content="B" FontWeight="Bold" Padding="8,2" FontSize="12" IsChecked="{Binding Bold, Mode=TwoWay}" ToolTip="加粗"/>
-                                        <ComboBox Width="94" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedValuePath="Tag" SelectedValue="{Binding Color, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="文字颜色">
-                                            <ComboBoxItem Content="默认墨色" Tag=""/>
-                                            <ComboBoxItem Content="红色" Tag="#C0392B"/>
-                                            <ComboBoxItem Content="蓝色" Tag="#2D6CDF"/>
-                                            <ComboBoxItem Content="绿色" Tag="#1E8E3E"/>
-                                            <ComboBoxItem Content="橙色" Tag="#E07B00"/>
-                                            <ComboBoxItem Content="紫色" Tag="#7B3FBF"/>
+                                        <ComboBox Width="132" Margin="6,0,0,0" FontSize="12" Padding="4,2"
+                                                  ItemsSource="{Binding ColorOptions, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  SelectedValuePath="Value"
+                                                  SelectedValue="{Binding Color, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="文字颜色（12 种预设；要别的颜色点右侧「调色…」）">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Orientation="Horizontal" Margin="1">
+                                                        <Rectangle Width="15" Height="15" RadiusX="3" RadiusY="3"
+                                                                   Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,7,0"/>
+                                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="12"/>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
                                         </ComboBox>
-                                        <ComboBox Width="74" Margin="6,0,0,0" FontSize="12" Padding="4,2" SelectedIndex="{Binding SizeLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="文字大小">
-                                            <ComboBoxItem Content="标准"/>
-                                            <ComboBoxItem Content="小"/>
-                                            <ComboBoxItem Content="大"/>
-                                            <ComboBoxItem Content="特大"/>
+                                        <Button Content="调色…" Padding="8,3" FontSize="11" Margin="4,0,0,0"
+                                                Click="BtnPickColor_Click" Tag="{Binding}"
+                                                Background="White" BorderBrush="#D1D5DB"
+                                                ToolTip="从系统调色板里选任意颜色"/>
+                                        <ComboBox Width="92" Margin="6,0,0,0" FontSize="12" Padding="4,2"
+                                                  ItemsSource="{Binding SizeOptions, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  SelectedValuePath="Level"
+                                                  SelectedValue="{Binding SizeLevel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  ToolTip="文字大小（小 → 巨大 共 7 档）">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Name}" FontSize="{Binding PreviewSize}" VerticalAlignment="Center"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
                                         </ComboBox>
                                     </StackPanel>
                                 </StackPanel>

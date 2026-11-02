@@ -20,6 +20,12 @@ public partial class MissingEditWindow : Window
     private readonly ObservableCollection<MissingHomeworkItem> _miss = new();
     private string _theme = "pink";
 
+    /// <summary>字色下拉项：12 种预设，选「调色…」时把自定义色追加进来。</summary>
+    public ObservableCollection<ColorOption> ColorOptions { get; } = new(EditorStyleOptions.Colors());
+
+    /// <summary>字号下拉项：小 → 巨大共 7 档（按字号从小到大排列）。</summary>
+    public List<SizeOption> SizeOptions { get; } = EditorStyleOptions.Sizes();
+
     /// <summary>供下拉使用的主题选项（携带已解析好的画刷，避免 XAML 里做类型转换）。</summary>
     private sealed class ThemeOption
     {
@@ -85,6 +91,14 @@ public partial class MissingEditWindow : Window
     {
         if ((sender as System.Windows.Controls.Button)?.Tag is MissingHomeworkItem m) _miss.Remove(m);
         if (_miss.Count == 0) _miss.Add(new MissingHomeworkItem());
+    }
+
+    /// <summary>调色：选任意颜色后补进下拉列表并选中（条目有变更通知，行内预览立刻更新）。</summary>
+    private void BtnPickColor_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is not MissingHomeworkItem m) return;
+        if (!EditorStyleOptions.TryPickColor(m.Color, out string hex)) return;
+        m.Color = EditorStyleOptions.EnsureColor(ColorOptions, hex).Value;
     }
 
     // ---------- 结果 ----------

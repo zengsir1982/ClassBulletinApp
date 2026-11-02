@@ -198,6 +198,26 @@ public class AppSettings
     /// <summary>常用快捷图标大小（逻辑像素，16~48）。</summary>
     public double QlIconSize { get; set; } = 28;
 
+    /// <summary>
+    /// 悬浮课表底部三个内置快捷（作业 / 缺交 / 便签）胶囊的字号（逻辑像素）。
+    /// <para>0 = 自动：跟着悬浮课表宽度挑档（窄窗收小，宽窗放大），见 QuickActionStyle。</para>
+    /// </summary>
+    public double QaBuiltinFontSize { get; set; }
+
+    /// <summary>
+    /// 上一次在悬浮课表点「更新课表」是否失败。
+    /// <para>失败原因不放在按钮上（按钮始终是「更新课表」，随时可以重试），而是由悬浮课表状态栏
+    /// 用红字滚动提示；红字一直留到下一次更新成功（或数据已被自动更新刷新）才消失。
+    /// 存在设置里，所以关掉再打开悬浮课表也还看得见。</para>
+    /// </summary>
+    public bool QaUpdateFailed { get; set; }
+
+    /// <summary>「更新课表」失败的那次时刻（yyyy-MM-dd HH:mm:ss），用于判断之后是否已经更新成功。</summary>
+    public string QaUpdateFailedAt { get; set; } = "";
+
+    /// <summary>上一次「更新课表」失败的原因（单行文本），状态栏红字提示用；成功时清空。</summary>
+    public string QaUpdateFailedMessage { get; set; } = "";
+
     /// <summary>作业公示便签是否被锁定（锁定后不能移动 / 缩放 / 编辑，防误操作）。</summary>
     public bool HwWinLocked { get; set; }
 
@@ -330,6 +350,12 @@ public class AppSettings
     public string LastUpdateCheckInfo { get; set; } = "";
 
     /// <summary>
+    /// 访问 Gitee 仓库所需的口令（可留空）。仅在仓库为<b>私有</b>时用于「检查软件更新」；
+    /// 仓库设为公开后就不需要了。只存本机 settings.json，绝不随数据包下发。
+    /// </summary>
+    public string GiteeToken { get; set; } = "";
+
+    /// <summary>
     /// 任务栏图标右键菜单里的项目（可自定义文字、顺序、取舍）。
     /// <para>★ 空列表 = 从未配置过 → 用 <see cref="TrayCommands.Defaults"/> 的内置三项。
     /// 一旦用户在「任务栏菜单…」里保存过，就以这里的顺序为准。</para>
@@ -366,6 +392,7 @@ public static class TrayCommands
     public const string BackdropSchedule = "backdrop_schedule";
     public const string BackdropHomework = "backdrop_homework";
     public const string BackdropMissing = "backdrop_missing";
+    public const string BackdropOff = "backdrop_off";
     public const string Exit = "exit";
 
     /// <summary>一条命令的默认文字与说明。</summary>
@@ -388,6 +415,7 @@ public static class TrayCommands
         new() { Id = BackdropSchedule, Label = "当天课表 → 桌面背景", Hint = "把当天课表画到桌面壁纸上" },
         new() { Id = BackdropHomework, Label = "作业公示 → 桌面背景", Hint = "把作业公示画到桌面壁纸上" },
         new() { Id = BackdropMissing,  Label = "缺交名单 → 桌面背景", Hint = "把缺交名单画到桌面壁纸上" },
+        new() { Id = BackdropOff,      Label = "取消桌面背景", Hint = "撤掉画在壁纸上的内容，并把它们恢复成悬浮窗" },
         new() { Id = Exit,            Label = "退出",         Hint = "完全退出程序（含所有悬浮窗）" }
     };
 

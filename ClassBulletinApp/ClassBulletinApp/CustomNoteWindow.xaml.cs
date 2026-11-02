@@ -56,8 +56,10 @@ public partial class CustomNoteWindow : Window
         RestorePlacement();
         Reload();
         UpdateTopButton();
+        UpdateBackdropButton();
         _locked = _note.Locked;
         UpdateLockButton();
+        UpdateHintVisibility();
 
         IsVisibleChanged += (_, _) =>
         {
@@ -182,7 +184,21 @@ public partial class CustomNoteWindow : Window
     }
 
     private void Window_LocationChanged(object sender, EventArgs e) => DebounceSavePlacement();
-    private void Window_SizeChanged(object sender, SizeChangedEventArgs e) => DebounceSavePlacement();
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        DebounceSavePlacement();
+        UpdateHintVisibility();
+    }
+
+    /// <summary>
+    /// 底栏现在有「编辑 / 置顶 / 锁定 / 位置 / 设为背景」五个按钮，窗口窄时提示文字会被挤掉半个字，
+    /// 不如干脆收起：够宽（≥420）才显示，把空间留给按钮。
+    /// </summary>
+    private void UpdateHintVisibility()
+    {
+        if (TxtHint == null) return;
+        TxtHint.Visibility = ActualWidth >= 420 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void DebounceSavePlacement()
     {
@@ -207,6 +223,7 @@ public partial class CustomNoteWindow : Window
         _note = Store.LoadSettings().CustomNotes.FirstOrDefault(n => n.Id == _noteId);
         if (_note == null) { Dispatcher.BeginInvoke(new Action(Close)); return; }
         Reload();
+        UpdateBackdropButton();
         _locked = _note.Locked;
         UpdateLockButton();
     }
@@ -319,7 +336,7 @@ public partial class CustomNoteWindow : Window
         BtnLock.Background = locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
         BtnLock.Foreground = locked ? Brushes.White : Brushes.Black;
         if (TxtHint != null)
-            TxtHint.Text = locked ? "已锁定：不能移动 / 缩放 / 编辑" : "拖动摆放 · 拉边沿改大小 · 双击编辑";
+            TxtHint.Text = locked ? "已锁定" : "拖动·双击编辑";
     }
 
     private void BtnLock_Click(object sender, RoutedEventArgs e)
@@ -336,6 +353,66 @@ public partial class CustomNoteWindow : Window
     }
 
     private void BtnHide_Click(object sender, RoutedEventArgs e) => Hide();
+
+    // ---------- 桌面背景（与作业 / 缺交便签同一套：位置 + 设为背景） ----------
+
+    /// <summary>
+    /// 一步「设为背景」：把当前的位置与大小锁进桌面背景排版 → 打开显示并重绘壁纸 → 隐藏本便签。
+    /// 失败时（如便签在副屏）弹框说明并保留窗口，避免"藏起来了但壁纸上没有"。
+    /// </summary>
+    private void BtnWp_Click(object sender, RoutedEventArgs e)
+    {
+        if (!BackdropPin.Pin(BackdropPin.Kind.CustomNote, _noteId, this, out string msg))
+        {
+            System.Windows.MessageBox.Show(msg, "设为背景", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        UpdateBackdropButton();
+        AppEvents.RaiseBackdropChanged();
+
+        // 内容已经在壁纸上了：把"是否显示"也置为否，否则下次启动会照旧把它浮出来，等于同一份内容显示两遍
+        try
+        {
+            var s = Store.LoadSettings();
+            var n = s.CustomNotes.FirstOrDefault(x => x.Id == _noteId);
+            if (n != null) { n.Visible = false; Store.SaveSettings(s); }
+        }
+        catch { }
+
+        Hide();   // 已经画到壁纸上了，便签不必再占着屏幕（可在控制面板 / 悬浮课表「便签」再次打开）
+    }
+
+    private void BtnPos_Click(object sender, RoutedEventArgs e)
+    {
+        // 「位置」直接进入所见即所得排版：在模拟屏幕上拖动便签定位、拉四边改大小
+        bool wasTop = Topmost;
+        Topmost = false;   // 排版窗口是模态的，先让便签别压住它
+        try { new BackdropEditorWindow { Owner = this }.ShowDialog(); }
+        catch { }
+        finally { Topmost = wasTop; }
+        AppEvents.RaiseBackdropChanged();
+    }
+
+    /// <summary>「设为背景」按钮的视觉状态：蓝底 = 这张便签当前已画在桌面背景上。</summary>
+    private void UpdateBackdropButton()
+    {
+        if (BtnWp == null) return;
+        bool on = false;
+        try
+        {
+            var b = Store.LoadSettings().Backdrop;
+            on = b?.CustomNotes != null
+                 && b.CustomNotes.TryGetValue(_noteId, out var entry)
+                 && entry != null && entry.Visible;
+        }
+        catch { }
+
+        BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
+        BtnWp.ToolTip = on
+            ? "这张便签已在桌面背景显示；再点一次会按「现在的位置和大小」重新锁定。要取消：布局设置 → 桌面背景 取消勾选它"
+            : "按「现在的位置和大小」一键设为桌面背景，并隐藏本便签";
+    }
 
     protected override void OnClosed(EventArgs e)
     {

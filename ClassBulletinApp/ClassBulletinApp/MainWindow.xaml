@@ -52,7 +52,7 @@
             </Border>
 
             <!-- 主体：标签页归类 -->
-            <TabControl x:Name="MainTabs" Margin="10">
+            <TabControl x:Name="MainTabs" Margin="10" SelectionChanged="MainTabs_SelectionChanged">
                 <!-- 课表：直接周视图（右键安排调代课；单击已安排格二次确认清除） -->
                 <TabItem Header="周课程表">
                     <local:WeekView x:Name="WeekViewManage" Mode="Manage"/>
@@ -160,8 +160,12 @@
                                         <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,7" FontSize="13" Margin="12,0,0,0"
                                                 Click="BtnThemeReset_Click" Background="White" BorderBrush="#D1D5DB" Cursor="Hand"/>
                                     </StackPanel>
-                                    <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单三张便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
+                                    <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单 / 自定义便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
                                                FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                                    <Button x:Name="BtnCancelBackdrop" Content="取消桌面背景（恢复悬浮窗）…" Padding="14,7" FontSize="13"
+                                            HorizontalAlignment="Left" Margin="0,10,0,0" Background="#FDE8E8" BorderBrush="#E0A0A0" Cursor="Hand"
+                                            ToolTip="撤掉画在壁纸上的课表 / 便签，恢复系统原壁纸，并把当初隐藏的课表 / 便签放回悬浮窗"
+                                            Click="BtnCancelBackdrop_Click"/>
                                 </StackPanel>
                             </Border>
 
@@ -175,7 +179,7 @@
                                                FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                     <TextBlock Text="自动隐藏默认把窗口完全移出屏幕，只把鼠标移到 / 手指触到屏幕对应边沿时才平滑滑出；需要保留一条可点细边时，可在布局设置里把「露出像素」调成 1~48。"
                                                FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                    <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。「置顶显示」为半透明常驻，如需纯展示可在布局设置勾选「鼠标穿透」。"
+                                    <TextBlock Text="顶栏「教师 / 班级」下拉、或双击悬浮课表标题的姓名位置，都可在班级课表与教师个人课表之间自由切换。「常驻显示」为半透明常驻，如需纯展示可在布局设置勾选「鼠标穿透」。"
                                                FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>
@@ -326,27 +330,23 @@
                             <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,0,0,14">
                                 <StackPanel>
                                     <TextBlock Text="通知条字体与背景" FontSize="16" FontWeight="Bold" Foreground="#1F2A37"/>
-                                    <TextBlock Text="在下面选好字体 / 字号 / 字色 / 背景，顶部通知字幕条立即生效（对所有通知统一生效）。"
+                                    <TextBlock Text="在下面选好字体 / 字号 / 字色 / 背景，顶部通知字幕条立即生效（对所有通知统一生效）。字色与背景还能用「调色…」取任意颜色，取过的颜色会留在下拉里。"
                                                FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,2,0,10"/>
-                                    <!-- 字体 / 字号 / 字色 / 背景 同一行排列，整齐美观 -->
-                                    <Grid Margin="0,6,0,2">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                    <!-- 字体 / 字号 / 字色 / 背景：用 WrapPanel 排，窗口窄了自动换行，不会把右边挤出界面。
+                                         字色与背景后面各跟一个「调色…」，可以取任意颜色（预设 20 多种仍保留）。 -->
+                                    <WrapPanel Margin="0,6,0,2">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,6">
                                             <TextBlock Text="字体" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifFont" Width="140" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                            <ComboBox x:Name="CbNotifFont" Width="178" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,6">
                                             <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifSize" Width="72" FontSize="14" SelectionChanged="NotifStyle_Changed"/>
+                                            <ComboBox x:Name="CbNotifSize" Width="84" FontSize="14" SelectionChanged="NotifStyle_Changed"
+                                                      ToolTip="共 22 档（12～96）。字号选得很大时，如果通知条上下边缘把字切掉了，把通知条拖高一点即可"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,6">
                                             <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifText" Width="108" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                            <ComboBox x:Name="CbNotifText" Width="132" FontSize="14" SelectionChanged="NotifStyle_Changed">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <StackPanel Orientation="Horizontal" Margin="2">
@@ -356,10 +356,13 @@
                                                     </DataTemplate>
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
+                                            <Button x:Name="BtnNotifTextPick" Content="调色…" Padding="9,3" FontSize="12" Margin="6,0,0,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnNotifTextPick_Click"
+                                                    ToolTip="用系统取色器选任意字色（预设里没有的颜色也能用）"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
                                             <TextBlock Text="背景" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                            <ComboBox x:Name="CbNotifBg" Width="118" FontSize="14" SelectionChanged="NotifStyle_Changed">
+                                            <ComboBox x:Name="CbNotifBg" Width="132" FontSize="14" SelectionChanged="NotifStyle_Changed">
                                                 <ComboBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <StackPanel Orientation="Horizontal" Margin="2">
@@ -369,8 +372,11 @@
                                                     </DataTemplate>
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
+                                            <Button x:Name="BtnNotifBgPick" Content="调色…" Padding="9,3" FontSize="12" Margin="6,0,0,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnNotifBgPick_Click"
+                                                    ToolTip="用系统取色器选任意背景色（预设里没有的颜色也能用）"/>
                                         </StackPanel>
-                                    </Grid>
+                                    </WrapPanel>
                                     <!-- 实时预览：与顶部字幕条完全同一套字体 / 颜色 -->
                                     <Border x:Name="NotifPreview" CornerRadius="10" Padding="12,8" Margin="0,4,0,0">
                                         <TextBlock x:Name="NotifPreviewText" Text="预览：今天下午第 8 节后全校大扫除"
@@ -626,6 +632,111 @@
                             </Border>
                             <TextBlock Text="提示：改用户名或改密码都要先输入「当前密码」；只想换密码时，把「新用户名」留空即可。修改后立即生效并保存；以「游客」身份进入时不保存任何改动。"
                                        FontSize="13" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <!-- 关于：软件简介 + 版本 + 软件更新（Gitee）+ 运行信息（独立标签，不占用户中心） -->
+                <TabItem x:Name="TabAbout" Header="关于">
+                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto">
+                        <StackPanel MaxWidth="900">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <TextBlock Text="ℹ 关于　班级公布栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
+                                <Border Background="#EAF1FD" BorderBrush="#9DBDF0" BorderThickness="1" CornerRadius="12"
+                                        Padding="12,3" Margin="14,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtAboutVer" Text="v—" FontSize="13" FontWeight="Bold" Foreground="#1E4FA8"/>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock Text="面向教室多媒体屏的课表与班级信息公布工具　·　© 2026 逆流的鱼"
+                                       FontSize="13" Foreground="#6B7280" Margin="0,0,0,10"/>
+                            <TextBlock Text="导入全校总课程表后选定班级，教室屏上就会显示当天的课程、通知公告、作业公示与缺交名单；支持调代课（含按周生效区间）、多账号与角色权限、把课表 / 便签画到桌面背景，以及多台教室机之间的数据包自动同步。"
+                                       FontSize="13.5" Foreground="#374151" TextWrapping="Wrap" LineHeight="21" Margin="0,0,0,4"/>
+
+                            <!-- 软件更新（程序自身的版本，与「数据包自动更新」无关） -->
+                            <Border Background="#F4F8FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1"
+                                    CornerRadius="10" Padding="16,14" Margin="0,14,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="🔄 软件更新" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+                                    <TextBlock Text="从 Gitee 仓库读取最新的发布版本，发现新版可直接打开发布页下载安装包。这里只管「程序本身」的版本；教室机的课表数据更新仍走「数据管理 → 自动更新」，两者互不影响。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                        <Button x:Name="BtnAboutCheck" Content="检查更新" Padding="16,8" FontSize="13.5" Cursor="Hand"
+                                                Margin="0,0,8,0" Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF"
+                                                ToolTip="联网读取 Gitee 上的最新发布版本"
+                                                Click="BtnAboutCheck_Click"/>
+                                        <Button x:Name="BtnAboutReleasePage" Content="打开发布页（Gitee）" Padding="16,8" FontSize="13.5" Cursor="Hand"
+                                                Margin="0,0,8,0" Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                                ToolTip="在浏览器里打开 Gitee 发布页，可查看全部版本与安装包"
+                                                Click="BtnAboutReleasePage_Click"/>
+                                        <Button x:Name="BtnAboutDownload" Content="下载最新版" Padding="16,8" FontSize="13.5" Cursor="Hand"
+                                                Background="#E8F7EE" BorderBrush="#9BD3AE" Visibility="Collapsed"
+                                                ToolTip="直接下载最新版安装包"
+                                                Click="BtnAboutDownload_Click"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="TxtAboutUpdStatus" FontSize="13" Foreground="#374151" TextWrapping="Wrap"
+                                               Margin="0,10,0,0" Text="尚未检查。点「检查更新」获取 Gitee 上的最新版本。"/>
+                                    <Border x:Name="PanelAboutNotes" Visibility="Collapsed" Background="White"
+                                            BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,10,0,0">
+                                        <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
+                                            <TextBlock x:Name="TxtAboutReleaseNotes" FontSize="12.5" Foreground="#4B5563" TextWrapping="Wrap" LineHeight="19"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 运行信息（排查问题时截图 / 复制给维护人员） -->
+                            <TextBlock Text="运行信息" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Margin="0,18,0,8"/>
+                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="8" Padding="16,12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="96"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="版本" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TxtAboutInfoVer" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="当前身份" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtAboutInfoRole" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="课表规模" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtAboutInfoClasses" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="数据源" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="TxtAboutInfoSource" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="数据格式" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="1" x:Name="TxtAboutInfoSchema" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="数据目录" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,9"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="TxtAboutInfoDir" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,9"/>
+
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="上次检查更新" FontSize="12.5" Foreground="#6B7280" Margin="0,3,0,3"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="1" x:Name="TxtAboutInfoLastCheck" FontSize="12.5" Foreground="#1F2A37" TextWrapping="Wrap" Margin="0,3,0,3"/>
+                                </Grid>
+                            </Border>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <Button x:Name="BtnAboutCopy" Content="复制版本信息" Padding="16,8" FontSize="13.5" Cursor="Hand"
+                                        Margin="0,0,8,0" Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                        ToolTip="把版本、身份、数据目录等一起复制到剪贴板，反馈问题时直接粘贴"
+                                        Click="BtnAboutCopy_Click"/>
+                                <Button x:Name="BtnAboutOpenDir" Content="打开数据目录" Padding="16,8" FontSize="13.5" Cursor="Hand"
+                                        Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                        ToolTip="备份 / 排查时在这个文件夹里找 settings、schedule、users.json"
+                                        Click="BtnAboutOpenDir_Click"/>
+                            </StackPanel>
+
+                            <TextBlock Text="提示：软件更新只在本机联网检查，不会自动替换程序；确认要升级时，从发布页下载安装包，直接双击覆盖安装即可（课表与账号数据都保留）。"
+                                       FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,12,0,0"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

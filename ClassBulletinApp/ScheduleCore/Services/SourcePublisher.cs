@@ -65,6 +65,56 @@ public static class SourcePublisher
 
     static readonly Regex DatePrefixRe = new(@"(\d{4})-(\d{1,2})-(\d{1,2})");
 
+    /// <summary>
+    /// 判断是不是 Excel / WPS 自动留下的<b>副本文件</b>，不是真课表。
+    ///
+    /// <para>★ 为什么要在扫描时就排除：三台发布机都能往共享目录拖文件（这是必要的工作方式），
+    /// 于是两个人同时打开同一份 xlsx 时，Excel 会生成
+    /// <c>xxx (用户的冲突副本).xlsx</c>；WPS 和手滑复制还会留下 <c>xxx - 副本.xlsx</c>。
+    /// 这些文件同样以 .xlsx 结尾，会被 <c>GetFiles("*.xlsx")</c> 扫进来 ——
+    /// 后果是<b>副本按文件名排序后的结果盖掉正本</b>：调代课凭空多出来、或者某年级的课表被旧版本替换，
+    /// 而且发布报告里看不出异常。这类事故排查起来极费时间，所以在入口就挡掉。</para>
+    ///
+    /// <para>★ 判定故意写得很窄：只认"副本 / 冲突 / copy of / - 复制"这几种<b>确实出自软件自动命名</b>的痕迹。
+    /// 不敢按"(1)""(2)"这类括号数字判断 —— 真实课表名里带括号年级太常见，误杀的代价比漏杀更大。</para>
+    /// </summary>
+    public static bool IsArtifactName(string fileName)
+    {
+        var name = Path.GetFileNameWithoutExtension(fileName ?? "");
+        if (name.Length == 0) return false;
+
+        if (name.Contains("副本", StringComparison.Ordinal)) return true;          // Excel / WPS / 手工复制
+        if (name.Contains("冲突", StringComparison.Ordinal)) return true;          // "用户的冲突副本"
+        if (name.Contains("conflicted copy", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Contains(" - 复制", StringComparison.Ordinal)) return true;
+        if (name.StartsWith("copy of ", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.EndsWith(" copy", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Contains("~RF", StringComparison.Ordinal)) return true;           // Office 恢复文件
+
+        return false;
+    }
+
+    /// <summary>
+    /// 扫 source 目录里的 .xlsx，把"锁文件 / 副本文件"分出来。
+    /// 三处调用（预检、发布、指纹）必须走同一个入口，否则会出现"预检说 3 份、发布实际用了 4 份"。
+    /// </summary>
+    static (List<string> Files, List<string> Ignored) ListSource(string sourceDir)
+    {
+        var files = new List<string>();
+        var ignored = new List<string>();
+
+        foreach (var f in Directory.GetFiles(sourceDir, "*.xlsx")
+                                   .Where(f => !Path.GetFileName(f).StartsWith("~$", StringComparison.Ordinal))  // Excel 锁文件
+                                   .OrderBy(f => f, StringComparer.Ordinal))
+        {
+            var name = Path.GetFileName(f);
+            if (IsArtifactName(name)) ignored.Add(name);
+            else files.Add(f);
+        }
+
+        return (files, ignored);
+    }
+
     /// <summary>发布前预检结果（只扫文件名，不解析 Excel、不上传）。</summary>
     public class Precheck
     {
@@ -75,12 +125,15 @@ public static class SourcePublisher
         public List<string> BadTempFiles { get; set; } = new();
         public List<DateTime> TempWeeks { get; set; } = new();
 
+        /// <summary>被跳过的副本文件（Excel 冲突副本、另存副本）。它们不参与发布，但要让人看见。</summary>
+        public List<string> IgnoredFiles { get; set; } = new();
+
         /// <summary>source 里没有总课表，底表将退回本机现有课表。</summary>
         public bool BaseFromLocal { get; set; }
         public int LocalClassCount { get; set; }
 
         /// <summary>是否需要在人点"确定"之前就把问题摆出来。</summary>
-        public bool HasRisk => BaseFromLocal || BadTempFiles.Count > 0;
+        public bool HasRisk => BaseFromLocal || BadTempFiles.Count > 0 || IgnoredFiles.Count > 0;
 
         public string Describe()
         {
@@ -123,6 +176,15 @@ public static class SourcePublisher
                 sb.AppendLine("    正确写法：2026-11-02_临时课表_八年级.xlsx");
             }
 
+            if (IgnoredFiles.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"⚠ 发现 {IgnoredFiles.Count} 个副本文件，已跳过（它们不是真课表）：");
+                foreach (var b in IgnoredFiles.Take(6)) sb.AppendLine("    · " + b);
+                if (IgnoredFiles.Count > 6) sb.AppendLine($"    …… 还有 {IgnoredFiles.Count - 6} 个");
+                sb.AppendLine("    多半是两个人同时打开了同一份 Excel 造成的。建议删掉它们，只留正本。");
+            }
+
             if (BaseFromLocal)
             {
                 sb.AppendLine();
@@ -147,9 +209,10 @@ public static class SourcePublisher
 
         int weekStartDay = WeekHelper.NormalizeStartDay(Store.LoadSettings().WeekStartDay);
 
-        foreach (var f in Directory.GetFiles(sourceDir, "*.xlsx")
-                                   .Where(f => !Path.GetFileName(f).StartsWith("~$"))
-                                   .OrderBy(f => f, StringComparer.Ordinal))
+        var (files, ignored) = ListSource(sourceDir);
+        p.IgnoredFiles.AddRange(ignored);
+
+        foreach (var f in files)
         {
             var name = Path.GetFileName(f);
             if (name.Contains("临时"))
@@ -176,7 +239,10 @@ public static class SourcePublisher
 
         if (p.BaseFiles.Count == 0 && p.TempFiles.Count == 0)
         {
-            p.Message = "source 目录里没有可用的 .xlsx（总课表或临时课表）。";
+            p.Message = p.IgnoredFiles.Count > 0
+                ? "source 目录里只有副本文件，没有可用的课表：" + string.Join("、", p.IgnoredFiles)
+                  + "。请放正本进来，或把副本删掉。"
+                : "source 目录里没有可用的 .xlsx（总课表或临时课表）。";
             return p;
         }
 
@@ -208,14 +274,21 @@ public static class SourcePublisher
         try
         {
             // ---------- 1) 扫文件 ----------
-            var all = Directory.GetFiles(sourceDir, "*.xlsx")
-                               .Where(f => !Path.GetFileName(f).StartsWith("~$"))   // Excel 锁文件
-                               .OrderBy(f => f, StringComparer.Ordinal)
-                               .ToList();
+            var (all, ignored) = ListSource(sourceDir);
+
+            if (ignored.Count > 0)
+            {
+                // 不静默：副本文件出现在共享目录里，说明有人同时在改同一份 Excel，
+                // 得提醒去清理，否则下次可能改的那份才是被跳过的。
+                r.Warnings.Add($"已跳过 {ignored.Count} 个副本文件：{string.Join("、", ignored.Take(5))}"
+                    + (ignored.Count > 5 ? " 等" : "") + "。它们不是真课表，建议删掉只留正本。");
+            }
 
             if (all.Count == 0)
             {
-                r.Message = "source 目录里没有 .xlsx 文件。";
+                r.Message = ignored.Count > 0
+                    ? "source 目录里只有副本文件，没有可用的课表。"
+                    : "source 目录里没有 .xlsx 文件。";
                 return r;
             }
 
@@ -542,9 +615,14 @@ public static class SourcePublisher
         if (string.IsNullOrWhiteSpace(sourceDir) || !Directory.Exists(sourceDir)) return "";
 
         var sb = new System.Text.StringBuilder();
-        foreach (var f in Directory.GetFiles(sourceDir, "*.xlsx")
-                                   .Where(f => !Path.GetFileName(f).StartsWith("~$"))
-                                   .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal))
+
+        // ★ 副本文件也算进指纹，但**只算文件名**：删掉一个副本本身就是"该重新发布"的信号，
+        //   不把它算进去的话，清理完目录指纹不变、各机会认为"没有新内容"而不再发布。
+        var (files, ignored) = ListSource(sourceDir);
+        foreach (var n in ignored)
+            sb.Append(n).Append("|ignored\n");
+
+        foreach (var f in files)
         {
             var fi = new FileInfo(f);
             sb.Append(fi.Name).Append('|')

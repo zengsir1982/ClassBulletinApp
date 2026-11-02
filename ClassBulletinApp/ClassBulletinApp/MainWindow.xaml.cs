@@ -62,6 +62,107 @@ public partial class MainWindow : Window
         _winTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _winTimer.Tick += (_, _) => CheckMaxWindow();
         _winTimer.Start();
+
+        // 悬浮课表底部的快捷按钮在这里落地。
+        // 用事件总线而不是让悬浮窗持有本窗口引用：诊断模式（--shot schedulewin）会单独 new
+        // 一个 ScheduleWindow，没有主窗口可调，直接调用会空引用。
+        AppEvents.QuickOpenHomework += OnQuickOpenHomework;
+        AppEvents.QuickOpenMissing += OnQuickOpenMissing;
+        AppEvents.QuickOpenCustomNote += OnQuickOpenCustomNote;
+        AppEvents.QuickCheckUpdate += OnQuickCheckUpdate;
+    }
+
+    // ---------- 悬浮课表快捷按钮（作业 / 缺交 / 便签 / 更新课表） ----------
+
+    private void OnQuickOpenHomework()
+    {
+        if (!UserSession.CanEditBoard)
+        {
+            TxtStatus.Text = "当前账号（" + UserSession.Caption + "）没有编辑作业公示的权限，"
+                + "需要管理员在「用户管理 → 角色权限」里打开。";
+            return;
+        }
+        ShowHomeworkWin();
+    }
+
+    private void OnQuickOpenMissing()
+    {
+        if (!UserSession.CanEditBoard)
+        {
+            TxtStatus.Text = "当前账号（" + UserSession.Caption + "）没有编辑缺交名单的权限。";
+            return;
+        }
+        ShowMissingWin();
+    }
+
+    /// <summary>
+    /// 悬浮课表「便签」快捷入口。
+    /// <para>一张便签都没有 → 走「＋ 新增」同一条流程，直接弹出编辑窗口让人马上能输入；</para>
+    /// <para>已有便签 → 把该显示的便签摆出来并置前，不弹对话框（改内容在便签上双击或点「编辑」；
+    /// 新增 / 删除其它便签也在那个编辑窗口里，避免这里再多一层选择界面）。</para>
+    /// </summary>
+    private void OnQuickOpenCustomNote()
+    {
+        if (!UserSession.CanEditBoard)
+        {
+            TxtStatus.Text = "当前账号（" + UserSession.Caption + "）没有编辑便签的权限，"
+                + "需要管理员在「用户管理 → 角色权限」里打开。";
+            return;
+        }
+
+        try
+        {
+            var s = Store.LoadSettings();
+            var list = s.CustomNotes ??= new System.Collections.Generic.List<CustomNote>();
+
+            if (list.Count == 0)
+            {
+                BtnCustomNote_Click(this, new RoutedEventArgs());
+                return;
+            }
+
+            // 只放出「标记为显示」的便签，不把老师刻意隐藏的全部翻出来；
+            // 全都隐藏过时至少放出第一张，否则点快捷等于没反应。
+            var visible = list.Where(n => n.Visible).ToList();
+            if (visible.Count == 0)
+            {
+                list[0].Visible = true;
+                Store.SaveSettings(s);
+                visible.Add(list[0]);
+            }
+
+            foreach (var n in visible) ShowCustomNote(n.Id);
+
+            TxtStatus.Text = visible.Count == 1
+                ? "已在桌面显示自定义便签（双击便签或点「编辑」可修改内容）。"
+                : $"已在桌面显示 {visible.Count} 张自定义便签（双击便签或点「编辑」可修改内容）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "打开自定义便签失败：" + ex.Message; }
+    }
+
+    private async void OnQuickCheckUpdate()
+    {
+        if (!UserSession.CanManageUpdate)
+        {
+            AppEvents.RaiseQuickCheckUpdateDone(false, "当前账号没有「自动更新」权限。");
+            return;
+        }
+
+        // 后台检查正在进行时立刻回话，别让悬浮窗的按钮空转到 8 秒兜底才恢复
+        if (_updBusy)
+        {
+            AppEvents.RaiseQuickCheckUpdateDone(false, "上一次检查还没结束，请稍等几秒再点。");
+            return;
+        }
+
+        try
+        {
+            await ManualCheckUpdateAsync();
+        }
+        catch (Exception ex)
+        {
+            AppEvents.RaiseQuickCheckUpdateDone(false, "更新失败：" + ex.Message);
+        }
     }
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -161,6 +262,7 @@ public partial class MainWindow : Window
             AppEvents.HomeworkChanged += ReloadHomework;
             AppEvents.MissingChanged += ReloadMissing;
             AppEvents.CustomNoteChanged += OnCustomNoteChanged;
+            AppEvents.RestoreFloating += OnRestoreFloating;
         }
         catch { }
 
@@ -389,6 +491,89 @@ public partial class MainWindow : Window
         _msWin?.Hide();
         _msOn = false;
         UpdateToggleLabels();
+    }
+
+    // ---------- 取消桌面背景（「设为背景」的反向操作） ----------
+
+    /// <summary>
+    /// 取消桌面背景：恢复系统原壁纸，并把当初「设为背景」时藏掉的悬浮窗放回来。
+    /// <para>入口有三处：显示设置页的按钮、布局设置 → 桌面背景页、托盘菜单。</para>
+    /// </summary>
+    private void CancelBackdrop(bool confirm)
+    {
+        try
+        {
+            if (confirm)
+            {
+                var r = MessageBox.Show(this,
+                    "取消桌面背景后：\n\n· 桌面壁纸恢复为系统原壁纸\n· 当初用「设为背景」隐藏的课表 / 便签会重新浮在桌面上\n\n要继续吗？",
+                    "取消桌面背景", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+                if (r != MessageBoxResult.OK) return;
+            }
+
+            BackdropPin.Unpin(out string msg);
+            TxtStatus.Text = msg;
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "取消桌面背景失败：" + ex.Message;
+        }
+    }
+
+    private void BtnCancelBackdrop_Click(object sender, RoutedEventArgs e) => CancelBackdrop(confirm: true);
+
+    /// <summary>
+    /// 「取消桌面背景」之后把窗口放回来。清单由 <see cref="BackdropPin.Unpin"/> 给出，
+    /// 只包含当初确实被藏掉的窗口（用户本来就关着的便签不会被硬弹出来）。
+    /// </summary>
+    private void OnRestoreFloating(string[] tokens)
+    {
+        if (tokens == null || tokens.Length == 0) return;
+
+        bool layoutChanged = false;
+        foreach (var token in tokens)
+        {
+            try
+            {
+                if (string.Equals(token, "Schedule", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 「设为背景」时把悬浮课表改成了靠边自动隐藏，这里改回常驻显示
+                    var s = Store.LoadSettings();
+                    var l = s.ScheduleLayout ??= new PanelLayout();
+                    if (l.AutoHide)
+                    {
+                        l.AutoHide = false;
+                        Store.SaveSettings(s);
+                        layoutChanged = true;
+                    }
+                    ShowScheduleWin();
+                }
+                else if (string.Equals(token, "Homework", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowHomeworkWin();
+                }
+                else if (string.Equals(token, "Missing", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowMissingWin();
+                }
+                else if (token.StartsWith("note:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string id = token.Substring(5);
+                    var s = Store.LoadSettings();
+                    var note = s.CustomNotes?.FirstOrDefault(x => x.Id == id);
+                    if (note == null) continue;      // 便签已被删除
+                    if (!note.Visible)
+                    {
+                        note.Visible = true;         // 自定义便签的可见性是持久化的，不放回会「消失」
+                        Store.SaveSettings(s);
+                    }
+                    ShowCustomNote(id);
+                }
+            }
+            catch { }
+        }
+
+        if (layoutChanged) AppEvents.RaiseLayoutChanged();   // 让悬浮课表按新状态重建自动隐藏矩形
     }
 
     private void UpdateToggleLabels()
@@ -1118,6 +1303,7 @@ public partial class MainWindow : Window
             case TrayCommands.BackdropSchedule: ToggleBackdropSchedule(); break;
             case TrayCommands.BackdropHomework: ToggleBackdropHomework(); break;
             case TrayCommands.BackdropMissing: ToggleBackdropMissing(); break;
+            case TrayCommands.BackdropOff: CancelBackdrop(confirm: false); break;
             case TrayCommands.Exit: ExitApp(); break;
         }
     }
@@ -1450,6 +1636,153 @@ public partial class MainWindow : Window
 
         AppEvents.RaiseScheduleChanged();
         TxtStatus.Text = $"当前身份：{UserSession.Caption}";
+    }
+
+    // ---------- 关于（独立标签页：简介 + 版本 + 软件更新 + 运行信息） ----------
+
+    /// <summary>上次检查到的 Gitee 发布版本（「下载最新版」按钮要用它的直链）。</summary>
+    private UpdateChecker.ReleaseInfo? _aboutRelease;
+
+    /// <summary>切到「关于」标签时才刷新：里面的数据源 / 身份 / 课表规模会随操作变化。</summary>
+    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, MainTabs)) return;
+        if (TabAbout != null && ReferenceEquals(MainTabs.SelectedItem, TabAbout)) RefreshAboutTab();
+    }
+
+    /// <summary>把运行信息填进「关于」页（只读，不涉及权限）。</summary>
+    private void RefreshAboutTab()
+    {
+        try
+        {
+            var info = AppSummary.Build();
+            if (TxtAboutVer != null) TxtAboutVer.Text = "v" + info.Version;
+            if (TxtAboutInfoVer != null) TxtAboutInfoVer.Text = $"{info.Version}　（64 位）";
+            if (TxtAboutInfoRole != null) TxtAboutInfoRole.Text = $"{info.Role}　·　{info.User}";
+            if (TxtAboutInfoClasses != null) TxtAboutInfoClasses.Text = info.ClassText;
+            if (TxtAboutInfoSource != null) TxtAboutInfoSource.Text = info.SourceText;
+            if (TxtAboutInfoSchema != null) TxtAboutInfoSchema.Text = info.SchemaText;
+            if (TxtAboutInfoDir != null) TxtAboutInfoDir.Text = info.DataDir;
+            if (TxtAboutInfoLastCheck != null) TxtAboutInfoLastCheck.Text = info.LastCheck;
+            _aboutCopyText = info.CopyText;
+        }
+        catch { }
+    }
+
+    private string _aboutCopyText = "";
+
+    /// <summary>检查更新：读 Gitee 上的最新发布版本（异步，不卡界面）。</summary>
+    private async void BtnAboutCheck_Click(object sender, RoutedEventArgs e)
+    {
+        if (BtnAboutCheck == null) return;
+        BtnAboutCheck.IsEnabled = false;
+        string oldText = BtnAboutCheck.Content as string ?? "检查更新";
+        BtnAboutCheck.Content = "检查中…";
+        if (TxtAboutUpdStatus != null) TxtAboutUpdStatus.Text = "正在连接 Gitee…";
+
+        try
+        {
+            var (ok, message, info) = await UpdateChecker.CheckAsync();
+
+            if (TxtAboutUpdStatus != null) TxtAboutUpdStatus.Text = message;
+
+            if (!ok || info == null)
+            {
+                _aboutRelease = null;
+                if (BtnAboutDownload != null) BtnAboutDownload.Visibility = Visibility.Collapsed;
+                if (PanelAboutNotes != null) PanelAboutNotes.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            _aboutRelease = info;
+
+            // 有新版才给「下载最新版」；没有附件时退回发布页
+            if (BtnAboutDownload != null)
+            {
+                bool canDownload = info.IsNewer && !string.IsNullOrWhiteSpace(info.AssetUrl);
+                BtnAboutDownload.Visibility = canDownload ? Visibility.Visible : Visibility.Collapsed;
+                BtnAboutDownload.Content = string.IsNullOrWhiteSpace(info.AssetName)
+                    ? "下载最新版"
+                    : "下载 " + Shorten(info.AssetName, 26);
+                BtnAboutDownload.ToolTip = canDownload ? info.AssetUrl : null;
+            }
+
+            // 发布说明（只在有新版本时展示，避免每台教室机都铺一屏历史说明）
+            if (PanelAboutNotes != null && TxtAboutReleaseNotes != null)
+            {
+                bool showNotes = info.IsNewer && !string.IsNullOrWhiteSpace(info.Body);
+                PanelAboutNotes.Visibility = showNotes ? Visibility.Visible : Visibility.Collapsed;
+                if (showNotes) TxtAboutReleaseNotes.Text = info.Body.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (TxtAboutUpdStatus != null) TxtAboutUpdStatus.Text = "检查更新失败：" + ex.Message;
+        }
+        finally
+        {
+            BtnAboutCheck.IsEnabled = true;
+            BtnAboutCheck.Content = oldText;
+        }
+    }
+
+    private static string Shorten(string text, int max)
+        => string.IsNullOrEmpty(text) || text.Length <= max ? text : text.Substring(0, max - 1) + "…";
+
+    private void BtnAboutReleasePage_Click(object sender, RoutedEventArgs e)
+        => OpenUrl(UpdateChecker.ReleasePageUrl, "打开 Gitee 发布页");
+
+    private void BtnAboutDownload_Click(object sender, RoutedEventArgs e)
+    {
+        string url = _aboutRelease?.AssetUrl ?? "";
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            OpenUrl(UpdateChecker.ReleasePageUrl, "打开 Gitee 发布页");
+            return;
+        }
+        OpenUrl(url, "下载最新版");
+    }
+
+    private void BtnAboutCopy_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_aboutCopyText)) RefreshAboutTab();
+            System.Windows.Clipboard.SetText(_aboutCopyText);
+            if (BtnAboutCopy != null) BtnAboutCopy.Content = "已复制 ✓";
+        }
+        catch
+        {
+            if (BtnAboutCopy != null) BtnAboutCopy.Content = "复制失败";
+        }
+    }
+
+    private void BtnAboutOpenDir_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + Store.AppDir + "\"")
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "打不开数据目录：" + ex.Message;
+        }
+    }
+
+    /// <summary>用系统默认浏览器打开一个网址（失败只写状态栏，不弹框打断）。</summary>
+    private void OpenUrl(string url, string what)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = what + "失败：" + ex.Message;
+        }
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -2222,6 +2555,16 @@ public partial class MainWindow : Window
     /// <summary>自动发布进行中。</summary>
     private bool _pubBusy;
 
+    /// <summary>正在后台探测 source 目录（避免上一轮没回来又发下一轮）。</summary>
+    private bool _srcProbeBusy;
+
+    /// <summary>
+    /// 上一次因「源目录不可达 / 未填写」写进状态栏的提示。
+    /// <para>用来做两件事：① 同一句话每 30 秒重复刷一次会盖掉别的状态；② 恢复时只清自己写的那句，
+    /// 不把别人刚写上去的消息（比如"已自动发布…"）误删。</para>
+    /// </summary>
+    private string _pubSrcWarn = "";
+
     /// <summary>按当前设置（重新）配置定时器；关闭自动更新或没配数据源则不启动。</summary>
     private void SetupUpdateTimer()
     {
@@ -2239,24 +2582,76 @@ public partial class MainWindow : Window
         // 不必等「检查远端」那个间隔。检查远端仍按 UpdateIntervalMinutes 走。
         _updTimer.Tick += (_, _) => { TickSourcePublish(); TickUpdate(); };
         _updTimer.Start();
+
+        // 启动后立刻探一次源目录：用户一打开程序就该知道"读不到源目录 / 没填目录"这类问题，
+        // 而不是等满 30 秒，甚至一直不知道自动发布其实根本没在跑。
+        TickSourcePublish();
     }
 
     /// <summary>
     /// 发布机专用：监视 source 目录，Excel 一变就自动重新打包上传，不必每次手点「发布到数据源」。
     /// <para>必须「连续两次扫描指纹一致」才动手 —— Excel 保存过程中文件大小/时间会变，
     /// 立刻读会读到半截内容，解析出一堆错的课。</para>
+    /// <para>★ 扫描必须在后台线程做：共享目录不可达时 <c>Directory.Exists</c> 会阻塞 10–30 秒，
+    /// 跑在 UI 线程上就是整个控制面板假死（用户会以为程序崩了）。</para>
     /// </summary>
     private void TickSourcePublish()
     {
         var st = Store.LoadSettings();
         if (!st.PublishEnabled || !st.AutoPublishOnSourceChange) return;
-        if (string.IsNullOrWhiteSpace(st.PublishSourcePath)) return;
-        if (!Directory.Exists(st.PublishSourcePath)) return;
-        if (_pubBusy) return;
 
-        string fp;
-        try { fp = SourcePublisher.SourceFingerprint(st.PublishSourcePath); }
-        catch { return; }
+        if (string.IsNullOrWhiteSpace(st.PublishSourcePath))
+        {
+            // ★ 以前这里直接 return：开了发布机却没填目录，自动发布永远不动、界面上也一个字没有，
+            //   用户只能靠"教室机怎么一直不更新"去反推（2026-11-02 现场）。
+            WarnPublishSource("已勾选「本机兼任发布机」，但「发布源目录」是空的 —— 自动发布不会发生。"
+                + "请到「数据管理 → 自动更新设置」填好共享目录（或点「共享访问向导…」自动填）。");
+            return;
+        }
+
+        if (_pubBusy || _srcProbeBusy) return;
+
+        var dir = st.PublishSourcePath;
+        _ = ProbeSourceAsync(dir);
+    }
+
+    /// <summary>后台探一次源目录（存在性 + 指纹），回来后按 UI 线程继续判断。</summary>
+    private async Task ProbeSourceAsync(string dir)
+    {
+        _srcProbeBusy = true;
+        bool exists;
+        string fp = "";
+        try
+        {
+            (exists, fp) = await Task.Run(() =>
+            {
+                try
+                {
+                    if (!Directory.Exists(dir)) return (false, "");
+                    return (true, SourcePublisher.SourceFingerprint(dir));
+                }
+                catch
+                {
+                    // 目录能进但读不了文件（权限掉了）——按"不可用"处理，别当成"没有变化"
+                    return (false, "");
+                }
+            });
+        }
+        finally
+        {
+            _srcProbeBusy = false;
+        }
+
+        if (!exists)
+        {
+            WarnPublishSource($"读不到发布源目录：{dir}\n"
+                + ExplainDirUnreachable(dir)
+                + "自动发布已停摆（Excel 改了也不会传出去）。");
+            return;
+        }
+
+        ClearPublishSourceWarn();
+
         if (string.IsNullOrEmpty(fp)) return;
 
         if (fp == _srcFp) { _srcFpPending = ""; return; }   // 已经处理过的版本
@@ -2271,6 +2666,61 @@ public partial class MainWindow : Window
         }
 
         _ = AutoPublishAsync(fp);
+    }
+
+    /// <summary>
+    /// 目录读不到时给出<b>具体原因</b>。
+    /// <para>★ <c>Directory.Exists</c> 会把"共享被删了 / 网络不通 / 没权限"全部吞成 false，
+    /// 只报"读不到"等于让人去猜。这里再列一次目录，用真实异常码把原因分开 ——
+    /// 现场最常见的三种（共享被删、凭据失效、445 被拦）处理办法完全不同。</para>
+    /// </summary>
+    private static string ExplainDirUnreachable(string dir)
+    {
+        try
+        {
+            Directory.GetFileSystemEntries(dir);
+            return "（目录列举居然成功了，可能是瞬时故障，下一轮会自动重试。）";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return "原因是【没有访问权限】：凭据失效、账号密码改了，或者共享权限 / NTFS 权限没给到。\n";
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return "原因是【路径不存在】：共享名写错了，或者办公电脑上那个共享 / 子目录被删掉了。\n"
+                 + "在办公电脑上执行 net share 可以看当前真实共享名。\n";
+        }
+        catch (Exception ex)
+        {
+            int code = ex.HResult & 0xFFFF;
+            return "原因是" + (code switch
+            {
+                53 => "【找不到网络路径】：办公电脑关机 / IP 变了 / 445 端口被防火墙拦，或者共享被停掉了。\n",
+                67 => "【共享名不存在】：办公电脑上已经没有这个共享，执行 net share 看真实共享名。\n",
+                5 => "【拒绝访问】：账号没有该共享的读取权限（共享权限和 NTFS 权限都要给）。\n",
+                86 or 1326 => "【账号或密码不对】：到「自动更新设置 → 共享访问向导」第 2 步重新存一次凭据。\n",
+                1219 => "【凭据冲突】：这台机器已用别的账号连过同一台电脑，先执行 net use \\\\主机 /delete 断开。\n",
+                _ => $"【系统返回错误码 {code}】{ex.Message}\n"
+            });
+        }
+    }
+
+    /// <summary>源目录有问题时把话说清楚 —— 自动发布静默停摆是最难查的一类故障。</summary>
+    private void WarnPublishSource(string text)
+    {
+        if (_pubSrcWarn == text) return;     // 同一句话不重复刷
+        _pubSrcWarn = text;
+        if (TxtStatus != null) TxtStatus.Text = "⚠ " + text.Replace("\n", "　");
+        if (TxtUpdateStatus != null) TxtUpdateStatus.Text = "⚠ " + text;
+    }
+
+    /// <summary>源目录恢复正常：只清掉自己写的那句，不误删别的状态消息。</summary>
+    private void ClearPublishSourceWarn()
+    {
+        if (_pubSrcWarn.Length == 0) return;
+        if (TxtStatus != null && TxtStatus.Text == "⚠ " + _pubSrcWarn.Replace("\n", "　"))
+            TxtStatus.Text = "";
+        _pubSrcWarn = "";
     }
 
     /// <summary>把 source 目录重新打包上传，并让本机同步成这一版。</summary>
@@ -2395,12 +2845,26 @@ public partial class MainWindow : Window
     }
 
     private async void BtnUpdateCheck_Click(object sender, RoutedEventArgs e)
+        => await ManualCheckUpdateAsync();
+
+    /// <summary>
+    /// 手动检查并应用一次更新。
+    /// <para>主界面的「立即检查更新」与悬浮课表的「更新课表」共用这一份逻辑，
+    /// 免得两边行为不一致（尤其是"没配数据源时弹设置窗口"这一步）。</para>
+    /// </summary>
+    private async Task ManualCheckUpdateAsync()
     {
         var st = Store.LoadSettings();
         var src = FeedSourceFactory.Create(st);
         if (src == null)
         {
             TxtStatus.Text = "还没配置更新数据源。请先填写共享文件夹或 FTP 地址。";
+            // 从悬浮窗触发时主窗口可能在托盘里，弹窗会看不见 —— 先把它叫出来
+            if (!IsVisible || WindowState == WindowState.Minimized)
+            {
+                Show();
+                WindowState = WindowState.Normal;
+            }
             new UpdateSettingsWindow { Owner = this }.ShowDialog();
             RefreshUpdateStatus();
             SetupUpdateTimer();
@@ -2431,6 +2895,11 @@ public partial class MainWindow : Window
     {
         if (_updBusy) return;
         _updBusy = true;
+
+        // 结果要回传给悬浮课的「更新课表」按钮：它点了之后必须知道成功还是失败，
+        // 否则用户看到的只是按钮弹回去，不知道到底更新没更新。
+        bool ok = true;
+        string report = "";
         try
         {
             var chk = await Task.Run(() => UpdateService.Check(src, st));
@@ -2442,7 +2911,12 @@ public partial class MainWindow : Window
             RefreshUpdateStatus();
 
             if (!silent) TxtStatus.Text = chk.Message;
-            if (!chk.Ok || !chk.HasUpdate) return;
+            if (!chk.Ok || !chk.HasUpdate)
+            {
+                ok = chk.Ok;
+                report = chk.Message;
+                return;
+            }
 
             var man = chk.Manifest!;
             bool apply;
@@ -2472,11 +2946,17 @@ public partial class MainWindow : Window
                 apply = MessageBox.Show(msg, "发现课表更新",
                     MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK;
             }
-            if (!apply) return;
+            if (!apply)
+            {
+                report = "已取消更新（数据源上的新版本没有下载）。";
+                return;
+            }
 
             var outp = await Task.Run(() => UpdateService.DownloadAndApply(src));
             if (!outp.Ok)
             {
+                ok = false;
+                report = outp.Message;
                 TxtStatus.Text = outp.Message;
                 return;
             }
@@ -2513,17 +2993,22 @@ public partial class MainWindow : Window
 
             foreach (var w in ap.Warnings) sb.Append("　⚠ " + w);
             TxtStatus.Text = sb.ToString();
+            report = sb.ToString();
 
             ApplyPermissions();   // 角色 / 角色权限可能随包变了，按钮可用性要跟着刷新
             RefreshUpdateStatus();
         }
         catch (Exception ex)
         {
-            TxtStatus.Text = "检查更新出错：" + ex.Message;
+            ok = false;
+            report = "检查更新出错：" + ex.Message;
+            TxtStatus.Text = report;
         }
         finally
         {
             _updBusy = false;
+            // 后台静默检查不发通知：没人看着，弹提示只会打扰上课
+            if (!silent && report.Length > 0) AppEvents.RaiseQuickCheckUpdateDone(ok, report);
         }
     }
 
@@ -2690,10 +3175,19 @@ public partial class MainWindow : Window
 
     private static readonly string[] NotifFonts =
     {
-        "Microsoft YaHei UI", "微软雅黑", "黑体", "宋体", "楷体", "仿宋", "等线", "Arial"
+        "Microsoft YaHei UI", "微软雅黑", "黑体", "宋体", "楷体", "仿宋", "等线", "幼圆",
+        "隶书", "华文行楷", "华文新魏", "Arial", "Segoe UI", "Times New Roman", "Consolas"
     };
 
-    private static readonly string[] NotifSizes = { "20", "24", "28", "32", "36", "40", "48", "56", "64" };
+    /// <summary>
+    /// 字号档位：从 12（很小）到 96（特别大）。数字本身就是字号，选完一眼能对上。
+    /// <para>原来的 20~64 九档只是"够用"，现在补细：通知条要刚好填满屏幕时，20 与 24 的差别很明显。</para>
+    /// </summary>
+    private static readonly string[] NotifSizes =
+    {
+        "12", "14", "16", "18", "20", "22", "24", "26", "28", "30", "32", "36",
+        "40", "44", "48", "54", "60", "66", "72", "80", "88", "96"
+    };
 
     private static NotifColorOption ColorOption(string name, string hex) => new()
     {
@@ -2705,24 +3199,53 @@ public partial class MainWindow : Window
     private static List<NotifColorOption> NotifTextColorOptions() => new()
     {
         ColorOption("白色", "#FFFFFF"),
+        ColorOption("米白", "#FFF8E7"),
         ColorOption("亮黄", "#FFE9A8"),
-        ColorOption("天蓝", "#CFE6FF"),
-        ColorOption("浅绿", "#D5F5D8"),
-        ColorOption("粉色", "#FFD9E6"),
+        ColorOption("金黄", "#FFD54F"),
         ColorOption("橙色", "#FFD8A8"),
-        ColorOption("深灰", "#2B2F36")
+        ColorOption("西瓜红", "#FF8A80"),
+        ColorOption("天蓝", "#CFE6FF"),
+        ColorOption("湖蓝", "#8ED6FF"),
+        ColorOption("薄荷", "#C9F7E8"),
+        ColorOption("浅绿", "#D5F5D8"),
+        ColorOption("草绿", "#A5E6A0"),
+        ColorOption("粉色", "#FFD9E6"),
+        ColorOption("淡紫", "#E4D9FF"),
+        ColorOption("浅灰", "#D8DEE9"),
+        ColorOption("深灰", "#2B2F36"),
+        ColorOption("纯黑", "#000000")
     };
 
     private static List<NotifColorOption> NotifBarColorOptions() => new()
     {
         new() { Name = "跟随主题", Hex = "", Swatch = ThemeHelper.Brush("#8A94A6", System.Windows.Media.Colors.Gray) },
         ColorOption("深蓝", "#1B3A66"),
+        ColorOption("藏青", "#12294A"),
+        ColorOption("钢蓝", "#2C4A6E"),
         ColorOption("墨绿", "#10403B"),
         ColorOption("深灰", "#2B2F36"),
         ColorOption("酒红", "#5B1F2A"),
+        ColorOption("咖啡", "#4B3427"),
         ColorOption("紫黑", "#2E2233"),
-        ColorOption("浅色", "#F2F5FA")
+        ColorOption("浅色", "#F2F5FA"),
+        ColorOption("淡蓝", "#DCEBFF"),
+        ColorOption("纯白", "#FFFFFF")
     };
+
+    /// <summary>
+    /// 把（可能来自系统取色器的）自定义色补进下拉。
+    /// 不补的话：重开界面时找不到这个颜色 → 下拉落回第一项 → 用户一保存就被改掉了。
+    /// </summary>
+    private static NotifColorOption EnsureNotifColor(List<NotifColorOption> list, string? hex)
+    {
+        var v = (hex ?? "").Trim();
+        var hit = list.FirstOrDefault(x => string.Equals(x.Hex, v, StringComparison.OrdinalIgnoreCase));
+        if (hit != null) return hit;
+
+        var opt = ColorOption(string.IsNullOrEmpty(v) ? "跟随主题" : "自定义 " + v.ToUpperInvariant(), v);
+        list.Add(opt);
+        return opt;
+    }
 
     /// <summary>把设置里的字体 / 字号 / 字色 / 背景色同步到控件与预览条（不触发保存）。</summary>
     private void ReloadNotifStyle()
@@ -2731,25 +3254,32 @@ public partial class MainWindow : Window
         _notifStyleReady = false;
         try
         {
-            CbNotifFont.ItemsSource = NotifFonts;
+            // 字体：设置里存的可能是旧版本 / 系统里自带的字体（不在预设表里），补一项而不是悄悄换回默认
             string fam = string.IsNullOrWhiteSpace(nl.FontFamily) ? NotifFonts[0] : nl.FontFamily;
-            int fi = Array.IndexOf(NotifFonts, fam);
-            CbNotifFont.SelectedIndex = fi < 0 ? 0 : fi;
+            var fonts = NotifFonts.ToList();
+            int fi = fonts.IndexOf(fam);
+            if (fi < 0) { fonts.Insert(0, fam); fi = 0; }
+            CbNotifFont.ItemsSource = fonts;
+            CbNotifFont.SelectedIndex = fi;
 
-            CbNotifSize.ItemsSource = NotifSizes;
-            int size = (int)Math.Round(nl.FontSize <= 0 ? 28 : nl.FontSize);
-            int si = Array.IndexOf(NotifSizes, size.ToString());
-            CbNotifSize.SelectedIndex = si < 0 ? 2 : si;   // 找不到就回到 28
+            // 字号：老数据存的可能是 25 这种"不在档位表里"的值，补进去而不是抹成最近的档
+            var sizes = NotifSizes.ToList();
+            string want = ((int)Math.Round(nl.FontSize <= 0 ? 28 : nl.FontSize)).ToString();
+            if (!sizes.Contains(want))
+            {
+                sizes.Add(want);
+                sizes.Sort((a, b) => int.Parse(a).CompareTo(int.Parse(b)));
+            }
+            CbNotifSize.ItemsSource = sizes;
+            CbNotifSize.SelectedItem = want;
 
             var texts = NotifTextColorOptions();
             CbNotifText.ItemsSource = texts;
-            int ti = texts.FindIndex(x => string.Equals(x.Hex, string.IsNullOrWhiteSpace(nl.TextColor) ? "#FFFFFF" : nl.TextColor, StringComparison.OrdinalIgnoreCase));
-            CbNotifText.SelectedIndex = ti < 0 ? 0 : ti;
+            CbNotifText.SelectedItem = EnsureNotifColor(texts, string.IsNullOrWhiteSpace(nl.TextColor) ? "#FFFFFF" : nl.TextColor);
 
             var bars = NotifBarColorOptions();
             CbNotifBg.ItemsSource = bars;
-            int bi = bars.FindIndex(x => string.Equals(x.Hex, nl.BarColor ?? "", StringComparison.OrdinalIgnoreCase));
-            CbNotifBg.SelectedIndex = bi < 0 ? 0 : bi;
+            CbNotifBg.SelectedItem = EnsureNotifColor(bars, nl.BarColor ?? "");
         }
         finally
         {
@@ -2782,12 +3312,18 @@ public partial class MainWindow : Window
     {
         double v = 28;
         if (double.TryParse(text, out double d)) v = d;
-        return Math.Clamp(v, 14, 72);
+        return Math.Clamp(v, 12, 120);
     }
 
     private void NotifStyle_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!_notifStyleReady) return;
+        SaveNotifStyle();
+    }
+
+    /// <summary>把当前下拉里的字体 / 字号 / 字色 / 背景写进设置，并让顶部字幕条立即按新外观重排。</summary>
+    private void SaveNotifStyle()
+    {
         try
         {
             var s = Store.LoadSettings();
@@ -2806,6 +3342,44 @@ public partial class MainWindow : Window
         {
             TxtStatus.Text = "保存通知条外观失败：" + ex.Message;
         }
+    }
+
+    private void BtnNotifTextPick_Click(object sender, RoutedEventArgs e) => PickNotifColor(bar: false);
+
+    private void BtnNotifBgPick_Click(object sender, RoutedEventArgs e) => PickNotifColor(bar: true);
+
+    /// <summary>
+    /// 用系统取色器给字色 / 背景色取任意颜色：取到的色补进下拉（下次打开还在），并立即生效。
+    /// 取消取色时保持原样 —— 不要把手滑的"取消"当成选了黑色。
+    /// </summary>
+    private void PickNotifColor(bool bar)
+    {
+        var cb = bar ? CbNotifBg : CbNotifText;
+        if (cb == null) return;
+
+        var cur = cb.SelectedItem as NotifColorOption;
+        if (!EditorStyleOptions.TryPickColor(cur?.Hex, out string hex))
+        {
+            TxtStatus.Text = "没有取到颜色，保持原样。";
+            return;
+        }
+
+        var list = cb.ItemsSource as List<NotifColorOption>
+                   ?? (bar ? NotifBarColorOptions() : NotifTextColorOptions());
+        var opt = EnsureNotifColor(list, hex);
+
+        // 换数据源会先触发一次"没有选中项"的 SelectionChanged，用标志挡住，避免把设置写成空值
+        _notifStyleReady = false;
+        try
+        {
+            cb.ItemsSource = null;
+            cb.ItemsSource = list;
+            cb.SelectedItem = opt;
+        }
+        finally { _notifStyleReady = true; }
+
+        SaveNotifStyle();
+        TxtStatus.Text = $"通知条{(bar ? "背景" : "字色")}已设为自定义颜色 {hex.ToUpperInvariant()}。";
     }
 
     private void BtnAddNotice_Click(object sender, RoutedEventArgs e)

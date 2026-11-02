@@ -23,6 +23,12 @@ public partial class HomeworkEditWindow : Window
     private readonly ObservableCollection<HomeworkItem> _items = new();
     private string _theme = "classic";
 
+    /// <summary>字色下拉项：12 种预设，选「调色…」时把自定义色追加进来。</summary>
+    public ObservableCollection<ColorOption> ColorOptions { get; } = new(EditorStyleOptions.Colors());
+
+    /// <summary>字号下拉项：小 → 巨大共 7 档（按字号从小到大排列）。</summary>
+    public List<SizeOption> SizeOptions { get; } = EditorStyleOptions.Sizes();
+
     /// <summary>供下拉使用的主题选项（携带已解析好的画刷，避免 XAML 里做类型转换）。</summary>
     private sealed class ThemeOption
     {
@@ -89,6 +95,14 @@ public partial class HomeworkEditWindow : Window
     {
         if ((sender as System.Windows.Controls.Button)?.Tag is HomeworkItem it) _items.Remove(it);
         if (_items.Count == 0) _items.Add(new HomeworkItem());
+    }
+
+    /// <summary>调色：选任意颜色后补进下拉列表并选中（HomeworkItem 有变更通知，行内预览立刻更新）。</summary>
+    private void BtnPickColor_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as System.Windows.Controls.Button)?.Tag is not HomeworkItem it) return;
+        if (!EditorStyleOptions.TryPickColor(it.Color, out string hex)) return;
+        it.Color = EditorStyleOptions.EnsureColor(ColorOptions, hex).Value;
     }
 
     // ---------- 结果 ----------

@@ -17,19 +17,53 @@ public static class BackdropService
 {
     public static string OutputPath => Path.Combine(Store.AppDir, "desktop_backdrop.png");
 
+    /// <summary>
+    /// 主屏 DPI 缩放（物理像素 / 逻辑像素）。
+    /// <para>壁纸按主屏<b>物理分辨率</b>画，悬浮便签按 <b>DIP</b> 画后由系统放大，
+    /// 所以壁纸字号必须乘上这个比例，两者看起来才一样大（125% 缩放时不乘就会小一圈）。</para>
+    /// </summary>
+    public static double PrimaryDpiScale()
+    {
+        try
+        {
+            var sc = System.Windows.Forms.Screen.PrimaryScreen;
+            double dip = System.Windows.SystemParameters.PrimaryScreenWidth;
+            if (sc != null && dip > 1)
+                return Math.Clamp(sc.Bounds.Width / dip, 0.75, 4.0);
+        }
+        catch { }
+        return 1.0;
+    }
+
     private static DispatcherTimer? _timer;
     private static string _lastSignature = "";
     private static bool _busy;
     private static bool _started;
 
-    /// <summary>当前设置是否要求显示任一内容（课表 / 作业 / 缺交名单）。</summary>
+    /// <summary>当前设置是否要求显示任一内容（课表 / 作业 / 缺交名单 / 自定义便签）。</summary>
     public static bool IsContentEnabled
     {
         get
         {
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
-            return b.ShowSchedule || b.ShowHomework || b.ShowMissing;
+            return b.ShowSchedule || b.ShowHomework || b.ShowMissing || b.ShowAnyCustomNote();
         }
+    }
+
+    /// <summary>取出「要画到壁纸上」的自定义便签（按设置里的显示开关筛选）。</summary>
+    internal static List<CustomNote> VisibleCustomNotes(AppSettings s, BackdropSettings b)
+    {
+        var res = new List<CustomNote>();
+        if (b.CustomNotes == null || b.CustomNotes.Count == 0) return res;
+
+        var all = s.CustomNotes ?? new List<CustomNote>();
+        foreach (var note in all)
+        {
+            if (note == null || string.IsNullOrEmpty(note.Id)) continue;
+            if (b.CustomNotes.TryGetValue(note.Id, out var entry) && entry != null && entry.Visible)
+                res.Add(note);
+        }
+        return res;
     }
 
     /// <summary>当前桌面壁纸是否就是本程序生成的桌面背面图。</summary>
@@ -84,7 +118,7 @@ public static class BackdropService
             else if (b.HomeworkLayout != null && board != null)
                 board.Layout = b.HomeworkLayout;
 
-            if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing)
+            if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing && !b.ShowAnyCustomNote())
             {
                 Clear();
                 message = "已关闭全部内容，桌面壁纸已恢复。";
@@ -115,11 +149,12 @@ public static class BackdropService
             string? origin = string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper;
 
             var missing = b.ShowMissing ? Store.LoadMissingBoard() : null;
+            var notes = VisibleCustomNotes(s, b);
 
             Directory.CreateDirectory(Store.AppDir);
             BackdropRenderer.RenderToPng(today, title, dateText, weekText,
-                b.ShowHomework ? board : null, missing, b,
-                screen.Bounds.Width, screen.Bounds.Height, origin, OutputPath);
+                b.ShowHomework ? board : null, missing, notes, b,
+                screen.Bounds.Width, screen.Bounds.Height, PrimaryDpiScale(), origin, OutputPath);
 
             // 首次应用前记录系统原壁纸，便于「清除」恢复
             var cur = WallpaperHelper.GetCurrentWallpaper();
@@ -136,7 +171,8 @@ public static class BackdropService
                           {
                               b.ShowSchedule ? "当天课表" : null,
                               b.ShowHomework ? "作业公示" : null,
-                              b.ShowMissing ? "缺交名单" : null
+                              b.ShowMissing ? "缺交名单" : null,
+                              notes.Count > 0 ? string.Join("、", notes.Select(n => string.IsNullOrWhiteSpace(n.Title) ? "自定义便签" : n.Title)) : null
                           }.Where(x => x != null)) + "）。";
             return true;
         }
@@ -258,7 +294,8 @@ public static class BackdropService
             BackdropRenderer.RenderToPng(today, title, dateText, weekText,
                 b.ShowHomework ? board : null,
                 b.ShowMissing ? Store.LoadMissingBoard() : null,
-                b, width, height,
+                VisibleCustomNotes(s, b),
+                b, width, height, PrimaryDpiScale(),
                 string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath);
             message = "已生成桌面背景预览图：" + outPath;
             return true;
@@ -299,7 +336,8 @@ public static class BackdropService
             var sb = new StringBuilder();
             sb.Append(s.ScheduleKind).Append('|').Append(s.SelectedClass).Append('|')
               .Append(s.SelectedTeacher).Append('|').Append(BoardBuilder.ResolveDisplayDate(s).ToString("yyyyMMdd"))
-              .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing);
+              .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing)
+              .Append('|').Append(b.ShowAnyCustomNote());
 
             if (b.ShowSchedule)
             {
@@ -351,6 +389,19 @@ public static class BackdropService
                   .Append(mlay?.OffsetY).Append(mlay?.WidthRatio)
                   .Append(mlay?.UseFixedSize).Append(mlay?.FixedWidth).Append(mlay?.FixedHeight);
             }
+
+            // 自定义便签：内容 / 主题 / 位置任一变化都要重绘（含"哪几张在显示"这一开关状态）
+            foreach (var n in VisibleCustomNotes(s, b))
+            {
+                var ent = b.EntryOf(n.Id);
+                var lay = ent.Layout;
+                sb.Append("|N").Append(n.Id).Append(',').Append(n.Title).Append(',').Append(n.Content)
+                  .Append(',').Append(n.UpdatedAt.Ticks).Append(',').Append(n.Theme)
+                  .Append(',').Append(n.Bold).Append(',').Append(n.Color).Append(',').Append(n.SizeLevel)
+                  .Append('@').Append(lay?.Anchor).Append(lay?.OffsetX).Append(lay?.OffsetY)
+                  .Append(lay?.WidthRatio).Append(lay?.UseFixedSize).Append(lay?.FixedWidth).Append(lay?.FixedHeight);
+            }
+            sb.Append("|NC").Append(b.CustomNotes?.Count ?? 0);
 
             return sb.ToString();
         }

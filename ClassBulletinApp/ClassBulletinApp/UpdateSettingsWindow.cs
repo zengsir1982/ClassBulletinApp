@@ -106,12 +106,26 @@ public class UpdateSettingsWindow : Window
 
         // ---------- 底部：按钮 ----------
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
+        // 向导入口放在最左：它的作用就是"把这张表里跟共享/FTP 有关的几行一次填对"，
+        // 用户遇到「发布源目录不存在」时第一反应应该是点它，而不是在这里逐格猜。
+        var btnWizard = MakeButton("共享访问向导…", "#EAF1FD", "#9DBDF0");
+        btnWizard.ToolTip = "三步走：① 办公电脑开共享并建只读账号　② 本机保存访问凭据并实测　③ 配置 FTP 数据通道。\n"
+                          + "做完会自动回填下面的「发布源目录」，并把数据源设为 FTP。";
         var btnTest = MakeButton("测试连接", "#EAF2FD", "#9EC1F0");
         var btnSave = MakeButton("保存", "#E8F6EE", "#7FC99A");
         var btnClose = MakeButton("取消", "#F3F4F6", "#D1D5DB");
+        btnWizard.Click += (_, _) =>
+        {
+            new ShareAccessWizardWindow { Owner = this }.ShowDialog();
+            // 向导会直接写 settings.json：这里必须重新读盘 + 重填，否则用户看到的是旧值，
+            // 接着点「保存」就把向导刚写好的东西又盖回去了。
+            _s = Store.LoadSettings();
+            Load();
+        };
         btnTest.Click += (_, _) => TestConnection();
         btnSave.Click += (_, _) => SaveAndClose();
         btnClose.Click += (_, _) => Close();
+        bar.Children.Add(btnWizard);
         bar.Children.Add(btnTest);
         bar.Children.Add(btnSave);
         bar.Children.Add(btnClose);
@@ -202,8 +216,28 @@ public class UpdateSettingsWindow : Window
 
         _sourceDir.FontSize = 14;
         _sourceDir.Padding = new Thickness(8, 6, 8, 6);
-        _sourceDir.ToolTip = "存 Excel 的目录。临时课表文件名要以日期开头，如 2026-10-26_临时课表_八年级.xlsx（写周内任意一天都可，会按所在周对齐）";
-        AddRow("发布源目录", _sourceDir, _sourceLabel);
+        _sourceDir.ToolTip = "存 Excel 的目录。临时课表文件名要以日期开头，如 2026-10-26_临时课表_八年级.xlsx（写周内任意一天都可，会按所在周对齐）\n"
+                           + "⚠ 这里要填【文件夹路径】（如 \\\\192.168.40.168\\dfzx\\source 或 D:\\dfzx\\source），\n"
+                           + "不要填 FTP 地址 —— FTP 上没有 Excel，Excel 永远留在共享目录里。\n"
+                           + "不确定怎么填就点下面「共享访问向导…」，它会自动算好并填进来。";
+        // 加「浏览…」：这里填的是 UNC 路径，手敲错一个字符就报"发布源目录不存在"；
+        // 而从资源管理器「复制路径」粘过来的串还带双引号（2026-11-02 现场排查过这类）。
+        var srcPanel = new Grid();
+        srcPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        srcPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(_sourceDir, 0);
+        srcPanel.Children.Add(_sourceDir);
+
+        var btnBrowse = MakeButton("浏览…", "#F3F4F6", "#D1D5DB");
+        btnBrowse.Padding = new Thickness(12, 6, 12, 6);
+        btnBrowse.Margin = new Thickness(8, 0, 0, 0);
+        btnBrowse.VerticalAlignment = System.Windows.VerticalAlignment.Stretch;
+        btnBrowse.ToolTip = "选一个文件夹（也可以是共享目录）。\n要选网络位置时，直接在对话框的地址栏输入 \\\\主机\\共享\\source 回车即可。";
+        btnBrowse.Click += (_, _) => BrowseSourceDir();
+        Grid.SetColumn(btnBrowse, 1);
+        srcPanel.Children.Add(btnBrowse);
+
+        AddRow("发布源目录", srcPanel, _sourceLabel);
 
         _autoPub.Content = "source 里的 Excel 一变就自动发布（不用每次手点「发布到数据源」）";
         _autoPub.FontSize = 13;
@@ -331,6 +365,23 @@ public class UpdateSettingsWindow : Window
         _rbOverwrite.IsEnabled = false;
     }
 
+    /// <summary>选一个文件夹填进「发布源目录」。</summary>
+    void BrowseSourceDir()
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择存课表 Excel 的文件夹（可以是共享目录）",
+            Multiselect = false
+        };
+
+        // 粘过来的路径常带双引号（资源管理器「复制路径」的默认行为），先剥掉再判存在
+        var cur = _sourceDir.Text.Trim().Trim('"');
+        if (cur.Length > 0 && System.IO.Directory.Exists(cur)) dlg.InitialDirectory = cur;
+
+        if (dlg.ShowDialog(this) != true) return;
+        _sourceDir.Text = dlg.FolderName;
+    }
+
     string SelectedKind()
     {
         return _kind.SelectedItem is ComboBoxItem it ? (string?)it.Tag ?? "Off" : "Off";
@@ -385,7 +436,9 @@ public class UpdateSettingsWindow : Window
         _s.UpdateConfirmBeforeApply = _confirm.IsChecked == true;
         _s.PublishEnabled = isPublisher;
         _s.AutoPublishOnSourceChange = _autoPub.IsChecked == true;
-        _s.PublishSourcePath = _sourceDir.Text.Trim();
+        // 剥掉双引号：从资源管理器「复制路径」粘过来的串默认带引号，
+        // 不剥的话 Directory.Exists 判 false，报的却是"发布源目录不存在"，很难联想到引号上。
+        _s.PublishSourcePath = _sourceDir.Text.Trim().Trim('"');
 
         // ★ 只有发布机才写策略。教室机这份值仅作显示，实际生效的是包里下发的策略，
         //   若这里也写，就会出现"本机设置"和"包策略"两个真相互相覆盖。

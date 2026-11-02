@@ -27,6 +27,9 @@ public partial class LayoutWindow : Window
 
     private bool _hwReady;
     private DispatcherTimer? _wpSaveTimer;
+
+    /// <summary>桌面背景页里「自定义便签」的显示勾选框：便签 Id → 勾选框。</summary>
+    private readonly Dictionary<string, System.Windows.Controls.CheckBox> _noteChecks = new();
     private DispatcherTimer? _hwApplyTimer;
 
     private static readonly string[] HwAnchors =
@@ -182,7 +185,7 @@ public partial class LayoutWindow : Window
         Close();
     }
 
-    // ---------- 桌面背景（当天课表 + 作业公示 + 缺交名单 合成壁纸） ----------
+    // ---------- 桌面背景（当天课表 + 作业公示 + 缺交名单 + 自定义便签 合成壁纸） ----------
     private void ReloadBackdropUi()
     {
         var b = _s.Backdrop ?? new BackdropSettings();
@@ -198,9 +201,49 @@ public partial class LayoutWindow : Window
             FillThemeCombo(CbWpSchTheme, b.ScheduleTheme);
             FillThemeCombo(CbWpHwTheme, Store.LoadHomework()?.Theme);
             FillThemeCombo(CbWpMsTheme, Store.LoadMissingBoard().Theme);
+
+            BuildNoteCheckboxes(b);
         }
         finally { _hwReady = ready; }
     }
+
+    /// <summary>动态生成「自定义便签」的显示勾选框：一张便签一行，勾上即画到壁纸上。</summary>
+    private void BuildNoteCheckboxes(BackdropSettings b)
+    {
+        _noteChecks.Clear();
+        WpNotePanel.Children.Clear();
+
+        var notes = _s.CustomNotes ?? new List<CustomNote>();
+        if (notes.Count == 0) return;
+
+        WpNotePanel.Children.Add(new System.Windows.Controls.TextBlock
+        {
+            Text = "自定义便签",
+            FontSize = 14,
+            FontWeight = FontWeights.Bold,
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Margin = new Thickness(0, 2, 0, 2)
+        });
+
+        foreach (var n in notes)
+        {
+            string name = string.IsNullOrWhiteSpace(n.Title) ? "自定义便签" : n.Title;
+            var cb = new System.Windows.Controls.CheckBox
+            {
+                Content = name,
+                FontSize = 14,
+                Margin = new Thickness(0, 2, 0, 0),
+                IsChecked = b.EntryOf(n.Id).Visible,
+                Tag = n.Id
+            };
+            cb.Click += WpSetting_Changed;
+            _noteChecks[n.Id] = cb;
+            WpNotePanel.Children.Add(cb);
+        }
+    }
+
+    /// <summary>是否有任意一张自定义便签被勾选显示在桌面背景。</summary>
+    private bool AnyNoteChecked => _noteChecks.Values.Any(cb => cb.IsChecked == true);
 
     /// <summary>填充便签主题下拉（带色块预览），并选中当前主题。</summary>
     private static void FillThemeCombo(System.Windows.Controls.ComboBox cb, string? key)
@@ -291,6 +334,11 @@ public partial class LayoutWindow : Window
             s.Backdrop.ShowMissing = ChkWpMissing.IsChecked == true;
             s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
             s.Backdrop.ScheduleTheme = SelectedThemeKey(CbWpSchTheme, "blue");
+
+            // 自定义便签：按勾选框写显示开关（排版仍由排版窗口维护，这里不动 Layout）
+            foreach (var kv in _noteChecks)
+                s.Backdrop.EntryOf(kv.Key).Visible = kv.Value.IsChecked == true;
+
             Store.SaveSettings(s);
         }
         catch { }
@@ -301,9 +349,10 @@ public partial class LayoutWindow : Window
     {
         SaveWpSettings();   // 先把勾选 / 主题落盘，编辑器读到的就是最新状态
 
-        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true && ChkWpMissing.IsChecked != true)
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true
+            && ChkWpMissing.IsChecked != true && !AnyNoteChecked)
         {
-            TxtWpStatus.Text = "请先勾选要显示的便签（当天课表 / 作业公示 / 缺交作业名单），再打开排版窗口。";
+            TxtWpStatus.Text = "请先勾选要显示的便签（当天课表 / 作业公示 / 缺交作业名单 / 自定义便签），再打开排版窗口。";
             return;
         }
 
@@ -347,9 +396,10 @@ public partial class LayoutWindow : Window
     private void BtnApplyWp_Click(object sender, RoutedEventArgs e)
     {
         SaveWpSettings();
-        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true && ChkWpMissing.IsChecked != true)
+        if (ChkWpSchedule.IsChecked != true && ChkWpHomework.IsChecked != true
+            && ChkWpMissing.IsChecked != true && !AnyNoteChecked)
         {
-            TxtWpStatus.Text = "请至少勾选「当天课表」「作业公示」「缺交作业名单」其中一项。";
+            TxtWpStatus.Text = "请至少勾选一项要显示在桌面背景上的内容。";
             return;
         }
         BackdropService.Apply(silent: false, out string msg);
@@ -357,25 +407,31 @@ public partial class LayoutWindow : Window
         AppEvents.RaiseBackdropChanged();
     }
 
+    /// <summary>
+    /// 取消桌面背景：恢复系统原壁纸，并把当初「设为背景」时隐藏掉的课表 / 便签放回悬浮窗。
+    /// <para>★ 这里是「清除壁纸」的加强版 —— 只清壁纸不放回窗口，用户会觉得便签"点一下就不见了"。
+    /// 放回窗口的动作由主窗口通过 <see cref="AppEvents.RestoreFloating"/> 执行，本窗口不持有窗口实例。</para>
+    /// </summary>
     private void BtnClearWp_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var s = _s;
-            s.Backdrop ??= new BackdropSettings();
-            s.Backdrop.ShowSchedule = false;
-            s.Backdrop.ShowHomework = false;
-            s.Backdrop.ShowMissing = false;
-            Store.SaveSettings(s);
+            var r = MessageBox.Show(this,
+                "取消桌面背景后：\n\n· 桌面壁纸恢复为系统原壁纸\n· 当初用「设为背景」隐藏的课表 / 便签会重新浮在桌面上\n\n要继续吗？",
+                "取消桌面背景", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+            if (r != MessageBoxResult.OK) return;
 
-            BackdropService.Clear();
+            // 先把本页还没落盘的勾选写进去，取消时才能把"刚勾上的"也算进恢复清单
+            SaveWpSettings();
+
+            BackdropPin.Unpin(out string msg);
+            _s.Backdrop = Store.LoadSettings().Backdrop;
             ReloadBackdropUi();
-            AppEvents.RaiseBackdropChanged();
-            TxtWpStatus.Text = "已清除桌面背景，恢复系统原壁纸。";
+            TxtWpStatus.Text = msg;
         }
         catch (Exception ex)
         {
-            TxtWpStatus.Text = "清除桌面背景失败：" + ex.Message;
+            TxtWpStatus.Text = "取消桌面背景失败：" + ex.Message;
         }
     }
 }
