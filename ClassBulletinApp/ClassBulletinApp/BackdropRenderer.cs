@@ -50,7 +50,8 @@ public static class BackdropRenderer
     public static string RenderToPng(TodayResult? today, string title, string dateText, string weekText,
         HomeworkBoard? homework, MissingBoard? missing, IReadOnlyList<CustomNote>? customNotes,
         BackdropSettings b, int width, int height, double dpi,
-        string? backgroundPath, string outPath)
+        string? backgroundPath, string outPath,
+        CountdownBoard? countdown = null, DutyBoard? duty = null)
     {
         // typo = 每个 DIP 对应多少像素；所有字号 / 间距都按它换算，与悬浮窗保持同一视觉大小
         double typo = dpi > 0.1 ? dpi : 1.0;
@@ -86,6 +87,20 @@ public static class BackdropRenderer
         {
             var card = BuildMissingCard(missing, typo, ScaleFont);
             Place(canvas, card, b.MissingLayout ?? new HomeworkWallpaperLayout(), width, height);
+        }
+
+        if (b.ShowCountdown && countdown != null)
+        {
+            var lay = b.CountdownLayout ?? new HomeworkWallpaperLayout();
+            // 卡片宽度跟着内容收窄，名字与天数挨在一起像一块整体（用户在排版里拖过大小则按他的）
+            var card = BuildCountdownCard(countdown, typo, ScaleFont, ResolveCardWidth(lay, width, 0.4));
+            Place(canvas, card, lay, width, height, fitContent: lay.FitContent ?? false);
+        }
+
+        if (b.ShowDuty && duty != null)
+        {
+            var card = BuildDutyCard(duty, typo, ScaleFont);
+            Place(canvas, card, b.DutyLayout ?? new HomeworkWallpaperLayout(), width, height);
         }
 
         // 自定义便签：每张各自的位置 / 大小，各自的主题（取自便签自身）
@@ -155,15 +170,29 @@ public static class BackdropRenderer
     /// 固定高度时：用 Viewbox（只缩小不放大）把内容整体等比缩放到便签内，
     /// 保证内容再长也完整显示在便签范围内，不溢出、不截断。
     /// </summary>
+    /// <param name="fitContent">
+    /// true = 卡片宽度跟着内容走（<see cref="HomeworkWallpaperLayout.FixedWidth"/> 只当上限），
+    /// 高度也按内容自适应。用于倒计时卡：名字与天数紧挨着排，卡才不会拖着半屏空白。
+    /// </param>
     internal static void Place(Canvas canvas, Border card, HomeworkWallpaperLayout lay,
-        double width, double height, double defRatio = 0.4)
+        double width, double height, double defRatio = 0.4, bool fitContent = false)
     {
-        card.Width = ResolveCardWidth(lay, width, defRatio);
+        double targetW = ResolveCardWidth(lay, width, defRatio);
+        if (fitContent)
+        {
+            card.MaxWidth = targetW;
+            card.Width = double.NaN;      // 不设宽 = 由内容决定
+        }
+        else
+        {
+            card.Width = targetW;
+        }
 
         double padX = card.Padding.Left + card.Padding.Right;
-        double innerW = Math.Max(80, card.Width - padX);
+        double innerW = Math.Max(80, targetW - padX);
 
-        if (lay.UseFixedSize && lay.FixedHeight > 0 && card.Child is FrameworkElement content)
+        // 固定尺寸的「等比缩放到框内」只用于非自适应卡片；自适应卡片高度也随内容
+        if (!fitContent && lay.UseFixedSize && lay.FixedHeight > 0 && card.Child is FrameworkElement content)
         {
             card.Height = Math.Clamp(lay.FixedHeight, 120, Math.Max(120, height - 40));
             // 内容宽度固定为便签内宽：文字按此宽度折行，再整体缩放到便签高度内
@@ -183,10 +212,11 @@ public static class BackdropRenderer
         double cardH = card.Height;
         if (double.IsNaN(cardH) || cardH <= 0)
         {
-            card.Measure(new Size(card.Width, double.PositiveInfinity));
+            card.Measure(new Size(double.IsNaN(card.Width) ? targetW : card.Width, double.PositiveInfinity));
             cardH = card.DesiredSize.Height;
             card.Height = cardH;
         }
+        double cardW = double.IsNaN(card.Width) ? card.DesiredSize.Width : card.Width;
 
         AnchorOf(lay.Anchor, out string hAlign, out string vAlign);
         double scale = height / 1080.0;
@@ -197,8 +227,8 @@ public static class BackdropRenderer
         double x = hAlign switch
         {
             "Left" => baseM + ox,
-            "Center" => (width - card.Width) / 2 + ox,
-            _ => width - baseM - card.Width + ox
+            "Center" => (width - cardW) / 2 + ox,
+            _ => width - baseM - cardW + ox
         };
         double y = vAlign switch
         {
@@ -208,7 +238,7 @@ public static class BackdropRenderer
         };
 
         // 允许偏移把便签推到屏幕外，但保留至少 40 像素可见，避免"设了位置却看不见"
-        x = Math.Clamp(x, -card.Width + 40, width - 40);
+        x = Math.Clamp(x, -cardW + 40, width - 40);
         y = Math.Clamp(y, -cardH + 40, height - 40);
 
         Canvas.SetLeft(card, x);
@@ -467,12 +497,13 @@ public static class BackdropRenderer
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
+        var titleStyle = board.TitleStyle;
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title,
-            FontSize = ScaleFont(17),
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(titleColor),
+            FontSize = ScaleFont(HwTextRender.TitleSize(titleStyle)),
+            FontWeight = HwTextRender.BoldOr(titleStyle, true) ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(titleStyle, theme.TitleColor), titleColor)),
             Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
@@ -492,14 +523,17 @@ public static class BackdropRenderer
             {
                 var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
                 if (!string.IsNullOrWhiteSpace(it.Subject))
+                {
+                    var ss = it.SubjectStyle;
                     row.Children.Add(new TextBlock
                     {
                         Text = "【" + (it.Subject ?? "") + "】",
-                        FontSize = ScaleFont(15),
-                        FontWeight = FontWeights.Bold,
-                        Foreground = new SolidColorBrush(accent),
+                        FontSize = ScaleFont(HwTextRender.BodySize(ss)),
+                        FontWeight = HwTextRender.BoldOr(ss, true) ? FontWeights.Bold : FontWeights.Normal,
+                        Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(ss, theme.Accent), accent)),
                         TextWrapping = TextWrapping.Wrap
                     });
+                }
                 row.Children.Add(new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,
@@ -537,12 +571,13 @@ public static class BackdropRenderer
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
+        var titleStyle = board.TitleStyle;
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(board.Title) ? "缺交作业名单" : board.Title,
-            FontSize = ScaleFont(17),
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(titleColor),
+            FontSize = ScaleFont(HwTextRender.TitleSize(titleStyle)),
+            FontWeight = HwTextRender.BoldOr(titleStyle, true) ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(titleStyle, theme.TitleColor), titleColor)),
             Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
@@ -566,12 +601,13 @@ public static class BackdropRenderer
             {
                 var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
                 string label = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：";
+                var ss = m.SubjectStyle;
                 row.Children.Add(new TextBlock
                 {
                     Text = label,
-                    FontSize = ScaleFont(14),
-                    FontWeight = FontWeights.Bold,
-                    Foreground = new SolidColorBrush(missingColor),
+                    FontSize = ScaleFont(HwTextRender.MissingSubjectSize(ss)),
+                    FontWeight = HwTextRender.BoldOr(ss, true) ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(ss, theme.MissingColor), missingColor)),
                     TextWrapping = TextWrapping.Wrap
                 });
                 if (!string.IsNullOrWhiteSpace(m.Students))
@@ -613,12 +649,13 @@ public static class BackdropRenderer
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
+        var titleStyle = note.TitleStyle;
         stack.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(note.Title) ? "自定义便签" : note.Title,
-            FontSize = ScaleFont(17),
-            FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(titleColor),
+            FontSize = ScaleFont(HwTextRender.TitleSize(titleStyle)),
+            FontWeight = HwTextRender.BoldOr(titleStyle, true) ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(titleStyle, theme.TitleColor), titleColor)),
             Margin = new Thickness(0, 0, 0, 10 * scale),
             TextWrapping = TextWrapping.Wrap
         });
@@ -647,12 +684,326 @@ public static class BackdropRenderer
         return Card(stack, scale, theme);
     }
 
+    // ---------- 倒计时便签 ----------
+    /// <summary>
+    /// 倒计时便签。<b>字号与间距对齐悬浮便签</b>（标题 = 标题样式 / 事件名 = 内容样式 / 天数比事件名大 4）。
+    /// 右侧天数用强调色，已过去的用灰色，今天用醒目色（由「高亮今天」开关控制）。
+    /// </summary>
+    internal static Border BuildCountdownCard(CountdownBoard board, double scale, Func<double, double> ScaleFont, double cardWidth = 0)
+    {
+        var theme = HomeworkThemes.Find(board.Theme);
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0xA1, 0x74, 0x00));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
+        var hot = ParseHwColor(theme.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
+
+        var stack = new StackPanel();
+
+        var ts = board.TitleStyle;
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(board.Title) ? "倒计时" : board.Title,
+            FontSize = ScaleFont(HwTextRender.TitleSize(ts)),
+            FontWeight = HwTextRender.BoldOr(ts, true) ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(ts, theme.TitleColor),
+                                            ParseHwColor(theme.TitleColor, Color.FromRgb(0x8D, 0x6E, 0x00)))),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var cs = board.ContentStyle;
+        double bodySize = HwTextRender.BodySize(cs);
+        var bodyBrush = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(cs, theme.Foreground), fg));
+        var bodyWeight = HwTextRender.BoldOr(cs, false) ? FontWeights.Bold : FontWeights.Normal;
+
+        // 天数单独一套样式（默认比条目大 4 号、加粗、主题强调色 —— 与加设置项之前一致）
+        var ds = board.DaysStyle;
+        double daysSize = HwTextRender.SizeOf(ds, 0);
+        double unitSize = Math.Max(9, daysSize - 7);
+        var daysWeight = HwTextRender.BoldOr(ds, true) ? FontWeights.Bold : FontWeights.Normal;
+        var daysColor = ParseHwColor(HwTextRender.ColorOr(ds, theme.Accent), accent);
+        var daysUnitColor = ParseHwColor(HwTextRender.ColorOr(ds, theme.MutedColor), muted);
+
+        var items = board.SortedItems();
+
+        // 卡片内宽（= 用户设定的宽度上限）：事件名 / 备注超长时截断，不让卡片撑到屏宽
+        double innerW = cardWidth > 0 ? Math.Max(80, cardWidth - PAD_DIP * 2 * scale) : double.PositiveInfinity;
+
+        // 天数区占位按本卡最长的一条估：名字的 MaxWidth 要给它让位，否则「名字 + 天数」会溢出
+        double rightW = 0;
+        foreach (var it in items)
+        {
+            if (it.Target() == null) { rightW = Math.Max(rightW, unitSize * 5); continue; }
+            int d0 = it.DaysLeft();
+            rightW = Math.Max(rightW, d0 == 0
+                ? daysSize * 4
+                : d0 < 0
+                    ? unitSize * (4 + (-d0).ToString().Length)
+                    : daysSize * 0.62 * d0.ToString().Length + unitSize * 1.2);
+        }
+        double nameMaxWidth = innerW > 0
+            ? Math.Max(40, innerW - (rightW + 10) * scale)
+            : double.PositiveInfinity;
+
+        if (items.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "（暂无倒计时，双击添加）",
+                FontSize = ScaleFont(14),
+                Foreground = new SolidColorBrush(muted)
+            });
+        }
+        else
+        {
+            foreach (var it in items)
+            {
+                bool hasNote = !string.IsNullOrWhiteSpace(it.Note);
+
+                // 一条 = 一个竖排小整体：第 0 行「事件名 + 天数」用水平 StackPanel 紧挨着排
+                // （Grid 的跨列备注会反过来撑宽列，把名字和天数拉开一道缝）；第 1 行是备注
+                var block = new StackPanel { Margin = new Thickness(0, 0, 0, (hasNote ? 10 : 7) * scale) };
+                var line = new StackPanel { Orientation = Orientation.Horizontal };
+
+                var name = new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(it.Name) ? "（未命名）" : it.Name,
+                    FontSize = ScaleFont(bodySize),
+                    FontWeight = bodyWeight,
+                    Foreground = bodyBrush,
+                    TextWrapping = TextWrapping.NoWrap,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = nameMaxWidth,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                line.Children.Add(name);
+
+                // 天数：还有 30 天 / 就是今天 / 已过 3 天；紧跟事件名
+                var right = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8 * scale, 0, 0, 0)
+                };
+                bool hasDate = it.Target() != null;
+                int days = it.DaysLeft();
+                bool isToday = hasDate && days == 0 && board.HighlightToday;
+
+                if (!hasDate)
+                {
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = "未设日期", FontSize = ScaleFont(unitSize),
+                        Foreground = new SolidColorBrush(daysUnitColor)
+                    });
+                }
+                else if (days < 0)
+                {
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = $"已过{-days}天", FontSize = ScaleFont(unitSize),
+                        Foreground = new SolidColorBrush(daysUnitColor)
+                    });
+                }
+                else if (days == 0)
+                {
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = "就是今天", FontSize = ScaleFont(daysSize),
+                        FontWeight = daysWeight,
+                        Foreground = new SolidColorBrush(isToday ? hot : daysColor)
+                    });
+                }
+                else
+                {
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = days.ToString(),
+                        FontSize = ScaleFont(daysSize), FontWeight = daysWeight,
+                        Foreground = new SolidColorBrush(daysColor)
+                    });
+                    // 与悬浮便签同一口径：「天」前不写空格，只留 1px 呼吸位
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = "天", FontSize = ScaleFont(unitSize),
+                        Foreground = new SolidColorBrush(daysUnitColor),
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(1 * scale, 0, 0, Math.Max(0, (daysSize - unitSize) / 4) * scale)
+                    });
+                }
+
+                line.Children.Add(right);
+                block.Children.Add(line);
+
+                if (hasNote)
+                {
+                    block.Children.Add(new TextBlock
+                    {
+                        Text = it.Note,
+                        FontSize = ScaleFont(unitSize),
+                        Foreground = new SolidColorBrush(muted),
+                        TextWrapping = TextWrapping.NoWrap,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        MaxWidth = innerW,
+                        Margin = new Thickness(0, 1 * scale, 0, 0)
+                    });
+                }
+
+                stack.Children.Add(block);
+            }
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
+            Foreground = new SolidColorBrush(muted),
+            Margin = new Thickness(0, 8 * scale, 0, 0)
+        });
+
+        // 天数靠右贴边，右侧内边距收到 5（其余三边仍 13，标题 / 备注才不会贴边）
+        return Card(stack, scale, theme, padRightDip: 5);
+    }
+
+    // ---------- 值日生名单便签 ----------
+    /// <summary>
+    /// 值日生名单便签。<b>字号与间距对齐悬浮便签</b>；「今天」那一行加一条强调色竖条 + 淡底，
+    /// 一眼看出今天谁值日。
+    /// </summary>
+    internal static Border BuildDutyCard(DutyBoard board, double scale, Func<double, double> ScaleFont)
+    {
+        var theme = HomeworkThemes.Find(board.Theme);
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2E, 0x7D, 0x32));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
+
+        var stack = new StackPanel();
+
+        var ts = board.TitleStyle;
+        stack.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(board.Title) ? "值日生名单" : board.Title,
+            FontSize = ScaleFont(HwTextRender.TitleSize(ts)),
+            FontWeight = HwTextRender.BoldOr(ts, true) ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(ts, theme.TitleColor),
+                                            ParseHwColor(theme.TitleColor, Color.FromRgb(0x1B, 0x5E, 0x20)))),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        var cs = board.ContentStyle;
+        double bodySize = HwTextRender.BodySize(cs);
+        var bodyBrush = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(cs, theme.Foreground), fg));
+        var bodyWeight = HwTextRender.BoldOr(cs, false) ? FontWeights.Bold : FontWeights.Normal;
+
+        // 星期列 / 值日内容各有自己的字号颜色（默认 12 号加粗弱色 / 11 号弱色，与加设置项之前一致）
+        var ds = board.DayStyle;
+        double daySize = HwTextRender.ScaleSize(ds, 12);
+        var dayWeight = HwTextRender.BoldOr(ds, true) ? FontWeights.Bold : FontWeights.Normal;
+        var dayColorNormal = ParseHwColor(HwTextRender.ColorOr(ds, theme.MutedColor), muted);
+        var dayColorToday = ParseHwColor(HwTextRender.ColorOr(ds, theme.Accent), accent);
+
+        var dutySt = board.DutyStyle;
+        double dutySize = HwTextRender.ScaleSize(dutySt, 11);
+        var dutyWeight = HwTextRender.BoldOr(dutySt, false) ? FontWeights.Bold : FontWeights.Normal;
+        var dutyColor = ParseHwColor(HwTextRender.ColorOr(dutySt, theme.MutedColor), muted);
+
+        string todayName = WeekDayText(DateTime.Today.DayOfWeek);
+
+        var items = board.SortedItems();
+        if (items.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "（暂无值日安排，双击添加）",
+                FontSize = ScaleFont(14),
+                Foreground = new SolidColorBrush(muted)
+            });
+        }
+        else
+        {
+            foreach (var it in items)
+            {
+                string day = it.DayText();
+                bool isToday = board.HighlightToday && string.Equals(day, todayName, StringComparison.Ordinal);
+
+                var row = new Border
+                {
+                    Margin = new Thickness(0, 0, 0, 6 * scale),
+                    Padding = new Thickness(isToday ? 6 * scale : 0, isToday ? 4 * scale : 0, 0, isToday ? 4 * scale : 0),
+                    CornerRadius = new CornerRadius(6 * scale),
+                    Background = isToday ? BrushOf(accent, 0x22) : null,
+                    BorderThickness = isToday ? new Thickness(2 * scale, 0, 0, 0) : new Thickness(0),
+                    BorderBrush = isToday ? new SolidColorBrush(accent) : null
+                };
+
+                var panel = new StackPanel();
+                var head = new StackPanel { Orientation = Orientation.Horizontal };
+                head.Children.Add(new TextBlock
+                {
+                    Text = day,
+                    FontSize = ScaleFont(daySize),
+                    FontWeight = dayWeight,
+                    Foreground = new SolidColorBrush(isToday ? dayColorToday : dayColorNormal),
+                    Margin = new Thickness(0, 0, 8 * scale, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                head.Children.Add(new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(it.Names) ? "（未填写）" : it.Names,
+                    FontSize = ScaleFont(bodySize),
+                    FontWeight = bodyWeight,
+                    Foreground = bodyBrush,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                panel.Children.Add(head);
+
+                if (!string.IsNullOrWhiteSpace(it.Duty))
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = it.Duty,
+                        FontSize = ScaleFont(dutySize),
+                        FontWeight = dutyWeight,
+                        Foreground = new SolidColorBrush(dutyColor),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 1 * scale, 0, 0)
+                    });
+
+                row.Child = panel;
+                stack.Children.Add(row);
+            }
+        }
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
+            Foreground = new SolidColorBrush(muted),
+            Margin = new Thickness(0, 8 * scale, 0, 0)
+        });
+
+        return Card(stack, scale, theme);
+    }
+
+    /// <summary>DayOfWeek → 「周一 … 周日」（与 <see cref="DutyItem.DayNames"/> 口径一致）。</summary>
+    internal static string WeekDayText(DayOfWeek d) => d switch
+    {
+        DayOfWeek.Monday => "周一",
+        DayOfWeek.Tuesday => "周二",
+        DayOfWeek.Wednesday => "周三",
+        DayOfWeek.Thursday => "周四",
+        DayOfWeek.Friday => "周五",
+        DayOfWeek.Saturday => "周六",
+        _ => "周日"
+    };
+
     /// <summary>带透明度的纯色画刷（用于便签底色 / 半透明文字等）。</summary>
     private static SolidColorBrush BrushOf(Color c, byte alpha = 0xFF)
         => new(Color.FromArgb(alpha, c.R, c.G, c.B));
 
     /// <summary>便签外框：圆角 / 描边 / 内边距与悬浮便签一致（12 / 1 / 13 DIP），按便签主题配色。</summary>
-    private static Border Card(StackPanel content, double scale, HomeworkTheme? theme = null) => new()
+    /// <param name="padRightDip">右侧内边距（DIP）；倒计时卡天数靠右贴边，右侧收窄到 5，别在「天」字后面吊一截空</param>
+    private static Border Card(StackPanel content, double scale, HomeworkTheme? theme = null, double padRightDip = PAD_DIP) => new()
     {
         CornerRadius = new CornerRadius(RADIUS_DIP * scale),
         Background = theme == null
@@ -662,7 +1013,7 @@ public static class BackdropRenderer
             ? new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC))
             : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC9, 0xD6, 0xEC))),
         BorderThickness = new Thickness(1 * scale),
-        Padding = new Thickness(PAD_DIP * scale),
+        Padding = new Thickness(PAD_DIP * scale, PAD_DIP * scale, padRightDip * scale, PAD_DIP * scale),
         HorizontalAlignment = HorizontalAlignment.Left,
         VerticalAlignment = VerticalAlignment.Top,
         Effect = new System.Windows.Media.Effects.DropShadowEffect

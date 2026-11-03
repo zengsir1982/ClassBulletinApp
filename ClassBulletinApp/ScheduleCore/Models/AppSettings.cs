@@ -186,6 +186,13 @@ public class AppSettings
     /// </summary>
     public string OverridesMigratedAt { get; set; } = "";
 
+    /// <summary>
+    /// 「课表变化提醒」默认值的升级代次：0 = 还没升过；1 = 已按"全屏大字 / 15 秒 / 语音关"升过；
+    /// 2 = 再把语音改回默认开。
+    /// <para>只用来保证每次调整只做一次 —— 否则用户手动改回小窗后，下次启动又被打回全屏。</para>
+    /// </summary>
+    public int ReminderDefaultsRev { get; set; }
+
     /// <summary>界面主题配色方案名称（见 ThemeManager 预设）。</summary>
     public string Theme { get; set; } = "ClassicBlue";
 
@@ -217,6 +224,30 @@ public class AppSettings
 
     /// <summary>上一次「更新课表」失败的原因（单行文本），状态栏红字提示用；成功时清空。</summary>
     public string QaUpdateFailedMessage { get; set; } = "";
+
+    /// <summary>
+    /// 悬浮课表日期右侧的实时时钟显示方式：0 = 不显示，1 = 时:分，2 = 时:分:秒。默认不显示。
+    /// <para>时钟每秒刷新，字号比日期小一号、颜色略淡，与日期同一行右对齐，不额外占高度。</para>
+    /// </summary>
+    public int ScheduleClockMode { get; set; }
+
+    /// <summary>
+    /// 各便签悬浮窗的位置 / 大小 / 置顶 / 锁定，键 = <c>countdown</c>（倒计时）/ <c>duty</c>（值日生）。
+    /// <para>用字典而不是逐个加字段：以后再加便签只需新增一个键，AppSettings 不会越来越长。</para>
+    /// </summary>
+    public System.Collections.Generic.Dictionary<string, NoteWindowPlacement> NoteWindows { get; set; } = new();
+
+    /// <summary>取某个便签窗口的摆放设置；没有就补一个默认对象（由调用方决定何时保存）。</summary>
+    public NoteWindowPlacement PlacementOf(string key)
+    {
+        NoteWindows ??= new System.Collections.Generic.Dictionary<string, NoteWindowPlacement>();
+        if (!NoteWindows.TryGetValue(key, out var p) || p == null)
+        {
+            p = new NoteWindowPlacement();
+            NoteWindows[key] = p;
+        }
+        return p;
+    }
 
     /// <summary>作业公示便签是否被锁定（锁定后不能移动 / 缩放 / 编辑，防误操作）。</summary>
     public bool HwWinLocked { get; set; }

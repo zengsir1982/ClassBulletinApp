@@ -81,7 +81,7 @@ public static class WeekBuilder
                         cell.IsOverridden = true;
                         cell.Type = string.IsNullOrEmpty(ov.Type) ? "调" : ov.Type;
                         cell.BadgeText = cell.Type == "代" ? "代课" : "已调课";
-                        cell.BadgeColor = cell.Type == "代" ? "#2D9CDB" : "#E67E22";
+                        cell.BadgeColor = OverrideBadge.Color(cell.Type, ov.Source);
                     }
                     data.Cells.Add(cell);
                     continue;

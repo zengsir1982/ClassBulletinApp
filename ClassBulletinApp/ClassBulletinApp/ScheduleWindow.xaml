@@ -120,7 +120,21 @@
                         <StackPanel x:Name="DateHeader" Background="Transparent" Cursor="Hand" Margin="0,3,0,0"
                                    MouseLeftButtonDown="DateHeader_MouseLeftButtonDown"
                                    ToolTip="双击此处可切换显示其他日期（调休上课）">
-                            <TextBlock x:Name="TxtDate" FontSize="14" Foreground="#E3ECFB"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="TxtDate" Grid.Column="0" FontSize="14" Foreground="#E3ECFB"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <!-- 实时时钟：紧跟在日期后面（靠左），字号小一号、颜色略淡；关闭时不占位。
+                                     ★ 不能靠右对齐：标题栏右上角是「自动隐藏 / 更新课表」两个按钮，
+                                       时钟贴到右边就会跟按钮叠在一起（宽度一变就互相压字）。 -->
+                                <TextBlock x:Name="TxtClock" Grid.Column="1" FontSize="12" Foreground="#B9CBEA"
+                                           HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                                           Margin="10,0,0,2" Visibility="Collapsed" ToolTip="当前时间"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Grid>
                             <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" Margin="0,1,0,0"/>
                         </StackPanel>
                     </StackPanel>
@@ -213,6 +227,16 @@
                                 Background="#F2EDFD" BorderBrush="#BFAFE8"
                                 ToolTip="打开自定义便签（教师寄语 / 温馨提示等）；还没有便签时会新建一张">
                             <TextBlock Text="📌 便签"/>
+                        </Button>
+                        <Button x:Name="BtnQaCountdown" Style="{StaticResource QuickActionBtn}" Click="BtnQaCountdown_Click"
+                                Background="#FFF8E1" BorderBrush="#E8CE8A"
+                                ToolTip="打开倒计时便签（期末考试 / 运动会还有几天）；还没有事件时会直接弹出编辑窗口">
+                            <TextBlock Text="⏳ 倒计时"/>
+                        </Button>
+                        <Button x:Name="BtnQaDuty" Style="{StaticResource QuickActionBtn}" Click="BtnQaDuty_Click"
+                                Background="#E8F5E9" BorderBrush="#A5CFA8"
+                                ToolTip="打开值日生名单便签；还没有安排时会直接弹出编辑窗口">
+                            <TextBlock Text="🧹 值日"/>
                         </Button>
                     </WrapPanel>
 

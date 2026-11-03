@@ -196,6 +196,8 @@ public partial class LayoutWindow : Window
             ChkWpSchedule.IsChecked = b.ShowSchedule;
             ChkWpHomework.IsChecked = b.ShowHomework;
             ChkWpMissing.IsChecked = b.ShowMissing;
+            ChkWpCountdown.IsChecked = b.ShowCountdown;
+            ChkWpDuty.IsChecked = b.ShowDuty;
             ChkWpOrigin.IsChecked = b.UseOriginWallpaper;
 
             FillThemeCombo(CbWpSchTheme, b.ScheduleTheme);
@@ -332,6 +334,8 @@ public partial class LayoutWindow : Window
             s.Backdrop.ShowSchedule = ChkWpSchedule.IsChecked == true;
             s.Backdrop.ShowHomework = ChkWpHomework.IsChecked == true;
             s.Backdrop.ShowMissing = ChkWpMissing.IsChecked == true;
+            s.Backdrop.ShowCountdown = ChkWpCountdown.IsChecked == true;
+            s.Backdrop.ShowDuty = ChkWpDuty.IsChecked == true;
             s.Backdrop.UseOriginWallpaper = ChkWpOrigin.IsChecked == true;
             s.Backdrop.ScheduleTheme = SelectedThemeKey(CbWpSchTheme, "blue");
 

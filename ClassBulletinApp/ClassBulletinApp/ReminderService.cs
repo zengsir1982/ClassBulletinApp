@@ -154,7 +154,7 @@ public static class ReminderService
             if (r.VoiceEnabled)
                 VoiceSpeaker.Speak(spoken, r.VoiceName, r.VoiceRate, r.VoiceVolume);
             if (_popup == null) _popup = new ReminderPopup();
-            _popup.ShowReminder(title, detail, seconds);
+            _popup.ShowReminder(title, detail, seconds, r);
         }
         catch
         {

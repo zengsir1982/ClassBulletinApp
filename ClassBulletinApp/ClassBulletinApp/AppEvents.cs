@@ -32,6 +32,12 @@ public static class AppEvents
     /// </summary>
     public static event Action<string?>? CustomNoteChanged;
 
+    /// <summary>倒计时便签数据 / 主题 / 字体样式发生变化。</summary>
+    public static event Action? CountdownChanged;
+
+    /// <summary>值日生名单便签数据 / 主题 / 字体样式发生变化。</summary>
+    public static event Action? DutyChanged;
+
     /// <summary>「桌面背面」（当天课表 / 作业公示壁纸）开关或内容发生变化。</summary>
     public static event Action? BackdropChanged;
 
@@ -50,6 +56,13 @@ public static class AppEvents
     public static event Action<string, int>? ReminderDanmaku;
 
     /// <summary>
+    /// 课表内容有变化：悬浮课表在状态栏用红字挂一段时间（summary, 保留分钟数）。
+    /// <para>★ 用事件而不是直接操作窗口：变化可能由后台定时比对发现（<c>ScheduleChangeWatcher</c>），
+    /// 那时悬浮课表未必存在（关闭 / 诊断模式），直接持有引用会空引用。</para>
+    /// </summary>
+    public static event Action<string, int>? ScheduleFlash;
+
+    /// <summary>
     /// 悬浮课表底部「作业公示」快捷按钮被点击 —— 由主窗口负责打开（并保证置顶、落在屏幕内）。
     /// <para>用事件而不是直接调用 MainWindow：悬浮窗不一定由主窗口创建
     /// （诊断模式 <c>--shot schedulewin</c> 会单独 new 一个），直接持有引用会引入空引用与循环依赖。</para>
@@ -61,6 +74,12 @@ public static class AppEvents
 
     /// <summary>悬浮课表底部「便签」快捷按钮被点击（显示并置前自定义便签；一张都没有时新建一张）。</summary>
     public static event Action? QuickOpenCustomNote;
+
+    /// <summary>悬浮课表底部「倒计时」快捷按钮被点击。</summary>
+    public static event Action? QuickOpenCountdown;
+
+    /// <summary>悬浮课表底部「值日」快捷按钮被点击。</summary>
+    public static event Action? QuickOpenDuty;
 
     /// <summary>悬浮课表底部「更新课表」快捷按钮被点击（检查并应用数据源更新）。</summary>
     public static event Action? QuickCheckUpdate;
@@ -79,14 +98,19 @@ public static class AppEvents
     public static void RaiseHomeworkChanged() => HomeworkChanged?.Invoke();
     public static void RaiseMissingChanged() => MissingChanged?.Invoke();
     public static void RaiseCustomNoteChanged(string? id = null) => CustomNoteChanged?.Invoke(id);
+    public static void RaiseCountdownChanged() => CountdownChanged?.Invoke();
+    public static void RaiseDutyChanged() => DutyChanged?.Invoke();
     public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
     public static void RaiseRestoreFloating(string[] tokens) => RestoreFloating?.Invoke(tokens);
     public static void RaiseBackdropOffDone(bool ok, string message) => BackdropOffDone?.Invoke(ok, message);
     public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);
+    public static void RaiseScheduleFlash(string summary, int minutes) => ScheduleFlash?.Invoke(summary, minutes);
 
     public static void RaiseQuickOpenHomework() => QuickOpenHomework?.Invoke();
     public static void RaiseQuickOpenMissing() => QuickOpenMissing?.Invoke();
     public static void RaiseQuickOpenCustomNote() => QuickOpenCustomNote?.Invoke();
+    public static void RaiseQuickOpenCountdown() => QuickOpenCountdown?.Invoke();
+    public static void RaiseQuickOpenDuty() => QuickOpenDuty?.Invoke();
     public static void RaiseQuickCheckUpdate() => QuickCheckUpdate?.Invoke();
     public static void RaiseQuickCheckUpdateDone(bool ok, string message)
         => QuickCheckUpdateDone?.Invoke(ok, message);

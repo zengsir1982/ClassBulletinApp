@@ -19,7 +19,7 @@ namespace ClassBulletinApp;
 public static class BackdropPin
 {
     /// <summary>要锁定的便签种类。自定义便签有多张，需额外传便签 Id。</summary>
-    public enum Kind { Schedule, Homework, Missing, CustomNote }
+    public enum Kind { Schedule, Homework, Missing, Countdown, Duty, CustomNote }
 
     private const double MINW = 200;   // 与 BackdropEditorWindow 的最小尺寸保持一致
     private const double MINH = 160;
@@ -147,6 +147,8 @@ public static class BackdropPin
         Kind.Schedule => "Schedule",
         Kind.Homework => "Homework",
         Kind.Missing => "Missing",
+        Kind.Countdown => "Countdown",
+        Kind.Duty => "Duty",
         _ => "note:" + (noteId ?? "")
     };
 
@@ -163,7 +165,8 @@ public static class BackdropPin
             var b = s.Backdrop ??= new BackdropSettings();
 
             var tokens = RestoreTargets(b);
-            bool anyContent = b.ShowSchedule || b.ShowHomework || b.ShowMissing || b.ShowAnyCustomNote();
+            bool anyContent = b.ShowSchedule || b.ShowHomework || b.ShowMissing
+                              || b.ShowCountdown || b.ShowDuty || b.ShowAnyCustomNote();
             bool applied = BackdropService.IsApplied();
 
             if (!anyContent && !applied && tokens.Count == 0)
@@ -175,6 +178,8 @@ public static class BackdropPin
             b.ShowSchedule = false;
             b.ShowHomework = false;
             b.ShowMissing = false;
+            b.ShowCountdown = false;
+            b.ShowDuty = false;
             if (b.CustomNotes != null)
                 foreach (var entry in b.CustomNotes.Values)
                     if (entry != null) entry.Visible = false;
@@ -218,6 +223,8 @@ public static class BackdropPin
         if (b.ShowSchedule) Add("Schedule");
         if (b.ShowHomework) Add("Homework");
         if (b.ShowMissing) Add("Missing");
+        if (b.ShowCountdown) Add("Countdown");
+        if (b.ShowDuty) Add("Duty");
         if (b.CustomNotes != null)
             foreach (var kv in b.CustomNotes)
                 if (kv.Value?.Visible == true) Add("note:" + kv.Key);
@@ -230,6 +237,8 @@ public static class BackdropPin
     {
         Kind.Schedule => b.ScheduleLayout ??= new HomeworkWallpaperLayout { Anchor = "MiddleLeft", WidthRatio = 0.38 },
         Kind.Homework => b.HomeworkLayout ??= new HomeworkWallpaperLayout { Anchor = "MiddleRight", WidthRatio = 0.4 },
+        Kind.Countdown => b.CountdownLayout ??= new HomeworkWallpaperLayout { Anchor = "TopRight", UseFixedSize = true, FixedWidth = 360, FixedHeight = 240 },
+        Kind.Duty => b.DutyLayout ??= new HomeworkWallpaperLayout { Anchor = "BottomLeft", UseFixedSize = true, FixedWidth = 400, FixedHeight = 340 },
         Kind.CustomNote => b.EntryOf(noteId!).Layout,
         _ => b.MissingLayout ??= new HomeworkWallpaperLayout { Anchor = "BottomRight", UseFixedSize = true, FixedWidth = 420, FixedHeight = 360 }
     };
@@ -241,6 +250,8 @@ public static class BackdropPin
         {
             case Kind.Schedule: b.ShowSchedule = on; break;
             case Kind.Homework: b.ShowHomework = on; break;
+            case Kind.Countdown: b.ShowCountdown = on; break;
+            case Kind.Duty: b.ShowDuty = on; break;
             case Kind.CustomNote: b.EntryOf(noteId!).Visible = on; break;
             default: b.ShowMissing = on; break;
         }
@@ -279,6 +290,12 @@ public static class BackdropPin
                                       s.ScheduleLayout?.Width, s.ScheduleLayout?.Height,
                                       out left, out top, out width, out height),
             Kind.Homework => TrySaved(s.HwWinLeft, s.HwWinTop, s.HwWinWidth, s.HwWinHeight,
+                                      out left, out top, out width, out height),
+            Kind.Countdown => TrySaved(s.PlacementOf("countdown").Left, s.PlacementOf("countdown").Top,
+                                      s.PlacementOf("countdown").Width, s.PlacementOf("countdown").Height,
+                                      out left, out top, out width, out height),
+            Kind.Duty => TrySaved(s.PlacementOf("duty").Left, s.PlacementOf("duty").Top,
+                                      s.PlacementOf("duty").Width, s.PlacementOf("duty").Height,
                                       out left, out top, out width, out height),
             _ => TrySaved(s.MsWinLeft, s.MsWinTop, s.MsWinWidth, s.MsWinHeight,
                                       out left, out top, out width, out height)

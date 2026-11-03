@@ -160,6 +160,13 @@
                                         <Button x:Name="BtnThemeReset" Content="恢复默认" Padding="12,7" FontSize="13" Margin="12,0,0,0"
                                                 Click="BtnThemeReset_Click" Background="White" BorderBrush="#D1D5DB" Cursor="Hand"/>
                                     </StackPanel>
+                                    <!-- 日期旁的实时时钟：只影响悬浮课表顶部那一行，不额外占高度 -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <TextBlock Text="日期旁时钟" FontSize="14" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <ComboBox x:Name="CbClockMode" Width="170" FontSize="14"
+                                                  SelectionChanged="CbClockMode_SelectionChanged"
+                                                  ToolTip="在悬浮课表的日期右侧显示当前时间（每秒跳动）；「不显示」则不占位置"/>
+                                    </StackPanel>
                                     <TextBlock Text="桌面背景（当天课表 / 作业公示 / 缺交名单 / 自定义便签）的位置、主题与固定大小，统一在「布局设置 → 桌面背景」标签页调整。"
                                                FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,10,0,0"/>
                                     <Button x:Name="BtnCancelBackdrop" Content="取消桌面背景（恢复悬浮窗）…" Padding="14,7" FontSize="13"
@@ -189,7 +196,7 @@
 
                 <!-- 提醒设置（独立标签页） -->
                 <TabItem Header="提醒设置">
-                    <ScrollViewer Margin="14">
+                    <ScrollViewer x:Name="ReminderScroll" Margin="14">
                         <StackPanel MaxWidth="780">
                             <TextBlock Text="⏰ 上下课提醒" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
                             <TextBlock Text="依据当前显示的班级 / 教师课表（含临时课表调 / 代安排）到点提醒；调休日按「显示日」的课表提醒。同一提醒每天只弹一次。上课 / 下课 / 放学各自独立设置，文案与语音均可自定义。"
@@ -290,6 +297,53 @@
                                 <TextBlock Text="秒" FontSize="14" VerticalAlignment="Center" Margin="0,0,26,0"/>
                                 <CheckBox x:Name="ChkRemindSound" Content="提醒时播放提示音" FontSize="14" Click="RemindSetting_Changed"/>
                             </StackPanel>
+
+                            <!-- 课表变化提醒（与上下课提醒独立：按时段 vs 按内容变化） -->
+                            <Border Background="#FFF8E6" BorderBrush="#E6C25A" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,14,0,0">
+                                <StackPanel>
+                                    <CheckBox x:Name="ChkChangeOn" Content="课表有变化时提醒（手动调课 / 导入临时表 / 更新课表）"
+                                              FontSize="15" FontWeight="Bold" Foreground="#1F2A37" Click="RemindSetting_Changed"
+                                              ToolTip="只在课表内容真的发生变化时提示：同一天、同一个班的课表没变就不打扰"/>
+                                    <TextBlock Text="自动比对当前显示的班级 / 教师当天课表；一旦发现科目或任课教师变了，就在状态栏挂红字并弹提示。"
+                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,6,0,10"/>
+
+                                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <CheckBox x:Name="ChkChangeFull" Content="用全屏大字提示（不勾 = 屏幕顶部小窗）"
+                                                  FontSize="14" VerticalAlignment="Center" Click="RemindSetting_Changed"/>
+                                        <TextBlock Text="停留" FontSize="14" VerticalAlignment="Center" Margin="22,0,6,0"/>
+                                        <TextBox x:Name="TxtChangeSeconds" Width="48" FontSize="14" TextAlignment="Center"
+                                                 TextChanged="RemindSetting_TextChanged" ToolTip="变化提示显示几秒后自动消失（默认 15 秒）"/>
+                                        <TextBlock Text="秒" FontSize="14" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                                    </WrapPanel>
+
+                                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,10,0,0">
+                                        <TextBlock Text="同时在课表状态栏用红字保留" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtChangeStatusMin" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center"
+                                                 TextChanged="RemindSetting_TextChanged" ToolTip="红字挂在悬浮课表最下方状态栏多久（默认 10 分钟）"/>
+                                        <TextBlock Text="分钟" FontSize="14" VerticalAlignment="Center"/>
+                                        <CheckBox x:Name="ChkChangeVoice" Content="🔊 变化时语音播报" FontSize="14" Margin="26,0,0,0"
+                                                  VerticalAlignment="Center" Click="RemindSetting_Changed"
+                                                  ToolTip="音色 / 语速 / 音量沿用下方「语音播报」里的设置"/>
+                                    </WrapPanel>
+
+                                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,10,0,0">
+                                        <TextBlock Text="若变化发生在「上课时间」内，则延后到该节下课后" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="TxtChangeDelay" Width="48" FontSize="14" Margin="6,0" TextAlignment="Center"
+                                                 TextChanged="RemindSetting_TextChanged" ToolTip="课堂上不打断教学；填 0 = 仍然立即弹窗"/>
+                                        <TextBlock Text="分钟再弹窗（0 = 立即弹）" FontSize="14" VerticalAlignment="Center"/>
+                                    </WrapPanel>
+
+                                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,12,0,0">
+                                        <Button x:Name="BtnPopupLayout" Content="调整小窗位置与大小…" Padding="12,5" FontSize="13"
+                                                Background="White" BorderBrush="#D1D5DB" Click="BtnPopupLayout_Click"
+                                                ToolTip="打开一个与实际提醒一模一样的小窗：拖动它移动位置、拖右边框改大小，回车或点「保存」生效"/>
+                                        <TextBlock x:Name="TxtPopupLayout" FontSize="12" Foreground="#6B7280"
+                                                   VerticalAlignment="Center" Margin="10,0,0,0" Text=""/>
+                                    </WrapPanel>
+                                    <TextBlock Text="提示：该位置与大小由上下课提醒和课表变化提示共用；调整时不勾「全屏大字」才会看到这个小窗。"
+                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Border>
 
                             <Border Background="#F4F8FF" BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14" Margin="0,14,0,0">
                                 <StackPanel>
@@ -464,79 +518,134 @@
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
-                <!-- 作业公示：只放预览 + 编辑按钮，内容 / 格式 / 主题都在弹窗里改 -->
-                <TabItem Header="作业公示">
+                <!-- 便签管理：只放预览 + 编辑按钮，内容 / 格式 / 主题都在弹窗里改 -->
+                <TabItem Header="便签管理">
                     <ScrollViewer Margin="14">
                         <StackPanel MaxWidth="820">
-                            <TextBlock Text="📚 各科作业公示栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                            <TextBlock Text="内容、文字格式与主题风格都在弹窗里编辑：点下面的按钮打开编辑窗口，改完确定即保存，并自动同步到桌面便签与悬浮便签。"
-                                       FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <!-- 标题行右侧放整页唯一的主操作：无论窗口多高都看得见，不用往下滚 -->
+                            <Grid Margin="0,0,0,14">
+                                <Button x:Name="BtnWpSettings" Content="🖱 桌面背景排版…" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Padding="14,6" FontSize="13"
+                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        Click="BtnWpSettings_Click"
+                                        ToolTip="打开所见即所得排版：直接拖动便签调整位置、拉边框改大小"/>
+                                <StackPanel Margin="0,0,170,0">
+                                    <TextBlock Text="📋 便签管理" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                                    <TextBlock Text="作业公示、缺交名单、自定义便签、倒计时与值日名单都在这里管理：内容、文字格式与主题风格在弹窗里编辑，改完确定即保存，并自动同步到桌面便签与悬浮便签。"
+                                               FontSize="13" Foreground="#6B7280" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Grid>
 
-                            <!-- 预览：与桌面便签 / 悬浮便签同一套渲染，所见即所得 -->
+                            <!-- ① 有预览的两张：看效果、开显隐、进编辑都在同一张卡里，不用在一排按钮里找 -->
                             <WrapPanel>
-                                <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,14,14" Width="368">
+                                <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,14,14" Width="380">
                                     <StackPanel>
-                                        <TextBlock Text="作业公示便签预览" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
-                                        <Border Background="#F5F7FA" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                        <Grid Margin="0,0,0,8">
+                                            <TextBlock Text="📚 作业公示" FontSize="15" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
+                                            <Button x:Name="BtnEditHw" Content="编辑内容与格式…" HorizontalAlignment="Right"
+                                                    Padding="12,4" FontSize="13" Background="White" BorderBrush="#D1D5DB"
+                                                    Click="BtnEditHw_Click"
+                                                    ToolTip="打开编辑窗口：科目、作业内容、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
+                                        </Grid>
+                                        <Border Background="#F5F7FA" CornerRadius="8" Padding="6" Height="300">
                                             <Image x:Name="ImgHwPreview" Stretch="Uniform" StretchDirection="DownOnly"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    ToolTip="当前作业公示便签的样子（含主题风格与文字格式）"/>
                                         </Border>
+                                        <WrapPanel Margin="0,10,0,0">
+                                            <Button x:Name="BtnToggleHw2" Content="显示作业便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnToggleHw_Click"
+                                                    ToolTip="在屏幕上显示 / 隐藏作业公示悬浮便签"/>
+                                            <Button x:Name="BtnHwWp" Content="作业→桌面背景：关" Padding="10,5" FontSize="13"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnHwWp_Click"
+                                                    ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Border>
 
-                                <Border Background="White" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,14" Width="368">
+                                <Border Background="White" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,14" Width="380">
                                     <StackPanel>
-                                        <TextBlock Text="缺交作业名单便签预览" FontSize="15" FontWeight="Bold" Foreground="#C0392B"/>
-                                        <Border Background="#FFF6F5" CornerRadius="8" Margin="0,8,0,0" Padding="6" Height="300">
+                                        <Grid Margin="0,0,0,8">
+                                            <TextBlock Text="📕 缺交作业名单" FontSize="15" FontWeight="Bold" Foreground="#C0392B" VerticalAlignment="Center"/>
+                                            <Button x:Name="BtnEditMs" Content="编辑内容与格式…" HorizontalAlignment="Right"
+                                                    Padding="12,4" FontSize="13" Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B"
+                                                    Click="BtnEditMs_Click"
+                                                    ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
+                                        </Grid>
+                                        <Border Background="#FFF6F5" CornerRadius="8" Padding="6" Height="300">
                                             <Image x:Name="ImgMsPreview" Stretch="Uniform" StretchDirection="DownOnly"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    ToolTip="当前缺交名单便签的样子（含主题风格与文字格式）"/>
                                         </Border>
+                                        <WrapPanel Margin="0,10,0,0">
+                                            <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"
+                                                    ToolTip="在屏幕上显示 / 隐藏缺交名单悬浮便签"/>
+                                            <Button x:Name="BtnMsWp" Content="缺交→桌面背景：关" Padding="10,5" FontSize="13"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnMsWp_Click"
+                                                    ToolTip="把缺交作业名单画到桌面壁纸上（位于所有窗口之下）"/>
+                                        </WrapPanel>
                                     </StackPanel>
                                 </Border>
                             </WrapPanel>
 
-                            <WrapPanel Margin="0,2,0,0">
-                                <Button x:Name="BtnEditHw" Content="＋ 添加 / 编辑作业公示" Padding="16,9" FontSize="15"
-                                        Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}"
-                                        Click="BtnEditHw_Click" Margin="0,0,12,10"
-                                        ToolTip="打开编辑窗口：科目、作业内容、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
-                                <Button x:Name="BtnEditMs" Content="＋ 增加 / 编辑缺交名单" Padding="16,9" FontSize="15"
-                                        Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B"
-                                        Click="BtnEditMs_Click" Margin="0,0,12,10"
-                                        ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
-                                <Button x:Name="BtnCustomNote" Content="＋ 新增 / 编辑自定义便签" Padding="16,9" FontSize="15"
-                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                                        Click="BtnCustomNote_Click" Margin="0,0,12,10"
-                                        ToolTip="打开编辑窗口：可新建便签或选择已有便签，设置标题、内容、文字格式（加粗 / 字色 / 字号）与主题风格"/>
-                                <Button x:Name="BtnWpSettings" Content="🖱 桌面背景排版" Padding="16,9" FontSize="15" Margin="0,0,12,10"
-                                        Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
-                                        Click="BtnWpSettings_Click"
-                                        ToolTip="打开所见即所得排版：直接拖动便签调整位置、拉边框改大小"/>
-                            </WrapPanel>
-
-                            <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,16,0,0">
+                            <!-- ② 没有预览的便签：一行一项，左侧名称 + 一句说明，右侧「显隐 / 编辑」——
+                                 比原来一排长得一样的彩色按钮更好认，也不用猜哪个按钮管哪张便签 -->
+                            <Border Background="White" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,2,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="显示与桌面背景" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
-                                    <WrapPanel Margin="0,8,0,0">
-                                        <Button x:Name="BtnToggleHw2" Content="显示作业便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
-                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleHw_Click"
-                                                ToolTip="在屏幕上显示 / 隐藏作业公示悬浮便签"/>
-                                        <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="12,7" FontSize="14" Margin="0,0,10,8"
-                                                Background="White" BorderBrush="#D1D5DB" Click="BtnToggleMs_Click"
-                                                ToolTip="在屏幕上显示 / 隐藏缺交名单悬浮便签"/>
-                                        <Button x:Name="BtnHwWp" Content="作业→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,10,8"
-                                                Background="White" BorderBrush="#D1D5DB" Click="BtnHwWp_Click"
-                                                ToolTip="把作业公示画到桌面壁纸上（位于所有窗口之下，不遮挡操作）"/>
-                                        <Button x:Name="BtnMsWp" Content="缺交→桌面背景：关" Padding="12,7" FontSize="14" Margin="0,0,0,8"
-                                                Background="White" BorderBrush="#D1D5DB" Click="BtnMsWp_Click"
-                                                ToolTip="把缺交作业名单画到桌面壁纸上（位于所有窗口之下）"/>
-                                    </WrapPanel>
-                                    <TextBlock Text="提示：把鼠标移到便签上即可拖动摆放，拉便签边沿可改变大小；双击便签同样能打开编辑窗口。"
-                                               FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                    <TextBlock Text="其他便签" FontSize="15" FontWeight="Bold" Foreground="#1F2A37"/>
+
+                                    <DockPanel Margin="0,12,0,0" LastChildFill="True">
+                                        <Button x:Name="BtnCustomNote" DockPanel.Dock="Right" Content="新增 / 编辑…" VerticalAlignment="Center"
+                                                Padding="12,5" FontSize="13" Background="White" BorderBrush="#D1D5DB"
+                                                Click="BtnCustomNote_Click"
+                                                ToolTip="打开编辑窗口：可新建便签或选择已有便签，设置标题、内容、文字格式（加粗 / 字色 / 字号）与主题风格"/>
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="🗒 自定义便签" FontSize="14" FontWeight="Bold" Foreground="#1F2A37"/>
+                                            <TextBlock Text="教师寄语、温馨提示等，可多张并存" FontSize="12" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <Border Height="1" Background="#EEF2F7" Margin="0,12,0,0"/>
+
+                                    <DockPanel Margin="0,12,0,0" LastChildFill="True">
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="BtnToggleCd" Content="显示倒计时便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnToggleCd_Click"
+                                                    ToolTip="在屏幕上显示 / 隐藏倒计时悬浮便签（可拖动、可拉边改大小）"/>
+                                            <Button x:Name="BtnEditCountdown" Content="编辑…" Padding="12,5" FontSize="13"
+                                                    Background="#FFF8E1" BorderBrush="#E8CE8A" Foreground="#8D6E00"
+                                                    Click="BtnEditCountdown_Click"
+                                                    ToolTip="编辑倒计时便签：事件名称、目标日期、备注，以及标题 / 条目字体颜色与主题风格"/>
+                                        </StackPanel>
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="⏳ 倒计时" FontSize="14" FontWeight="Bold" Foreground="#1F2A37"/>
+                                            <TextBlock Text="距离考试、活动还剩几天，每天自动重算" FontSize="12" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <Border Height="1" Background="#EEF2F7" Margin="0,12,0,0"/>
+
+                                    <DockPanel Margin="0,12,0,0" LastChildFill="True">
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="BtnToggleDuty" Content="显示值日便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                    Background="White" BorderBrush="#D1D5DB" Click="BtnToggleDuty_Click"
+                                                    ToolTip="在屏幕上显示 / 隐藏值日生名单悬浮便签（可拖动、可拉边改大小）"/>
+                                            <Button x:Name="BtnEditDuty" Content="编辑…" Padding="12,5" FontSize="13"
+                                                    Background="#E8F5E9" BorderBrush="#A5CFA8" Foreground="#1B5E20"
+                                                    Click="BtnEditDuty_Click"
+                                                    ToolTip="编辑值日生名单：按星期填姓名与值日内容，可设标题 / 内容字体颜色与主题风格"/>
+                                        </StackPanel>
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="🧹 值日名单" FontSize="14" FontWeight="Bold" Foreground="#1F2A37"/>
+                                            <TextBlock Text="按星期轮值的值日安排" FontSize="12" Foreground="#9CA3AF" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
                                 </StackPanel>
                             </Border>
+
+                            <TextBlock Text="提示：鼠标移到便签上即可拖动摆放，拉便签边沿可改大小；双击便签同样能打开编辑窗口。"
+                                       FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,10,0,0"/>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

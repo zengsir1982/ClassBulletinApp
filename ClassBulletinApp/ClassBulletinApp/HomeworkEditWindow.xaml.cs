@@ -23,11 +23,8 @@ public partial class HomeworkEditWindow : Window
     private readonly ObservableCollection<HomeworkItem> _items = new();
     private string _theme = "classic";
 
-    /// <summary>字色下拉项：12 种预设，选「调色…」时把自定义色追加进来。</summary>
-    public ObservableCollection<ColorOption> ColorOptions { get; } = new(EditorStyleOptions.Colors());
-
-    /// <summary>字号下拉项：小 → 巨大共 7 档（按字号从小到大排列）。</summary>
-    public List<SizeOption> SizeOptions { get; } = EditorStyleOptions.Sizes();
+    /// <summary>总标题的样式（编辑期副本，确定时才写回）。</summary>
+    private readonly TextStyle _titleStyle = new();
 
     /// <summary>供下拉使用的主题选项（携带已解析好的画刷，避免 XAML 里做类型转换）。</summary>
     private sealed class ThemeOption
@@ -44,6 +41,9 @@ public partial class HomeworkEditWindow : Window
 
         _theme = string.IsNullOrWhiteSpace(board.Theme) ? "classic" : board.Theme;
         TxtTitle.Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title;
+
+        _titleStyle.CopyFrom(board.TitleStyle ?? new TextStyle { Bold = true });
+        PickTitleStyle.StyleData = _titleStyle;
 
         foreach (var it in board.Items ?? new()) _items.Add(Clone(it));
         if (_items.Count == 0) _items.Add(new HomeworkItem());
@@ -63,10 +63,13 @@ public partial class HomeworkEditWindow : Window
         ApplyPreview(HomeworkThemes.Find(_theme));
     }
 
+    private static TextStyle CopyStyle(TextStyle? s) => (s ?? new TextStyle()).Clone();
+
     private static HomeworkItem Clone(HomeworkItem x) => new()
     {
         Subject = x.Subject, Content = x.Content,
-        Bold = x.Bold, Color = x.Color, SizeLevel = x.SizeLevel
+        Bold = x.Bold, Color = x.Color, SizeLevel = x.SizeLevel,
+        SubjectStyle = CopyStyle(x.SubjectStyle)
     };
 
     // ---------- 主题 ----------
@@ -97,19 +100,12 @@ public partial class HomeworkEditWindow : Window
         if (_items.Count == 0) _items.Add(new HomeworkItem());
     }
 
-    /// <summary>调色：选任意颜色后补进下拉列表并选中（HomeworkItem 有变更通知，行内预览立刻更新）。</summary>
-    private void BtnPickColor_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as System.Windows.Controls.Button)?.Tag is not HomeworkItem it) return;
-        if (!EditorStyleOptions.TryPickColor(it.Color, out string hex)) return;
-        it.Color = EditorStyleOptions.EnsureColor(ColorOptions, hex).Value;
-    }
-
     // ---------- 结果 ----------
     /// <summary>按当前编辑内容生成作业公示数据（布局沿用设置中的桌面背景位置）。</summary>
     public HomeworkBoard BuildBoard() => new()
     {
         Title = (TxtTitle.Text ?? "").Trim(),
+        TitleStyle = CopyStyle(_titleStyle),
         Items = _items
             .Where(x => !string.IsNullOrWhiteSpace(x.Subject) || !string.IsNullOrWhiteSpace(x.Content))
             .Select(x => new HomeworkItem
@@ -118,7 +114,8 @@ public partial class HomeworkEditWindow : Window
                 Content = (x.Content ?? "").Trim(),
                 Bold = x.Bold,
                 Color = x.Color ?? "",
-                SizeLevel = x.SizeLevel
+                SizeLevel = x.SizeLevel,
+                SubjectStyle = CopyStyle(x.SubjectStyle)
             })
             .ToList(),
         Missing = Store.LoadHomework()?.Missing ?? new(),   // 缺交名单已独立存储，这里原样带回避免覆盖丢失

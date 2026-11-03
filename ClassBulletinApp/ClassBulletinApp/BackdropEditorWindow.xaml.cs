@@ -181,6 +181,23 @@ public partial class BackdropEditorWindow : Window
             _cards.Add(MakeCard("missing", () => BackdropRenderer.BuildMissingCard(mb, _typo, sf), lay));
         }
 
+        // 倒计时 / 值日生名单：与作业便签同一套（各有一块独立位置与大小）
+        if (b.ShowCountdown)
+        {
+            var cd = Store.LoadCountdown();
+            var lay = b.CountdownLayout ?? new HomeworkWallpaperLayout { Anchor = "TopRight", UseFixedSize = true, FixedWidth = 360, FixedHeight = 240 };
+            _cards.Add(MakeCard("countdown", () => BackdropRenderer.BuildCountdownCard(cd, _typo, sf), lay,
+                string.IsNullOrWhiteSpace(cd.Title) ? "倒计时" : cd.Title));
+        }
+
+        if (b.ShowDuty)
+        {
+            var dt = Store.LoadDuty();
+            var dlay = b.DutyLayout ?? new HomeworkWallpaperLayout { Anchor = "BottomLeft", UseFixedSize = true, FixedWidth = 400, FixedHeight = 340 };
+            _cards.Add(MakeCard("duty", () => BackdropRenderer.BuildDutyCard(dt, _typo, sf), dlay,
+                string.IsNullOrWhiteSpace(dt.Title) ? "值日生名单" : dt.Title));
+        }
+
         // 自定义便签：按设置里的显示开关，一张一卡（各自独立位置 / 大小）
         foreach (var note in BackdropService.VisibleCustomNotes(_s, b))
         {
@@ -203,10 +220,12 @@ public partial class BackdropEditorWindow : Window
         var card = build();
         double defRatio = kind == "schedule" ? 0.38 : 0.4;
         var tmp = new Canvas { Width = _W, Height = _H };
-        BackdropRenderer.Place(tmp, card, lay, _W, _H, defRatio);
+        // 倒计时卡默认不自适应（fitContent=false），宽度由用户拖动决定；读 DesiredSize 兼容旧存档
+        bool fit = kind == "countdown" && (lay.FitContent ?? false);
+        BackdropRenderer.Place(tmp, card, lay, _W, _H, defRatio, fit);
         double x = Canvas.GetLeft(card);
         double y = Canvas.GetTop(card);
-        double w = card.Width;
+        double w = double.IsNaN(card.Width) ? card.DesiredSize.Width : card.Width;
         double h = card.Height;
         tmp.Children.Remove(card);
 
@@ -463,11 +482,14 @@ public partial class BackdropEditorWindow : Window
             ce.Lay.UseFixedSize = false;
             ce.Lay.FixedHeight = 0;
         }
+        // 用户亲手拖过大小：倒计时卡就不再自动贴合内容，按他定的宽度显示
+        if (ce.Kind == "countdown") ce.Lay.FitContent = false;
 
         var card = ce.Build();
         var tmp = new Canvas { Width = _W, Height = _H };
-        BackdropRenderer.Place(tmp, card, ce.Lay, _W, _H, defRatio);
-        double w = card.Width;
+        bool fit = ce.Kind == "countdown" && (ce.Lay.FitContent ?? false);
+        BackdropRenderer.Place(tmp, card, ce.Lay, _W, _H, defRatio, fit);
+        double w = double.IsNaN(card.Width) ? card.DesiredSize.Width : card.Width;
         double h = card.Height;
         tmp.Children.Remove(card);
 
@@ -564,6 +586,8 @@ public partial class BackdropEditorWindow : Window
         "schedule" => "当天课表",
         "homework" => "作业公示",
         "missing" => "缺交作业名单",
+        "countdown" => "倒计时",
+        "duty" => "值日生名单",
         _ => "自定义便签"
     };
 
@@ -618,6 +642,22 @@ public partial class BackdropEditorWindow : Window
                     if (s.MsWinLeft is double l3 && s.MsWinTop is double t3
                         && s.MsWinWidth is double w3 && s.MsWinHeight is double h3)
                     { dl = l3; dt = t3; dw = w3; dh = h3; }
+                    break;
+                case "countdown":
+                    {
+                        var p = s.PlacementOf(CountdownWindow.PlacementKey);
+                        if (p.Left is double l5 && p.Top is double t5
+                            && p.Width is double w5 && p.Height is double h5)
+                        { dl = l5; dt = t5; dw = w5; dh = h5; }
+                    }
+                    break;
+                case "duty":
+                    {
+                        var p = s.PlacementOf(DutyWindow.PlacementKey);
+                        if (p.Left is double l6 && p.Top is double t6
+                            && p.Width is double w6 && p.Height is double h6)
+                        { dl = l6; dt = t6; dw = w6; dh = h6; }
+                    }
                     break;
                 default:
                     if (ce.NoteId.Length > 0)
@@ -698,6 +738,8 @@ public partial class BackdropEditorWindow : Window
             ce.Lay.FixedHeight = ce.Fixed ? ce.H : 0;
             if (ce.Kind == "schedule") b.ScheduleLayout = ce.Lay;
             else if (ce.Kind == "homework") b.HomeworkLayout = ce.Lay;
+            else if (ce.Kind == "countdown") b.CountdownLayout = ce.Lay;
+            else if (ce.Kind == "duty") b.DutyLayout = ce.Lay;
             else if (ce.NoteId.Length > 0) b.EntryOf(ce.NoteId).Layout = ce.Lay;
             else b.MissingLayout = ce.Lay;
         }

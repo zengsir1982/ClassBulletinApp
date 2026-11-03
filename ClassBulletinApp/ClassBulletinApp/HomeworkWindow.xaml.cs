@@ -205,9 +205,20 @@ public partial class HomeworkWindow : Window
     {
         var board = Store.LoadHomework() ?? new HomeworkBoard();
         _themeKey = string.IsNullOrWhiteSpace(board.Theme) ? "classic" : board.Theme;
-        ApplyTheme(HomeworkThemes.Find(_themeKey));
+        var theme = HomeworkThemes.Find(_themeKey);
+        ApplyTheme(theme);
         TxtTitle.Text = string.IsNullOrWhiteSpace(board.Title) ? "各科作业公示" : board.Title;
+        ApplyTitleStyle(board.TitleStyle, theme);
         RebuildContent(board);
+    }
+
+    /// <summary>应用总标题的字号 / 颜色 / 粗细（未设置时保持主题默认：加粗 + 主题标题色 + 17 号）。</summary>
+    private void ApplyTitleStyle(TextStyle? style, HomeworkTheme t)
+    {
+        TxtTitle.FontSize = HwTextRender.TitleSize(style);
+        TxtTitle.FontWeight = HwTextRender.BoldOr(style, true) ? FontWeights.Bold : FontWeights.Normal;
+        TxtTitle.Foreground = ThemeHelper.Brush(
+            HwTextRender.ColorOr(style, t.HeaderForeground), Color.FromRgb(0x5D, 0x40, 0x37));
     }
 
     private void OnHomeworkChanged() => Reload();
@@ -246,12 +257,19 @@ public partial class HomeworkWindow : Window
             {
                 var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
                 if (!string.IsNullOrWhiteSpace(it.Subject))
+                {
+                    // 科目名：默认加粗 + 主题强调色，可在编辑窗里单独改字号 / 颜色
+                    var ss = it.SubjectStyle;
                     row.Children.Add(new TextBlock
                     {
                         Text = "【" + it.Subject + "】",
-                        FontSize = 15, FontWeight = FontWeights.Bold,
-                        Foreground = accent, TextWrapping = TextWrapping.Wrap
+                        FontSize = HwTextRender.BodySize(ss),
+                        FontWeight = HwTextRender.BoldOr(ss, true) ? FontWeights.Bold : FontWeights.Normal,
+                        Foreground = ThemeHelper.Brush(HwTextRender.ColorOr(ss, t.Accent),
+                                                       Color.FromRgb(0x2D, 0x6C, 0xDF)),
+                        TextWrapping = TextWrapping.Wrap
                     });
+                }
                 row.Children.Add(new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(it.Content) ? "（无）" : it.Content,

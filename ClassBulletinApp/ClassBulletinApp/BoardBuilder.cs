@@ -78,8 +78,8 @@ public static class BoardBuilder
                         WeekTag = "", SubjectColor = "#222222",
                         IsOverridden = true, OverrideType = type,
                         OverrideBadgeText = isSub ? "代课" : "已调课",
-                        OverrideBadgeColor = isSub ? "#2D9CDB" : "#E67E22",
-                        OverrideNote = ov.Note
+                        OverrideBadgeColor = OverrideBadge.Color(type, ov.Source),
+                        OverrideNote = OverrideBadge.Note(ov.Note, type, ov.Source)
                     } }
                 });
             }
@@ -122,8 +122,8 @@ public static class BoardBuilder
                 IsOverridden = true,
                 OverrideType = t,
                 OverrideBadgeText = sub ? "代课" : "已调课",
-                OverrideBadgeColor = sub ? "#2D9CDB" : "#E67E22",
-                OverrideNote = ov.Note
+                OverrideBadgeColor = OverrideBadge.Color(t, ov.Source),
+                OverrideNote = OverrideBadge.Note(ov.Note, t, ov.Source)
             };
         }
 

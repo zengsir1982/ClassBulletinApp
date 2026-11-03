@@ -31,12 +31,6 @@ public partial class CustomNoteEditWindow : Window
         public SolidColorBrush Background { get; init; } = Brushes.White;
     }
 
-    /// <summary>字色下拉项（可在运行中追加自定义颜色）。</summary>
-    private readonly ObservableCollection<ColorOption> _colors = new(EditorStyleOptions.Colors());
-
-    /// <summary>字号下拉项：小 → 巨大共 7 档。</summary>
-    private readonly List<SizeOption> _sizes = EditorStyleOptions.Sizes();
-
     /// <summary>编辑指定便签（已知便签对象时用此构造）。</summary>
     public CustomNoteEditWindow(CustomNote note)
     {
@@ -75,12 +69,6 @@ public partial class CustomNoteEditWindow : Window
             })
             .ToList();
 
-        CbColor.ItemsSource = _colors;
-        CbColor.SelectedValuePath = "Value";
-
-        CbSize.ItemsSource = _sizes;
-        CbSize.SelectedValuePath = "Level";
-
         _loading = false;
     }
 
@@ -95,11 +83,11 @@ public partial class CustomNoteEditWindow : Window
         ChkLocked.IsChecked = note.Locked;
         CbTheme.SelectedIndex = HomeworkThemes.IndexOf(_theme);
 
-        ChkBold.IsChecked = note.Bold;
-        // 自定义颜色（不在预设表里）也补进下拉，避免打开编辑窗就被重置成「默认墨色」
-        CbColor.SelectedItem = EditorStyleOptions.EnsureColor(_colors, note.Color);
-        int lv = Math.Clamp(note.SizeLevel, 0, HwTextStyle.Sizes.Length - 1);
-        CbSize.SelectedItem = _sizes.FirstOrDefault(x => x.Level == lv) ?? _sizes.FirstOrDefault();
+        // 标题 / 内容样式：老数据没有这两个对象，补一个默认的（标题默认加粗），外观与以前一致
+        note.TitleStyle ??= new TextStyle { Bold = true };
+        note.ContentStyle ??= new TextStyle();
+        PickTitleStyle.StyleData = note.TitleStyle;
+        PickContentStyle.StyleData = note.ContentStyle;
 
         _loading = false;
         ApplyFormatToEditor();
@@ -158,12 +146,13 @@ public partial class CustomNoteEditWindow : Window
     {
         Id = _src.Id,
         Title = (TxtTitle.Text ?? "").Trim(),
+        TitleStyle = (_src.TitleStyle ?? new TextStyle { Bold = true }).Clone(),
         Content = (TxtContent.Text ?? "").Trim(),
         Theme = _theme,
         Locked = ChkLocked.IsChecked == true,
-        Bold = ChkBold.IsChecked == true,
-        Color = (CbColor.SelectedItem as ColorOption)?.Value ?? "",
-        SizeLevel = (CbSize.SelectedItem as SizeOption)?.Level ?? 0,
+        Bold = _src.ContentStyle?.Bold ?? false,
+        Color = _src.ContentStyle?.Color ?? "",
+        SizeLevel = _src.ContentStyle?.SizeLevel ?? 0,
         UpdatedAt = DateTime.Now,
         Left = _src.Left,
         Top = _src.Top,
@@ -181,39 +170,23 @@ public partial class CustomNoteEditWindow : Window
         ApplyFormatToEditor();
     }
 
-    private void Format_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        ApplyFormatToEditor();
-    }
+    /// <summary>样式控件改动后，把内容输入框的字体同步成最新（所见即所得）。</summary>
+    private void Style_Changed(object? sender, EventArgs e) => ApplyFormatToEditor();
 
-    /// <summary>调色：选任意颜色后补进下拉并选中，输入框立刻换成该颜色。</summary>
-    private void BtnPickColor_Click(object sender, RoutedEventArgs e)
-    {
-        var cur = (CbColor.SelectedItem as ColorOption)?.Value;
-        if (!EditorStyleOptions.TryPickColor(cur, out string hex)) return;
-
-        _loading = true;
-        CbColor.SelectedItem = EditorStyleOptions.EnsureColor(_colors, hex);
-        _loading = false;
-        ApplyFormatToEditor();
-    }
-
-    /// <summary>把格式设置即时应用到内容输入框本身，所见即所得。</summary>
+    /// <summary>把样式设置即时应用到内容输入框本身。</summary>
     private void ApplyFormatToEditor()
     {
-        if (TxtContent == null || ChkBold == null || CbColor == null || CbSize == null) return;
+        if (TxtContent == null) return;
 
-        TxtContent.FontWeight = ChkBold.IsChecked == true ? FontWeights.Bold : FontWeights.Normal;
-        int level = (CbSize.SelectedItem as SizeOption)?.Level ?? 0;
-        TxtContent.FontSize = Math.Max(10, HwTextStyle.SizeOf(level) - 4);   // 输入框比便签略小一点，便于排版
+        var cs = _src?.ContentStyle ?? new TextStyle();
+        TxtContent.FontWeight = cs.Bold ? FontWeights.Bold : FontWeights.Normal;
+        TxtContent.FontSize = Math.Max(10, HwTextStyle.SizeOf(cs.SizeLevel) - 4);   // 输入框比便签略小一点，便于排版
 
-        var opt = CbColor.SelectedItem as ColorOption;
         var theme = HomeworkThemes.Find(_theme);
         var def = ThemeHelper.Brush(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
-        TxtContent.Foreground = opt == null || string.IsNullOrEmpty(opt.Value)
+        TxtContent.Foreground = string.IsNullOrWhiteSpace(cs.Color)
             ? def
-            : ThemeHelper.Brush(opt.Value, Color.FromRgb(0x33, 0x3B, 0x47));
+            : ThemeHelper.Brush(cs.Color, Color.FromRgb(0x33, 0x3B, 0x47));
     }
 
     private void CbNote_SelectionChanged(object sender, SelectionChangedEventArgs e)

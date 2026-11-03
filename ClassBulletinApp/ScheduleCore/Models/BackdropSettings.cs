@@ -17,6 +17,30 @@ public class BackdropSettings
     /// <summary>壁纸中是否绘制「缺交作业名单」（独立便签，位置 / 主题 / 大小可单独设置）。</summary>
     public bool ShowMissing { get; set; }
 
+    /// <summary>壁纸中是否绘制「倒计时」便签。</summary>
+    public bool ShowCountdown { get; set; }
+
+    /// <summary>壁纸中是否绘制「值日生名单」便签。</summary>
+    public bool ShowDuty { get; set; }
+
+    /// <summary>倒计时便签在壁纸上的位置 / 大小（主题取自 countdown.json 的 Theme）。</summary>
+    public HomeworkWallpaperLayout CountdownLayout { get; set; } = new()
+    {
+        Anchor = "TopRight",
+        UseFixedSize = true,
+        FixedWidth = 360,
+        FixedHeight = 240
+    };
+
+    /// <summary>值日生便签在壁纸上的位置 / 大小（主题取自 duty.json 的 Theme）。</summary>
+    public HomeworkWallpaperLayout DutyLayout { get; set; } = new()
+    {
+        Anchor = "BottomLeft",
+        UseFixedSize = true,
+        FixedWidth = 400,
+        FixedHeight = 340
+    };
+
     /// <summary>当天课表便签的主题风格标识（见 HomeworkThemes.Presets）。</summary>
     public string ScheduleTheme { get; set; } = "blue";
 

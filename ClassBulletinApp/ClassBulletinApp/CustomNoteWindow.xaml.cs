@@ -212,9 +212,20 @@ public partial class CustomNoteWindow : Window
     {
         if (_note == null) return;
         _themeKey = string.IsNullOrWhiteSpace(_note.Theme) ? "plain" : _note.Theme;
-        ApplyTheme(HomeworkThemes.Find(_themeKey));
+        var theme = HomeworkThemes.Find(_themeKey);
+        ApplyTheme(theme);
         TxtTitle.Text = string.IsNullOrWhiteSpace(_note.Title) ? "自定义便签" : _note.Title;
+        ApplyTitleStyle(_note.TitleStyle, theme);
         RebuildContent();
+    }
+
+    /// <summary>应用标题的字号 / 颜色 / 粗细（未设置时保持主题默认：加粗 + 主题标题色 + 17 号）。</summary>
+    private void ApplyTitleStyle(TextStyle? style, HomeworkTheme t)
+    {
+        TxtTitle.FontSize = HwTextRender.TitleSize(style);
+        TxtTitle.FontWeight = HwTextRender.BoldOr(style, true) ? FontWeights.Bold : FontWeights.Normal;
+        TxtTitle.Foreground = ThemeHelper.Brush(
+            HwTextRender.ColorOr(style, t.HeaderForeground), Color.FromRgb(0x1F, 0x2A, 0x37));
     }
 
     private void OnCustomNoteChanged(string? id)

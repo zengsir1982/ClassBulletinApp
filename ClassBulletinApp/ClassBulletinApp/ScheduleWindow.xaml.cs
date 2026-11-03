@@ -35,6 +35,24 @@ public partial class ScheduleWindow : Window
     private AutoHider? _hider;
     private readonly DispatcherTimer _timer;
 
+    /// <summary>日期旁实时时钟的刷新定时器（每秒一次）。</summary>
+    private DispatcherTimer? _clockTimer;
+
+    /// <summary>时钟显示方式：0 = 不显示，1 = 时:分，2 = 时:分:秒。</summary>
+    private int _clockMode;
+
+    /// <summary>「已是最新版本」提示的出现时刻（用于状态栏文案）。</summary>
+    private DateTime _upToDateAt;
+
+    /// <summary>「已是最新版本」红字提示的截止时刻；过了这个点就恢复常规字幕。</summary>
+    private DateTime _upToDateUntil;
+
+    /// <summary>「课表有变化」红字内容（空 = 当前没有变化提示）。</summary>
+    private string _flashText = "";
+
+    /// <summary>「课表有变化」红字保留到什么时候（默认 10 分钟，可在提醒设置里改）。</summary>
+    private DateTime _flashUntil;
+
     /// <summary>程序化应用布局（ApplyLayout）期间置 true，避免把自动定位 / 自动隐藏的位移当成用户拖动保存。</summary>
     private bool _applyingLayout;
 
@@ -95,6 +113,11 @@ public partial class ScheduleWindow : Window
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _timer.Tick += (_, _) => Refresh();
 
+        // 日期旁的实时时钟：每秒只更新那一个 TextBlock，不触发整窗刷新（30 秒的 _timer 只管数据）
+        _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _clockTimer.Tick += (_, _) => { UpdateClockText(); CheckFlashExpiry(); };
+        _clockTimer.Start();
+
         // 所见即所得：按住标题区（班级 / 日期那块及空白处）拖动移动窗口；
         // 鼠标移到窗口边沿 / 四角出现双向箭头时拖动改大小。都只在用户松手时落盘。
         void OnStart() { if (_hider != null) _hider.Suspended = true; }
@@ -114,6 +137,7 @@ public partial class ScheduleWindow : Window
 
         // 内置快捷：点击只发事件，真正打开窗口 / 检查更新由主窗口做（这里不持有它的引用）。
         AppEvents.QuickCheckUpdateDone += OnQuickCheckUpdateDone;
+        AppEvents.ScheduleFlash += OnScheduleFlash;
 
         // 快捷胶囊「自动」档要跟窗口宽度联动：拖动缩放后立刻重排，窄窗挤不下就自动收小
         SizeChanged += (_, _) => ApplyBuiltinQuickActionSize();
@@ -121,8 +145,11 @@ public partial class ScheduleWindow : Window
         Closed += (_, _) =>
         {
             AppEvents.QuickCheckUpdateDone -= OnQuickCheckUpdateDone;
+            AppEvents.ScheduleFlash -= OnScheduleFlash;
             _qaWatchdog?.Stop();
             _qaWatchdog = null;
+            _clockTimer?.Stop();
+            _clockTimer = null;
         };
     }
 
@@ -141,13 +168,17 @@ public partial class ScheduleWindow : Window
         BtnQaMissing.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
         // 便签与作业 / 缺交同属「编辑板报」能力，同一权限口径
         BtnQaNote.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
+        BtnQaCountdown.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
+        BtnQaDuty.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
         // 「更新课表」已移到标题栏，按「管理更新」权限独立显隐（与底部快捷栏无关）
         BtnQaUpdate.Visibility = UserSession.CanManageUpdate ? Visibility.Visible : Visibility.Collapsed;
 
         // 底部快捷栏（作业 / 缺交 / 便签）全无权限时整条收起
         bool any = BtnQaHomework.Visibility == Visibility.Visible
                 || BtnQaMissing.Visibility == Visibility.Visible
-                || BtnQaNote.Visibility == Visibility.Visible;
+                || BtnQaNote.Visibility == Visibility.Visible
+                || BtnQaCountdown.Visibility == Visibility.Visible
+                || BtnQaDuty.Visibility == Visibility.Visible;
         BuiltinWrap.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -156,6 +187,10 @@ public partial class ScheduleWindow : Window
     private void BtnQaMissing_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenMissing();
 
     private void BtnQaNote_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenCustomNote();
+
+    private void BtnQaCountdown_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenCountdown();
+
+    private void BtnQaDuty_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenDuty();
 
     private void BtnQaUpdate_Click(object sender, RoutedEventArgs e)
     {
@@ -218,6 +253,11 @@ public partial class ScheduleWindow : Window
 
         if (!ok) return;        // 失败：按钮已是「更新课表」，不需要任何延时复原
 
+        // 「已是最新版本」：状态栏用红字提示 10 秒，让他知道"点了、查过了、没新东西"，
+        // 而不是看着按钮闪一下就弹回去以为没反应。
+        if (!string.IsNullOrEmpty(message) && message.Contains("已是最新"))
+            ShowUpToDateHint();
+
         TxtQaUpdate.Text = "✔ 完成";
         var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
         t.Tick += (_, _) =>
@@ -227,6 +267,26 @@ public partial class ScheduleWindow : Window
         };
         t.Start();
     }
+
+    /// <summary>状态栏红字提示「已是最新版本（检查时刻）」，10 秒后自动消失。</summary>
+    private void ShowUpToDateHint()
+    {
+        _upToDateAt = DateTime.Now;
+        _upToDateUntil = _upToDateAt.AddSeconds(10);
+        UpdateStatusText();
+
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            _upToDateUntil = default;
+            UpdateStatusText();
+        };
+        t.Start();
+    }
+
+    /// <summary>诊断用：直接触发一次「已是最新版本」提示（截图核对红字与排版）。</summary>
+    internal void SimulateUpToDate() => ShowUpToDateHint();
 
     /// <summary>把多行 / 超长的失败信息压成一行（状态栏只有一行高），过长就截断。</summary>
     private static string OneLine(string? text, int max = 160)
@@ -444,6 +504,30 @@ public partial class ScheduleWindow : Window
     /// <summary>上一次排进字幕的内容。内容没变就不重排，避免 30 秒一次的定时刷新把滚动打断。</summary>
     private string _marqueeSig = "";
 
+    /// <summary>收到「课表有变化」：挂上红字并立即重排字幕。</summary>
+    private void OnScheduleFlash(string summary, int minutes)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(summary)) return;
+            _flashText = summary.Trim();
+            _flashUntil = DateTime.Now.AddMinutes(Math.Max(1, minutes));
+            UpdateStatusText();
+        }
+        catch { }
+    }
+
+    /// <summary>诊断用：模拟一次「课表有变化」，验证状态栏红字排版。</summary>
+    internal void SimulateChangeFlash(string summary, int minutes) => OnScheduleFlash(summary, minutes);
+
+    /// <summary>变化红字到期后自动撤掉（挂在每秒的时钟定时器上，几乎不花代价）。</summary>
+    private void CheckFlashExpiry()
+    {
+        if (_flashText.Length == 0 || DateTime.Now < _flashUntil) return;
+        _flashText = "";
+        UpdateStatusText();
+    }
+
     /// <summary>
     /// 刷新状态栏字幕：把「课表更新时间」和「上次更新失败的原因」拼成一条，超宽就滚动显示。
     /// <para>失败时红字排在<b>最前面</b> —— 状态栏一般只露出开头十来个字，把要紧的放前面才看得见。</para>
@@ -457,7 +541,16 @@ public partial class ScheduleWindow : Window
             string timeText = string.IsNullOrWhiteSpace(at) ? "课表尚未同步更新" : "课表更新于：" + at;
             string failText = _qaFailed ? "更新失败：" + _qaFailMessage : "";
 
-            string sig = timeText + "|" + failText;
+            // 「已是最新版本」只在点完更新后的 10 秒内显示（红字，与失败同色系）
+            bool upToDate = _upToDateUntil > DateTime.Now;
+            string upText = upToDate ? $"已是最新版本（{_upToDateAt:HH:mm:ss}）" : "";
+
+            // 「课表有变化」：由变化监视器触发，默认挂 10 分钟（提醒设置里可改）
+            string flashText = _flashUntil > DateTime.Now && _flashText.Length > 0
+                ? "课表有变化：" + _flashText
+                : "";
+
+            string sig = timeText + "|" + failText + "|" + flashText + "|" + upText;
             if (sig == _marqueeSig) return;      // 内容没变：保留正在滚动的动画，不打断
             _marqueeSig = sig;
 
@@ -470,6 +563,25 @@ public partial class ScheduleWindow : Window
                     FontWeight = FontWeights.SemiBold
                 });
                 TxtMarquee.Inlines.Add(new Run("（点右上「更新课表」可重试）") { Foreground = MarqueeFailBrush });
+                TxtMarquee.Inlines.Add(new Run("　·　") { Foreground = MarqueeNormalBrush });
+            }
+            if (flashText.Length > 0)
+            {
+                TxtMarquee.Inlines.Add(new Run("● " + flashText)
+                {
+                    Foreground = MarqueeFailBrush,
+                    FontWeight = FontWeights.SemiBold
+                });
+                TxtMarquee.Inlines.Add(new Run("（详情见提醒弹窗）") { Foreground = MarqueeFailBrush });
+                TxtMarquee.Inlines.Add(new Run("　·　") { Foreground = MarqueeNormalBrush });
+            }
+            if (upText.Length > 0)
+            {
+                TxtMarquee.Inlines.Add(new Run("✓ " + upText)
+                {
+                    Foreground = MarqueeFailBrush,
+                    FontWeight = FontWeights.SemiBold
+                });
                 TxtMarquee.Inlines.Add(new Run("　·　") { Foreground = MarqueeNormalBrush });
             }
             TxtMarquee.Inlines.Add(new Run(timeText) { Foreground = MarqueeNormalBrush });
@@ -805,6 +917,7 @@ public partial class ScheduleWindow : Window
             : res.ClassName;
         TxtDate.Text = res.DateText;
         TxtWeek.Text = res.WeekLine;
+        ApplyClockMode(s.ScheduleClockMode);
 
         ClassHeader.ToolTip = _isTeacherMode
             ? "双击此处可切换到其他教师，或改看某个班的课表"
@@ -823,9 +936,28 @@ public partial class ScheduleWindow : Window
         UpdateStatusText();
     }
 
-    /// <summary>确保有有效的显示对象；原选中项不存在时自动取第一个并回写设置。</summary>
-    private static string PickName(string? current, ScheduleFile? sf, AppSettings s, bool teacher)
+    /// <summary>
+    /// 应用日期旁的时钟显示方式：0 = 不显示，1 = 时:分，2 = 时:分:秒。
+    /// 关闭时整个 TextBlock 折叠，日期行不会多出空白宽度。
+    /// </summary>
+    private void ApplyClockMode(int mode)
     {
+        _clockMode = Math.Clamp(mode, 0, 2);
+        if (TxtClock == null) return;
+        TxtClock.Visibility = _clockMode == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateClockText();
+    }
+
+    /// <summary>刷新时钟文字（每秒一次）。窗口不可见时直接跳过，不白算。</summary>
+    private void UpdateClockText()
+    {
+        if (TxtClock == null || _clockMode == 0) return;
+        if (!IsVisible) return;
+        TxtClock.Text = DateTime.Now.ToString(_clockMode == 1 ? "HH:mm" : "HH:mm:ss");
+    }
+
+    /// <summary>确保有有效的显示对象；原选中项不存在时自动取第一个并回写设置。</summary>
+    private static string PickName(string? current, ScheduleFile? sf, AppSettings s, bool teacher)    {
         var names = sf?.Classes.Select(c => c.ClassName).Where(n => !string.IsNullOrEmpty(n)).ToList()
                     ?? new List<string>();
         if (!string.IsNullOrEmpty(current) && names.Contains(current)) return current!;

@@ -104,15 +104,17 @@
             <TabItem Header="桌面背景">
                 <ScrollViewer Margin="10">
                     <StackPanel>
-                        <TextBlock Text="🖥 桌面背景（当天课表 + 作业公示 + 缺交名单 + 自定义便签）" FontSize="18" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
-                        <TextBlock Text="把「当天课表」「作业公示」「缺交作业名单」以及自建的「自定义便签」画到桌面壁纸上：位于所有窗口之下，不遮挡、不影响电脑操作，也不会被误触。各便签可同时显示，主题风格、位置与大小各自独立调整。"
+                        <TextBlock Text="🖥 桌面背景（可同时显示多张便签）" FontSize="18" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
+                        <TextBlock Text="把「当天课表」「作业公示」「缺交作业名单」「倒计时」「值日生名单」以及自建的「自定义便签」画到桌面壁纸上：位于所有窗口之下，不遮挡、不影响电脑操作，也不会被误触。各便签可同时显示，主题风格、位置与大小各自独立调整。"
                                    FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,0,0,12"/>
 
                         <TextBlock Text="显示内容" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,8"/>
                         <WrapPanel Margin="12,0,0,6">
                             <CheckBox x:Name="ChkWpSchedule" Content="当天课表" FontSize="14" Margin="0,0,22,0" Click="WpSetting_Changed"/>
                             <CheckBox x:Name="ChkWpHomework" Content="作业公示" FontSize="14" Margin="0,0,22,0" Click="WpSetting_Changed"/>
-                            <CheckBox x:Name="ChkWpMissing" Content="缺交作业名单" FontSize="14" Click="WpSetting_Changed"/>
+                            <CheckBox x:Name="ChkWpMissing" Content="缺交作业名单" FontSize="14" Margin="0,0,22,0" Click="WpSetting_Changed"/>
+                            <CheckBox x:Name="ChkWpCountdown" Content="倒计时" FontSize="14" Margin="0,0,22,0" Click="WpSetting_Changed"/>
+                            <CheckBox x:Name="ChkWpDuty" Content="值日生名单" FontSize="14" Click="WpSetting_Changed"/>
                         </WrapPanel>
                         <CheckBox x:Name="ChkWpOrigin" Content="使用系统原壁纸作为底图（取消则用浅色渐变底）" FontSize="14" Margin="12,6,0,0" Click="WpSetting_Changed"/>
 

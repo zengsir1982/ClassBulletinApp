@@ -118,7 +118,8 @@ public static class BackdropService
             else if (b.HomeworkLayout != null && board != null)
                 board.Layout = b.HomeworkLayout;
 
-            if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing && !b.ShowAnyCustomNote())
+            if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing
+                && !b.ShowCountdown && !b.ShowDuty && !b.ShowAnyCustomNote())
             {
                 Clear();
                 message = "已关闭全部内容，桌面壁纸已恢复。";
@@ -150,11 +151,14 @@ public static class BackdropService
 
             var missing = b.ShowMissing ? Store.LoadMissingBoard() : null;
             var notes = VisibleCustomNotes(s, b);
+            var countdown = b.ShowCountdown ? Store.LoadCountdown() : null;
+            var duty = b.ShowDuty ? Store.LoadDuty() : null;
 
             Directory.CreateDirectory(Store.AppDir);
             BackdropRenderer.RenderToPng(today, title, dateText, weekText,
                 b.ShowHomework ? board : null, missing, notes, b,
-                screen.Bounds.Width, screen.Bounds.Height, PrimaryDpiScale(), origin, OutputPath);
+                screen.Bounds.Width, screen.Bounds.Height, PrimaryDpiScale(), origin, OutputPath,
+                countdown, duty);
 
             // 首次应用前记录系统原壁纸，便于「清除」恢复
             var cur = WallpaperHelper.GetCurrentWallpaper();
@@ -172,6 +176,8 @@ public static class BackdropService
                               b.ShowSchedule ? "当天课表" : null,
                               b.ShowHomework ? "作业公示" : null,
                               b.ShowMissing ? "缺交名单" : null,
+                              b.ShowCountdown ? "倒计时" : null,
+                              b.ShowDuty ? "值日生名单" : null,
                               notes.Count > 0 ? string.Join("、", notes.Select(n => string.IsNullOrWhiteSpace(n.Title) ? "自定义便签" : n.Title)) : null
                           }.Where(x => x != null)) + "）。";
             return true;
@@ -296,7 +302,9 @@ public static class BackdropService
                 b.ShowMissing ? Store.LoadMissingBoard() : null,
                 VisibleCustomNotes(s, b),
                 b, width, height, PrimaryDpiScale(),
-                string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath);
+                string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath,
+                b.ShowCountdown ? Store.LoadCountdown() : null,
+                b.ShowDuty ? Store.LoadDuty() : null);
             message = "已生成桌面背景预览图：" + outPath;
             return true;
         }
@@ -337,7 +345,35 @@ public static class BackdropService
             sb.Append(s.ScheduleKind).Append('|').Append(s.SelectedClass).Append('|')
               .Append(s.SelectedTeacher).Append('|').Append(BoardBuilder.ResolveDisplayDate(s).ToString("yyyyMMdd"))
               .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing)
+              .Append('|').Append(b.ShowCountdown).Append('|').Append(b.ShowDuty)
               .Append('|').Append(b.ShowAnyCustomNote());
+
+            // 倒计时 / 值日生：内容或样式一改就要重绘（否则壁纸停在旧天数上）
+            if (b.ShowCountdown)
+            {
+                var cd = Store.LoadCountdown();
+                sb.Append("|CD").Append(cd.Title).Append(cd.Theme).Append(cd.UpdatedAt.Ticks)
+                  .Append(cd.TitleStyle?.Bold).Append(cd.TitleStyle?.Color).Append(cd.TitleStyle?.SizeLevel)
+                  .Append(cd.ContentStyle?.Bold).Append(cd.ContentStyle?.Color).Append(cd.ContentStyle?.SizeLevel);
+                foreach (var it in cd.SortedItems())
+                    sb.Append('#').Append(it.Name).Append(',').Append(it.TargetDate).Append(',').Append(it.Note);
+                var clay = b.CountdownLayout;
+                sb.Append("|CL").Append(clay?.Anchor).Append(clay?.OffsetX).Append(clay?.OffsetY)
+                  .Append(clay?.WidthRatio).Append(clay?.UseFixedSize).Append(clay?.FixedWidth).Append(clay?.FixedHeight);
+            }
+
+            if (b.ShowDuty)
+            {
+                var dt = Store.LoadDuty();
+                sb.Append("|DT").Append(dt.Title).Append(dt.Theme).Append(dt.UpdatedAt.Ticks)
+                  .Append(dt.TitleStyle?.Bold).Append(dt.TitleStyle?.Color).Append(dt.TitleStyle?.SizeLevel)
+                  .Append(dt.ContentStyle?.Bold).Append(dt.ContentStyle?.Color).Append(dt.ContentStyle?.SizeLevel);
+                foreach (var it in dt.SortedItems())
+                    sb.Append('#').Append(it.Day).Append(',').Append(it.Duty).Append(',').Append(it.Names);
+                var dlay = b.DutyLayout;
+                sb.Append("|DL").Append(dlay?.Anchor).Append(dlay?.OffsetX).Append(dlay?.OffsetY)
+                  .Append(dlay?.WidthRatio).Append(dlay?.UseFixedSize).Append(dlay?.FixedWidth).Append(dlay?.FixedHeight);
+            }
 
             if (b.ShowSchedule)
             {

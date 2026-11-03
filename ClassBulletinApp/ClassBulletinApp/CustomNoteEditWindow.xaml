@@ -1,7 +1,8 @@
 <Window x:Class="ClassBulletinApp.CustomNoteEditWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="自定义便签 · 新增 / 编辑" Height="620" Width="680"
+        xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
+        Title="自定义便签 · 新增 / 编辑" Height="640" Width="720"
         MinWidth="520" MinHeight="500" WindowStartupLocation="CenterScreen"
         ResizeMode="CanResizeWithGrip" Background="#F2F5FA">
     <Grid>
@@ -51,37 +52,13 @@
             </WrapPanel>
         </Border>
 
-        <!-- 内容格式设置（位于输入框上方） -->
+        <!-- 文字样式：标题 / 内容各一行，用统一的 TextStylePicker（加粗 + 字号 + 颜色 + 预览） -->
         <Border Grid.Row="2" Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="0,0,0,1" Padding="16,10">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="内容格式" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,14,0"/>
-                <CheckBox x:Name="ChkBold" Content="加粗" FontSize="14" VerticalAlignment="Center" Margin="0,0,16,0"
-                          Checked="Format_Changed" Unchecked="Format_Changed"/>
-                <TextBlock Text="字色" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <ComboBox x:Name="CbColor" Width="132" FontSize="14" SelectionChanged="Format_Changed"
-                          ToolTip="12 种预设颜色；要别的颜色点右侧「调色…」">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Margin="2">
-                                <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3"
-                                           Fill="{Binding Swatch}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
-                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <Button x:Name="BtnPickColor" Content="调色…" Padding="8,3" FontSize="12" Margin="4,0,0,0"
-                        Background="White" BorderBrush="#D1D5DB" Click="BtnPickColor_Click"
-                        ToolTip="从系统调色板里选任意颜色"/>
-                <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Margin="16,0,8,0"/>
-                <ComboBox x:Name="CbSize" Width="100" FontSize="14" SelectionChanged="Format_Changed"
-                          ToolTip="文字大小（小 → 巨大 共 7 档）">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Name}" FontSize="{Binding PreviewSize}" VerticalAlignment="Center"/>
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
+                <ctl:TextStylePicker x:Name="PickTitleStyle" Label="标题样式" PreviewText="自定义便签"
+                                     Margin="0,0,26,0" StyleChanged="Style_Changed"/>
+                <ctl:TextStylePicker x:Name="PickContentStyle" Label="内容样式" PreviewText="正文示例"
+                                     StyleChanged="Style_Changed"/>
             </WrapPanel>
         </Border>
 

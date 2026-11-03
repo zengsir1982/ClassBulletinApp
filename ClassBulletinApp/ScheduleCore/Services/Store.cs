@@ -47,6 +47,8 @@ public static class Store
     static string UsersPath => Path.Combine(AppDir, "users.json");
     static string HomeworkPath => Path.Combine(AppDir, "homework.json");
     static string MissingPath => Path.Combine(AppDir, "missing.json");
+    static string CountdownPath => Path.Combine(AppDir, "countdown.json");
+    static string DutyPath => Path.Combine(AppDir, "duty.json");
 
     static JsonSerializerOptions Opt => new()
     {
@@ -105,6 +107,28 @@ public static class Store
         File.WriteAllText(MissingPath, JsonSerializer.Serialize(board, Opt));
     }
 
+    public static void SaveCountdown(CountdownBoard board)
+    {
+        if (!EnablePersistence) return;
+        Ensure();
+        File.WriteAllText(CountdownPath, JsonSerializer.Serialize(board, Opt));
+    }
+
+    /// <summary>读取倒计时便签（没有文件时返回一个空白板，由界面提示「双击添加」）。</summary>
+    public static CountdownBoard LoadCountdown()
+        => ReadJsonOrNull<CountdownBoard>(CountdownPath) ?? new CountdownBoard();
+
+    public static void SaveDuty(DutyBoard board)
+    {
+        if (!EnablePersistence) return;
+        Ensure();
+        File.WriteAllText(DutyPath, JsonSerializer.Serialize(board, Opt));
+    }
+
+    /// <summary>读取值日生名单（没有文件时返回一个空白板）。</summary>
+    public static DutyBoard LoadDuty()
+        => ReadJsonOrNull<DutyBoard>(DutyPath) ?? new DutyBoard();
+
     /// <summary>
     /// 读取「缺交作业名单」独立便签数据。首次调用（还没有 missing.json）时，
     /// 自动把旧版 homework.json 里的 Missing 列表迁移过来，迁移后清空旧字段避免两处重复。
@@ -162,7 +186,33 @@ public static class Store
         // 旧版本的设置界面允许存 0~1440，而运行期只认 5~720 —— 于是"设 3 实际按 5 跑"，
         // 设置窗显示的还不是真实生效值。自愈成合法区间并落盘，两处就永远一致了。
         if (NormalizeUpdateInterval(s)) SaveSettings(s);
+        // 「课表变化提醒」的新默认值（全屏大字 / 15 秒 / 语音关）也要落到老配置上，否则改了默认
+        // 只有新装的机器生效，老机器还按 5 秒小窗跑。
+        if (UpgradeChangeReminderDefaults(s)) SaveSettings(s);
         return s;
+    }
+
+    /// <summary>
+    /// 把「课表变化提醒」升到新默认值：<b>全屏大字 / 停留 15 秒 / 语音开</b>。
+    /// <para><b>为什么是强制写而不判断"是否仍是旧默认值"：</b>这几项在旧版里本来就有默认值
+    /// （小窗 / 5 秒 / 语音开），用户可能已经手动调过（比如调成 10 秒），
+    /// 按"旧默认值才升"的写法会把这些机器漏掉，导致"改了默认值却看不出变化"。</para>
+    /// <para><b>代次（<see cref="AppSettings.ReminderDefaultsRev"/>）：</b>1 = 全屏 / 15 秒 / 语音关；
+    /// 2 = 再把语音改回开（本次需求变更）。代次只单向递增，保证每次调整只生效一次 ——
+    /// 用户升级后再改回去，下次启动不会被打回。</para>
+    /// </summary>
+    public static bool UpgradeChangeReminderDefaults(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.ReminderDefaultsRev >= 2) return false;
+
+        var r = s.Reminder ??= new ReminderSettings();
+        r.ChangeFullScreen = true;   // 教室里后排也看得清
+        r.ChangeSeconds = 15;        // 15 秒够读完，又不至于一直挂在屏幕上
+        r.ChangeVoice = true;        // 语音播报默认开
+
+        s.ReminderDefaultsRev = 2;
+        return true;
     }
 
     /// <summary>
@@ -383,7 +433,8 @@ public static class Store
             var files = new[]
             {
                 SchedulePath, TeacherSchedulePath, OverridesPath,
-                NotificationsPath, SettingsPath, HomeworkPath, MissingPath, UsersPath
+                NotificationsPath, SettingsPath, HomeworkPath, MissingPath,
+                CountdownPath, DutyPath, UsersPath
             }.Where(File.Exists).ToList();
 
             if (files.Count == 0) return "";
@@ -509,7 +560,8 @@ public static class Store
             var files = new[]
             {
                 "schedule.json", "teacher_schedule.json", "overrides.json",
-                "notifications.json", "settings.json", "homework.json", "missing.json", "users.json"
+                "notifications.json", "settings.json", "homework.json", "missing.json",
+                "countdown.json", "duty.json", "users.json"
             };
 
             int restored = 0;

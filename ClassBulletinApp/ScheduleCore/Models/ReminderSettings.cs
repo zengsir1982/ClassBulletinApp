@@ -62,6 +62,44 @@ public class ReminderSettings
     /// <summary>提醒窗口显示时长（秒）。</summary>
     public int DisplaySeconds { get; set; } = 8;
 
+    // ---------- 提醒小窗的位置与大小 ----------
+    // 上下课提醒与「课表有变化」提示共用这一个小窗，所以位置 / 大小也只设一份。
+    // 由「提醒设置」页的「调整小窗位置与大小」按所见即所得拖动得到。
+
+    /// <summary>整体缩放（0.6 ~ 2.0，1 = 默认大小）；同时决定小窗宽度与字号。</summary>
+    public double PopupScale { get; set; } = 1;
+
+    /// <summary>小窗左上角 X（逻辑像素）；null = 屏幕顶部居中。</summary>
+    public double? PopupLeft { get; set; }
+
+    /// <summary>小窗左上角 Y（逻辑像素）；null = 工作区顶部下方 72。</summary>
+    public double? PopupTop { get; set; }
+
+    // ---------- 课表变化提醒 ----------
+    // 「课程有变化」（手动调课 / 导入临时表 / 同步更新包 / 更新课表）时主动提示，
+    // 与上下课提醒相互独立：上下课按时段触发，这里按内容变化触发。
+
+    /// <summary>是否启用「课表有变化」提醒。</summary>
+    public bool ChangeEnabled { get; set; } = true;
+
+    /// <summary>变化提示是否用全屏大字（false = 顶部小窗）。默认全屏：教室里后排也看得清。</summary>
+    public bool ChangeFullScreen { get; set; } = true;
+
+    /// <summary>变化提示的停留时长（秒）。</summary>
+    public int ChangeSeconds { get; set; } = 15;
+
+    /// <summary>变化提示在悬浮课表状态栏的红字保留时长（分钟）。</summary>
+    public int ChangeStatusMinutes { get; set; } = 10;
+
+    /// <summary>变化时是否语音播报（音色 / 语速 / 音量沿用上面的语音设置）。默认开。</summary>
+    public bool ChangeVoice { get; set; } = true;
+
+    /// <summary>
+    /// 变化发生在「上课时间内」时，延后到下课后多少分钟再弹窗
+    /// （课堂上弹窗会打断教学，默认等下课 2 分钟）。
+    /// </summary>
+    public int ChangeDelayMinutes { get; set; } = 2;
+
     public ReminderSettings()
     {
         ClassStart = new ReminderProfile

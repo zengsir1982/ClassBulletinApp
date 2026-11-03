@@ -51,3 +51,5 @@ _td_tsv.txt
 数据对接方案/data/
 ClassBulletinApp/_buildcheck/
 ClassBulletinApp/_run/
+# 诊断构建输出（-p:OutputPath=_diagbuild 生成的中间产物，绝不入库）
+**/_diagbuild/

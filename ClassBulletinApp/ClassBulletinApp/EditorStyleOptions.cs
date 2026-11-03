@@ -74,7 +74,8 @@ internal static class EditorStyleOptions
         var hit = list.FirstOrDefault(x => string.Equals(x.Value, v, StringComparison.OrdinalIgnoreCase));
         if (hit != null) return hit;
 
-        var opt = MakeColor(v, string.IsNullOrEmpty(v) ? HwTextStyle.PresetColors[0].Name : "自定义 " + v.ToUpperInvariant());
+        // 自定义色直接显示 #RRGGBB：下拉只有 112 宽，"自定义 #RRGGBB" 会被截成"自定义 #8C"看不出是哪个色
+        var opt = MakeColor(v, string.IsNullOrEmpty(v) ? HwTextStyle.PresetColors[0].Name : v.ToUpperInvariant());
         list.Add(opt);
         return opt;
     }

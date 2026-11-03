@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace ScheduleCore.Models;
 
@@ -15,21 +16,42 @@ public class HomeworkItem : INotifyPropertyChanged
 {
     private string _subject = "";
     private string _content = "";
-    private bool _bold;
-    private string _color = "";
-    private int _sizeLevel;
+
+    public HomeworkItem()
+    {
+        // 正文样式对象内部变化时，把属性名原样转发出去 ——
+        // 编辑窗里绑定 {Binding Bold} / {Binding Color} 的输入框才能即时预览。
+        ContentStyle.PropertyChanged += (_, e)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(e.PropertyName));
+        SubjectStyle.PropertyChanged += (_, e)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Subject" + e.PropertyName));
+    }
 
     public string Subject { get => _subject; set => Set(ref _subject, value); }
     public string Content { get => _content; set => Set(ref _content, value); }
 
+    /// <summary>
+    /// 作业内容的样式（加粗 / 颜色 / 字号档位）。
+    /// <para>★ 不参与 JSON 序列化：外面的 <see cref="Bold"/> / <see cref="Color"/> / <see cref="SizeLevel"/>
+    /// 是它的代理属性，序列化后仍是原来的平铺三个字段，老数据包与老版本双向兼容。</para>
+    /// </summary>
+    [JsonIgnore]
+    public TextStyle ContentStyle { get; set; } = new();
+
     /// <summary>作业内容是否加粗。</summary>
-    public bool Bold { get => _bold; set => Set(ref _bold, value); }
+    public bool Bold { get => ContentStyle.Bold; set => ContentStyle.Bold = value; }
 
     /// <summary>作业内容颜色（#RRGGBB；空表示默认墨色，实际取主题正文色）。</summary>
-    public string Color { get => _color; set => Set(ref _color, value); }
+    public string Color { get => ContentStyle.Color; set => ContentStyle.Color = value ?? ""; }
 
     /// <summary>作业内容字号档位（见 <see cref="HwTextStyle.LevelNames"/>）。</summary>
-    public int SizeLevel { get => _sizeLevel; set => Set(ref _sizeLevel, value); }
+    public int SizeLevel { get => ContentStyle.SizeLevel; set => ContentStyle.SizeLevel = value; }
+
+    /// <summary>
+    /// 科目名（「【语文】」这几个字）的独立样式：字号 / 颜色 / 加粗。
+    /// 为空（老数据）时按「加粗 + 主题强调色 + 标准档」渲染，与加这个功能之前完全一致。
+    /// </summary>
+    public TextStyle SubjectStyle { get; set; } = new() { Bold = true };
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -232,6 +254,14 @@ public class HomeworkWallpaperLayout
 
     /// <summary>固定高度（像素，0 表示高度随内容自适应）。</summary>
     public double FixedHeight { get; set; } = 560;
+
+    /// <summary>
+    /// 卡片宽度是否跟着内容走（<see cref="FixedWidth"/> 只当上限），高度也随内容。
+    /// 倒计时卡默认 false：宽度由用户在排版编辑器里拖动决定（取消自适应收窄）。
+    /// <para>null = 用各卡片的默认值（倒计时默认自适应：名字和天数紧挨着排，卡片收窄才像一块整体）；
+    /// 用户在排版设置里亲手拖过大小后会写成 false，尊重他定的尺寸。</para>
+    /// </summary>
+    public bool? FitContent { get; set; }
 }
 
 /// <summary>单条缺交作业记录：可指定科目（留空表示通用），以及缺交学生姓名（换行 / 逗号分隔）。</summary>
@@ -239,9 +269,14 @@ public class MissingHomeworkItem : INotifyPropertyChanged
 {
     private string _subject = "";
     private string _students = "";
-    private bool _bold;
-    private string _color = "";
-    private int _sizeLevel;
+
+    public MissingHomeworkItem()
+    {
+        ContentStyle.PropertyChanged += (_, e)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(e.PropertyName));
+        SubjectStyle.PropertyChanged += (_, e)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Subject" + e.PropertyName));
+    }
 
     /// <summary>科目（留空表示通用 / 不区分科目）。</summary>
     public string Subject { get => _subject; set => Set(ref _subject, value); }
@@ -249,14 +284,21 @@ public class MissingHomeworkItem : INotifyPropertyChanged
     /// <summary>缺交学生姓名：每行一个或用逗号 / 顿号分隔均可。</summary>
     public string Students { get => _students; set => Set(ref _students, value); }
 
+    /// <summary>名单样式（加粗 / 颜色 / 字号）；不参与序列化，外面三个属性是它的代理。</summary>
+    [JsonIgnore]
+    public TextStyle ContentStyle { get; set; } = new();
+
     /// <summary>名单是否加粗。</summary>
-    public bool Bold { get => _bold; set => Set(ref _bold, value); }
+    public bool Bold { get => ContentStyle.Bold; set => ContentStyle.Bold = value; }
 
     /// <summary>名单颜色（#RRGGBB；空表示默认墨色）。</summary>
-    public string Color { get => _color; set => Set(ref _color, value); }
+    public string Color { get => ContentStyle.Color; set => ContentStyle.Color = value ?? ""; }
 
     /// <summary>名单字号档位（见 <see cref="HwTextStyle.LevelNames"/>）。</summary>
-    public int SizeLevel { get => _sizeLevel; set => Set(ref _sizeLevel, value); }
+    public int SizeLevel { get => ContentStyle.SizeLevel; set => ContentStyle.SizeLevel = value; }
+
+    /// <summary>科目名（「【语文】」）的独立样式：字号 / 颜色 / 加粗；空 = 加粗 + 主题强调色 + 标准档。</summary>
+    public TextStyle SubjectStyle { get; set; } = new() { Bold = true };
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -272,6 +314,10 @@ public class MissingHomeworkItem : INotifyPropertyChanged
 public class HomeworkBoard
 {
     public string Title { get; set; } = "各科作业公示";
+
+    /// <summary>总标题（顶部条那行字）的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+
     public List<HomeworkItem> Items { get; set; } = new();
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 
@@ -296,6 +342,9 @@ public class MissingBoard
 {
     public string Title { get; set; } = "缺交作业名单";
 
+    /// <summary>总标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+
     /// <summary>各科目缺交记录（科目可留空表示通用）。</summary>
     public List<MissingHomeworkItem> Items { get; set; } = new();
 
@@ -318,17 +367,24 @@ public class CustomNote
     /// <summary>便签标题（显示在顶部条）。</summary>
     public string Title { get; set; } = "自定义便签";
 
+    /// <summary>标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+
     /// <summary>便签正文（支持多行）。</summary>
     public string Content { get; set; } = "";
 
+    /// <summary>正文样式（加粗 / 颜色 / 字号）；不参与序列化，下面三个属性是它的代理，JSON 格式保持不变。</summary>
+    [JsonIgnore]
+    public TextStyle ContentStyle { get; set; } = new();
+
     /// <summary>正文是否加粗。</summary>
-    public bool Bold { get; set; }
+    public bool Bold { get => ContentStyle.Bold; set => ContentStyle.Bold = value; }
 
     /// <summary>正文颜色（#RRGGBB；空表示随主题正文色）。</summary>
-    public string Color { get; set; } = "";
+    public string Color { get => ContentStyle.Color; set => ContentStyle.Color = value ?? ""; }
 
     /// <summary>正文字号档位：0=标准 1=小 2=大 3=特大（与作业公示共用 HwTextStyle）。</summary>
-    public int SizeLevel { get; set; }
+    public int SizeLevel { get => ContentStyle.SizeLevel; set => ContentStyle.SizeLevel = value; }
 
     /// <summary>便签主题风格标识（见 HomeworkThemes.Presets）。</summary>
     public string Theme { get; set; } = "plain";

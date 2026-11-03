@@ -14,6 +14,9 @@ namespace ClassBulletinApp;
 
 public partial class MainWindow : Window
 {
+    /// <summary>诊断用：打开时把「提醒设置」页滚到最底部（<c>--shot mainremindend</c>）。</summary>
+    internal bool ReminderScrollEnd;
+
     private bool _isFull;
     private bool _locked;
     private bool _exiting;
@@ -22,7 +25,9 @@ public partial class MainWindow : Window
     private NotificationWindow? _notifWin;
     private HomeworkWindow? _hwWin;
     private MissingWindow? _msWin;
-    private bool _schOn, _notOn, _hwOn, _msOn;
+    private CountdownWindow? _cdWin;
+    private DutyWindow? _dutyWin;
+    private bool _schOn, _notOn, _hwOn, _msOn, _cdOn, _dutyOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
     // 教师个人课表下拉（支持输入姓名查询）
@@ -69,6 +74,8 @@ public partial class MainWindow : Window
         AppEvents.QuickOpenHomework += OnQuickOpenHomework;
         AppEvents.QuickOpenMissing += OnQuickOpenMissing;
         AppEvents.QuickOpenCustomNote += OnQuickOpenCustomNote;
+        AppEvents.QuickOpenCountdown += OnQuickOpenCountdown;
+        AppEvents.QuickOpenDuty += OnQuickOpenDuty;
         AppEvents.QuickCheckUpdate += OnQuickCheckUpdate;
     }
 
@@ -138,6 +145,44 @@ public partial class MainWindow : Window
                 : $"已在桌面显示 {visible.Count} 张自定义便签（双击便签或点「编辑」可修改内容）。";
         }
         catch (Exception ex) { TxtStatus.Text = "打开自定义便签失败：" + ex.Message; }
+    }
+
+    /// <summary>悬浮课表「倒计时」快捷入口：显示并置前倒计时便签（一张都没有时直接打开编辑窗口）。</summary>
+    private void OnQuickOpenCountdown()
+    {
+        if (!UserSession.CanEditBoard)
+        {
+            TxtStatus.Text = "当前账号（" + UserSession.Caption + "）没有编辑便签的权限，"
+                + "需要管理员在「用户管理 → 角色权限」里打开。";
+            return;
+        }
+        try
+        {
+            bool empty = Store.LoadCountdown().Items.Count == 0;
+            ShowCountdownWin();
+            if (empty) OpenCountdownEditor();
+            TxtStatus.Text = "倒计时便签已显示（双击便签可编辑事件）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "打开倒计时失败：" + ex.Message; }
+    }
+
+    /// <summary>悬浮课表「值日」快捷入口：显示并置前值日生名单便签。</summary>
+    private void OnQuickOpenDuty()
+    {
+        if (!UserSession.CanEditBoard)
+        {
+            TxtStatus.Text = "当前账号（" + UserSession.Caption + "）没有编辑便签的权限，"
+                + "需要管理员在「用户管理 → 角色权限」里打开。";
+            return;
+        }
+        try
+        {
+            bool empty = Store.LoadDuty().Items.Count == 0;
+            ShowDutyWin();
+            if (empty) OpenDutyEditor();
+            TxtStatus.Text = "值日生名单已显示（双击便签可编辑）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "打开值日生名单失败：" + ex.Message; }
     }
 
     private async void OnQuickCheckUpdate()
@@ -236,6 +281,7 @@ public partial class MainWindow : Window
             ReloadMissing();
             ReloadNotifStyle();
             PopulateThemeCombo(settings.Theme);
+            PopulateClockCombo(settings.ScheduleClockMode);
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -249,9 +295,17 @@ public partial class MainWindow : Window
         // 课表数据 / 显示对象变化时（含悬浮窗与周视图的双击切换），同步顶栏下拉与模式提示
         AppEvents.ScheduleChanged += SyncTargetUi;
 
+        // 诊断用：截图时把「提醒设置」页滚到最底部，便于核对新增区块
+        if (ReminderScrollEnd)
+            Dispatcher.BeginInvoke(new Action(() => { try { ReminderScroll?.ScrollToEnd(); } catch { } }));
+
         // 上下课提醒后台服务
         try { ReminderService.Start(); }
         catch (Exception ex) { TxtStatus.Text += " [提醒服务启动失败：" + ex.Message + "]"; }
+
+        // 课表内容变化监视（手动调课 / 导入临时表 / 更新课表后主动提示）
+        try { ScheduleChangeWatcher.Start(); }
+        catch (Exception ex) { TxtStatus.Text += " [变化提醒启动失败：" + ex.Message + "]"; }
 
         // 桌面背景：课表 / 作业变化、跨天时自动重绘（仅在已应用时）
         try
@@ -280,6 +334,9 @@ public partial class MainWindow : Window
             // 自定义便签：每张各自记住 Visible 开关，启动即恢复显示中的便签
             foreach (var cn in settings.CustomNotes)
                 if (cn.Visible) ShowCustomNote(cn.Id);
+            // 倒计时 / 值日生名单：同样按记录恢复（默认 Visible=true，第一次启动就浮出来）
+            if (settings.PlacementOf(CountdownWindow.PlacementKey).Visible) ShowCountdownWin();
+            if (settings.PlacementOf(DutyWindow.PlacementKey).Visible) ShowDutyWin();
         }
         catch (Exception ex) { TxtStatus.Text += " [悬浮窗启动失败：" + ex.Message + "]"; }
 
@@ -493,6 +550,105 @@ public partial class MainWindow : Window
         UpdateToggleLabels();
     }
 
+    // ---------- 倒计时 / 值日生名单（与作业便签同一套：悬浮 + 设为背景 + 位置记忆） ----------
+
+    private void ShowCountdownWin()
+    {
+        if (_cdWin == null)
+        {
+            _cdWin = new CountdownWindow();
+            _cdWin.Closed += (_, _) => { _cdWin = null; _cdOn = false; UpdateToggleLabels(); };
+            // ✕ 只是 Hide，靠可见性变化把按钮文案拉回来
+            _cdWin.IsVisibleChanged += (_, _) =>
+            {
+                bool vis = _cdWin?.IsVisible == true;
+                if (_cdOn != vis) { _cdOn = vis; UpdateToggleLabels(); }
+            };
+        }
+        _cdWin.Show();
+        FloatingHelper.ClampToScreen(_cdWin);
+        FloatingHelper.BringToFront(_cdWin);
+        SetNoteVisible(CountdownWindow.PlacementKey, true);
+        _cdOn = true;
+        UpdateToggleLabels();
+    }
+
+    private void HideCountdownWin()
+    {
+        _cdWin?.Hide();
+        SetNoteVisible(CountdownWindow.PlacementKey, false);
+        _cdOn = false;
+        UpdateToggleLabels();
+    }
+
+    private void ShowDutyWin()
+    {
+        if (_dutyWin == null)
+        {
+            _dutyWin = new DutyWindow();
+            _dutyWin.Closed += (_, _) => { _dutyWin = null; _dutyOn = false; UpdateToggleLabels(); };
+            _dutyWin.IsVisibleChanged += (_, _) =>
+            {
+                bool vis = _dutyWin?.IsVisible == true;
+                if (_dutyOn != vis) { _dutyOn = vis; UpdateToggleLabels(); }
+            };
+        }
+        _dutyWin.Show();
+        FloatingHelper.ClampToScreen(_dutyWin);
+        FloatingHelper.BringToFront(_dutyWin);
+        SetNoteVisible(DutyWindow.PlacementKey, true);
+        _dutyOn = true;
+        UpdateToggleLabels();
+    }
+
+    private void HideDutyWin()
+    {
+        _dutyWin?.Hide();
+        SetNoteVisible(DutyWindow.PlacementKey, false);
+        _dutyOn = false;
+        UpdateToggleLabels();
+    }
+
+    /// <summary>记住这张便签"下次启动要不要自己浮出来"。</summary>
+    private static void SetNoteVisible(string key, bool visible)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            var p = s.PlacementOf(key);
+            if (p.Visible == visible) return;
+            p.Visible = visible;
+            Store.SaveSettings(s);
+        }
+        catch { }
+    }
+
+    private void OpenCountdownEditor()
+    {
+        try
+        {
+            bool wasTop = _cdWin?.Topmost == true;
+            if (_cdWin != null) _cdWin.Topmost = false;
+            new CountdownEditWindow { Owner = _cdWin }.ShowDialog();
+            if (_cdWin != null) _cdWin.Topmost = wasTop;
+            AppEvents.RaiseCountdownChanged();
+        }
+        catch (Exception ex) { TxtStatus.Text = "编辑倒计时失败：" + ex.Message; }
+    }
+
+    private void OpenDutyEditor()
+    {
+        try
+        {
+            bool wasTop = _dutyWin?.Topmost == true;
+            if (_dutyWin != null) _dutyWin.Topmost = false;
+            new DutyEditWindow { Owner = _dutyWin }.ShowDialog();
+            if (_dutyWin != null) _dutyWin.Topmost = wasTop;
+            AppEvents.RaiseDutyChanged();
+        }
+        catch (Exception ex) { TxtStatus.Text = "编辑值日生名单失败：" + ex.Message; }
+    }
+
     // ---------- 取消桌面背景（「设为背景」的反向操作） ----------
 
     /// <summary>
@@ -556,6 +712,14 @@ public partial class MainWindow : Window
                 {
                     ShowMissingWin();
                 }
+                else if (string.Equals(token, "Countdown", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowCountdownWin();
+                }
+                else if (string.Equals(token, "Duty", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowDutyWin();
+                }
                 else if (token.StartsWith("note:", StringComparison.OrdinalIgnoreCase))
                 {
                     string id = token.Substring(5);
@@ -583,6 +747,8 @@ public partial class MainWindow : Window
         // 作业 / 缺交便签的开关只在「作业公示」标签页里（显示设置页已不再重复放一套）
         if (BtnToggleHw2 != null) BtnToggleHw2.Content = _hwOn ? "隐藏作业便签" : "显示作业便签";
         if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
+        if (BtnToggleCd != null) BtnToggleCd.Content = _cdOn ? "隐藏倒计时便签" : "显示倒计时便签";
+        if (BtnToggleDuty != null) BtnToggleDuty.Content = _dutyOn ? "隐藏值日便签" : "显示值日便签";
         UpdateModeIndicator();
     }
 
@@ -826,6 +992,14 @@ public partial class MainWindow : Window
         TxtRemindSeconds.Text = Math.Clamp(r.DisplaySeconds, 3, 60).ToString();
         ChkRemindSound.IsChecked = r.PlaySound;
 
+        // 课表变化提醒
+        ChkChangeOn.IsChecked = r.ChangeEnabled;
+        ChkChangeFull.IsChecked = r.ChangeFullScreen;
+        ChkChangeVoice.IsChecked = r.ChangeVoice;
+        TxtChangeSeconds.Text = Math.Clamp(r.ChangeSeconds, 1, 60).ToString();
+        TxtChangeStatusMin.Text = Math.Clamp(r.ChangeStatusMinutes, 1, 120).ToString();
+        TxtChangeDelay.Text = Math.Clamp(r.ChangeDelayMinutes, 0, 60).ToString();
+
         // 语音：列出系统已安装语音，首项「系统默认」会自动优先选择中文语音
         ChkRemindVoice.IsChecked = r.VoiceEnabled;
         var voices = new List<string> { "（系统默认 · 自动选中文语音）" };
@@ -837,8 +1011,46 @@ public partial class MainWindow : Window
         SlVoiceVolume.Value = Math.Clamp(r.VoiceVolume, 0, 100);
         UpdateVoiceLabels();
         UpdateVoiceEnabledUi();
+        UpdatePopupLayoutText(r);
 
         _remindReady = true;
+    }
+
+    /// <summary>「调整小窗位置与大小」：开一个和真实提醒一模一样的小窗，拖完保存。</summary>
+    private void BtnPopupLayout_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            var r = s.Reminder ??= new ReminderSettings();
+
+            var w = new ReminderPopup(interactive: true);
+            w.BeginLayoutEdit(r, saved =>
+            {
+                try
+                {
+                    var s2 = Store.LoadSettings();
+                    s2.Reminder ??= new ReminderSettings();
+                    s2.Reminder.PopupScale = saved.PopupScale;
+                    s2.Reminder.PopupLeft = saved.PopupLeft;
+                    s2.Reminder.PopupTop = saved.PopupTop;
+                    Store.SaveSettings(s2);
+                    UpdatePopupLayoutText(s2.Reminder);
+                    TxtStatus.Text = "已保存提醒小窗的位置与大小。";
+                }
+                catch (Exception ex) { TxtStatus.Text = "保存小窗位置失败：" + ex.Message; }
+            });
+        }
+        catch (Exception ex) { TxtStatus.Text = "打开小窗调整失败：" + ex.Message; }
+    }
+
+    /// <summary>把当前小窗位置与大小写成一句人话（顶部居中 / 已自定义 · 缩放百分比）。</summary>
+    private void UpdatePopupLayoutText(ReminderSettings? r)
+    {
+        if (TxtPopupLayout == null) return;
+        double s = r != null && r.PopupScale > 0 ? r.PopupScale : 1;
+        string where = r?.PopupLeft is double && r?.PopupTop is double ? "已自定义位置" : "顶部居中";
+        TxtPopupLayout.Text = $"当前：{where} · {s * 100:0}%";
     }
 
     private void UpdateVoiceLabels()
@@ -926,6 +1138,13 @@ public partial class MainWindow : Window
 
             r.DisplaySeconds = ParseSeconds(TxtRemindSeconds.Text);
             r.PlaySound = ChkRemindSound.IsChecked == true;
+
+            r.ChangeEnabled = ChkChangeOn.IsChecked == true;
+            r.ChangeFullScreen = ChkChangeFull.IsChecked == true;
+            r.ChangeVoice = ChkChangeVoice.IsChecked == true;
+            r.ChangeSeconds = ParseRange(TxtChangeSeconds.Text, 1, 60, 15);
+            r.ChangeStatusMinutes = ParseRange(TxtChangeStatusMin.Text, 1, 120, 10);
+            r.ChangeDelayMinutes = ParseRange(TxtChangeDelay.Text, 0, 60, 2);
             r.VoiceEnabled = ChkRemindVoice.IsChecked == true;
             r.VoiceName = SelectedVoiceName();
             r.VoiceRate = (int)SlVoiceRate.Value;
@@ -940,6 +1159,10 @@ public partial class MainWindow : Window
 
     private static int ParseSeconds(string? text)
         => int.TryParse(text?.Trim(), out var v) && v >= 3 && v <= 60 ? v : 8;
+
+    /// <summary>解析有范围的整数设置；空或越界时返回默认值（避免用户删空输入框就把设置归零）。</summary>
+    private static int ParseRange(string? text, int min, int max, int fallback)
+        => int.TryParse(text?.Trim(), out var v) && v >= min && v <= max ? v : fallback;
 
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
     {
@@ -960,6 +1183,20 @@ public partial class MainWindow : Window
     {
         if (_msOn) HideMissingWin(); else ShowMissingWin();
     }
+
+    private void BtnToggleCd_Click(object sender, RoutedEventArgs e)
+    {
+        if (_cdOn) HideCountdownWin(); else ShowCountdownWin();
+    }
+
+    private void BtnToggleDuty_Click(object sender, RoutedEventArgs e)
+    {
+        if (_dutyOn) HideDutyWin(); else ShowDutyWin();
+    }
+
+    private void BtnEditCountdown_Click(object sender, RoutedEventArgs e) => OpenCountdownEditor();
+
+    private void BtnEditDuty_Click(object sender, RoutedEventArgs e) => OpenDutyEditor();
 
     // ---------- 缺交作业名单（独立便签，内容 / 格式 / 主题都在弹窗里改） ----------
     private void ReloadMissing()
@@ -1160,6 +1397,46 @@ public partial class MainWindow : Window
     {
         var w = new LayoutWindow { Owner = this };
         w.ShowDialog();
+    }
+
+    // ---------- 悬浮课表日期旁的实时时钟 ----------
+    /// <summary>时钟已初始化（防止 SelectionChanged 在灌数据时回写设置）。</summary>
+    private bool _clockModeLoading;
+
+    /// <summary>填充「日期旁时钟」下拉（不显示 / 时:分 / 时:分:秒）。</summary>
+    private void PopulateClockCombo(int mode)
+    {
+        if (CbClockMode == null) return;
+        _clockModeLoading = true;
+        try
+        {
+            CbClockMode.Items.Clear();
+            CbClockMode.Items.Add(new ComboBoxItem { Content = "不显示", Tag = 0 });
+            CbClockMode.Items.Add(new ComboBoxItem { Content = "显示 时:分", Tag = 1 });
+            CbClockMode.Items.Add(new ComboBoxItem { Content = "显示 时:分:秒", Tag = 2 });
+            CbClockMode.SelectedIndex = Math.Clamp(mode, 0, 2);
+        }
+        finally { _clockModeLoading = false; }
+    }
+
+    private void CbClockMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_clockModeLoading || CbClockMode == null) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.ScheduleClockMode = Math.Clamp(CbClockMode.SelectedIndex, 0, 2);
+            Store.SaveSettings(s);
+            // 走课表变化事件：悬浮课表 Refresh 时会重读设置，立刻显示 / 收起时钟
+            AppEvents.RaiseScheduleChanged();
+            TxtStatus.Text = s.ScheduleClockMode == 0
+                ? "已关闭悬浮课表的日期时钟。"
+                : $"悬浮课表日期旁已显示实时时钟（{CbClockMode.Text}）。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换时钟显示失败：" + ex.Message;
+        }
     }
 
     // ---------- 界面主题（配色方案） ----------
@@ -1798,6 +2075,8 @@ public partial class MainWindow : Window
         _notifWin?.Close();
         _hwWin?.Close();
         _msWin?.Close();
+        _cdWin?.Close();
+        _dutyWin?.Close();
         foreach (var kv in _customWins) try { kv.Value.Close(); } catch { }
         _customWins.Clear();
         base.OnClosing(e);

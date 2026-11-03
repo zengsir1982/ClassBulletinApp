@@ -209,9 +209,20 @@ public partial class MissingWindow : Window
     {
         var board = Store.LoadMissingBoard();
         _themeKey = string.IsNullOrWhiteSpace(board.Theme) ? "pink" : board.Theme;
-        ApplyTheme(HomeworkThemes.Find(_themeKey));
+        var theme = HomeworkThemes.Find(_themeKey);
+        ApplyTheme(theme);
         TxtTitle.Text = string.IsNullOrWhiteSpace(board.Title) ? "缺交作业名单" : board.Title;
+        ApplyTitleStyle(board.TitleStyle, theme);
         RebuildContent(board);
+    }
+
+    /// <summary>应用总标题的字号 / 颜色 / 粗细（未设置时保持主题默认：加粗 + 主题标题色 + 17 号）。</summary>
+    private void ApplyTitleStyle(TextStyle? style, HomeworkTheme t)
+    {
+        TxtTitle.FontSize = HwTextRender.TitleSize(style);
+        TxtTitle.FontWeight = HwTextRender.BoldOr(style, true) ? FontWeights.Bold : FontWeights.Normal;
+        TxtTitle.Foreground = ThemeHelper.Brush(
+            HwTextRender.ColorOr(style, t.HeaderForeground), Color.FromRgb(0xAD, 0x14, 0x57));
     }
 
     private void OnMissingChanged() => Reload();
@@ -249,11 +260,16 @@ public partial class MissingWindow : Window
             foreach (var m in items)
             {
                 var row = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+                // 科目行默认加粗 + 主题缺交色；字号 / 颜色可在编辑窗里单独调
+                var ss = m.SubjectStyle;
                 row.Children.Add(new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(m.Subject) ? "缺交：" : "【" + m.Subject + "】缺交：",
-                    FontSize = 14, FontWeight = FontWeights.Bold,
-                    Foreground = missing, TextWrapping = TextWrapping.Wrap
+                    FontSize = HwTextRender.MissingSubjectSize(ss),
+                    FontWeight = HwTextRender.BoldOr(ss, true) ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = ThemeHelper.Brush(HwTextRender.ColorOr(ss, t.MissingColor),
+                                                   Color.FromRgb(0xC0, 0x39, 0x2B)),
+                    TextWrapping = TextWrapping.Wrap
                 });
                 row.Children.Add(new TextBlock
                 {

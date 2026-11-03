@@ -228,6 +228,7 @@ public partial class App : System.Windows.Application
                     "missingedit" => new MissingEditWindow(Store.LoadMissingBoard()),
                     "schedulewin" => new ScheduleWindow(),
                     "schedulewinfail" => DiagScheduleUpdateFail(),
+                    "schedulewinuptodate" => DiagScheduleUpToDate(),
                     "notifywin" => new NotificationWindow(),
                     "homeworkwin" => new HomeworkWindow(),
                     "missingwin" => new MissingWindow(),
@@ -244,6 +245,17 @@ public partial class App : System.Windows.Application
                     "quicklaunch" => new QuickLaunchWindow(),
                     "customnoteedit" => new CustomNoteEditWindow(DiagCustomNoteId()),
                     "customnote" => new CustomNoteWindow(DiagCustomNoteId()),
+                    "countdownwin" => new CountdownWindow(),
+                    "fullscreenremind" => DiagFullScreenReminder(),
+                    "mainremind" => new MainWindow { InitialTabIndex = 3 },
+                    "mainremindend" => new MainWindow { InitialTabIndex = 3, ReminderScrollEnd = true },
+                    "schedulewinflash" => DiagScheduleFlash(),
+                    "remindpopup" => DiagReminderPopup(),
+                    "remindlayout" => DiagReminderLayout(),
+                    "remindlayoutsave" => DiagReminderLayoutSave(),
+                    "countdownedit" => new CountdownEditWindow(),
+                    "dutywin" => new DutyWindow(),
+                    "dutyedit" => new DutyEditWindow(),
                     "backupwin" => new BackupWindow(),
                     "updatesettings" => new UpdateSettingsWindow(),
                     "sharewizard" => new ShareAccessWizardWindow(),
@@ -402,6 +414,13 @@ public partial class App : System.Windows.Application
             Check("QuickLaunchWindow", () => new QuickLaunchWindow());
             Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(DiagCustomNoteId()));
             Check("CustomNoteWindow", () => new CustomNoteWindow(DiagCustomNoteId()));
+            Check("CountdownWindow", () => new CountdownWindow());
+            Check("FullScreenReminderWindow", () => new FullScreenReminderWindow());
+            Check("ReminderPopup", () => new ReminderPopup());
+            Check("ReminderPopup(编辑)", () => new ReminderPopup(interactive: true));
+            Check("CountdownEditWindow", () => new CountdownEditWindow());
+            Check("DutyWindow", () => new DutyWindow());
+            Check("DutyEditWindow", () => new DutyEditWindow());
             Check("BackupWindow", () => new BackupWindow());
             Check("UpdateSettingsWindow", () => new UpdateSettingsWindow());
             Check("ShareAccessWizardWindow", () => new ShareAccessWizardWindow());
@@ -584,10 +603,106 @@ public partial class App : System.Windows.Application
     /// 诊断：悬浮课表的「更新课表」按钮切到失败态后截图，用来核对红字「更新失败」的样式
     /// （正常情况要等真的更新失败才能看到，截图流程里没法触发）。
     /// </summary>
+    /// <summary>诊断：提醒小窗（按当前存档的位置与大小显示，便于核对缩放效果）。</summary>
+    private static Window DiagReminderPopup()
+    {
+        var w = new ReminderPopup();
+        w.Loaded += (_, _) => w.ShowReminder("课表有变化",
+            "第3节 数学 → 英语；第5节 体育 → 数学", 600, Store.LoadSettings().Reminder);
+        return w;
+    }
+
+    /// <summary>诊断：提醒小窗的「调整位置与大小」模式（带提示条与保存按钮）。</summary>
+    private static Window DiagReminderLayout()
+    {
+        var w = new ReminderPopup(interactive: true);
+        w.Loaded += (_, _) => w.BeginLayoutEdit(
+            Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings(), _ => { });
+        return w;
+    }
+
+    /// <summary>
+    /// 诊断：走一遍「调整小窗位置与大小 → 保存」的完整链路（模拟拖到 180%、移到 240,200），
+    /// 用于确认值真的落到 settings.json。
+    /// </summary>
+    private static Window DiagReminderLayoutSave()
+    {
+        Store.EnablePersistence = true;   // --shot 默认关写盘，这里要真的落盘才能验收
+        var host = new ReminderPopup(interactive: true);
+        var r = Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings();
+        host.Loaded += (_, _) =>
+        {
+            host.BeginLayoutEdit(r, saved =>
+            {
+                var s2 = Store.LoadSettings();
+                s2.Reminder ??= new ScheduleCore.Models.ReminderSettings();
+                s2.Reminder.PopupScale = saved.PopupScale;
+                s2.Reminder.PopupLeft = saved.PopupLeft;
+                s2.Reminder.PopupTop = saved.PopupTop;
+                Store.SaveSettings(s2);
+            });
+
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                try
+                {
+                    host.DiagApplyScale(1.8);
+                    host.Left = 240;
+                    host.Top = 200;
+                    host.UpdateLayout();     // 让缩放后的 ActualWidth 先生效，模拟用户拖完再点保存
+                    host.DiagCommit();
+                }
+                catch { }
+            };
+            timer.Start();
+        };
+        host.Show();
+
+        // 陪跑窗口：截图它即可，真正被核对的是 settings.json
+        return new Window
+        {
+            Width = 360,
+            Height = 120,
+            Content = new System.Windows.Controls.TextBlock
+            {
+                Text = "save layout diag",
+                Margin = new Thickness(16),
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+    }
+
+    /// <summary>诊断：全屏变化提示（带示例内容，便于核对排版）。</summary>
+    private static Window DiagFullScreenReminder()
+    {
+        var w = new FullScreenReminderWindow();
+        w.Loaded += (_, _) => w.ShowReminder("课表已更新",
+            "第3节 数学 → 英语；第5节 体育 → 数学；第7节 新增 音乐", 60);
+        return w;
+    }
+
+    /// <summary>诊断：悬浮课表状态栏的「课表有变化」红字。</summary>
+    private static Window DiagScheduleFlash()
+    {
+        var w = new ScheduleWindow();
+        w.Loaded += (_, _) => w.SimulateChangeFlash("第3节 数学 → 英语　第5节 体育 → 数学", 10);
+        return w;
+    }
+
     private static Window DiagScheduleUpdateFail()
     {
         var w = new ScheduleWindow();
         w.Loaded += (_, _) => w.SimulateQaFailure("模拟：数据源不可用，本次更新失败（诊断截图用）。");
+        return w;
+    }
+
+    /// <summary>诊断截图：模拟"已是最新版本"，检查状态栏的红色提示与 10 秒自动消失。</summary>
+    private static Window DiagScheduleUpToDate()
+    {
+        var w = new ScheduleWindow();
+        w.Loaded += (_, _) => w.SimulateUpToDate();
         return w;
     }
 
