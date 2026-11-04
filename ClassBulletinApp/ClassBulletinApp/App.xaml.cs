@@ -221,6 +221,11 @@ public partial class App : System.Windows.Application
             string shotLog = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.editorshot.log");
             try
             {
+                // 诊断模式若指向数据副本（CB_DATA_DIR 非空），允许写盘，便于验收
+                // "迁移 / 设置改动确实落盘"。未设 CB_DATA_DIR 时保持不写盘，绝不污染真实设置。
+                if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CB_DATA_DIR")))
+                    Store.EnablePersistence = true;
+
                 Window w0 = e.Args[1].ToLowerInvariant() switch
                 {
                     "editor" => new BackdropEditorWindow(),

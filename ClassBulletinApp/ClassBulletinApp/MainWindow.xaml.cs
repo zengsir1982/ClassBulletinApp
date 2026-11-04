@@ -273,6 +273,8 @@ public partial class MainWindow : Window
                 if (!matched) CbSecQuestion.SelectedIndex = 0;
             }
             if (TxtSecAnswer != null) TxtSecAnswer.Text = settings.SecurityAnswer ?? "";
+            if (ChkRememberUser != null) ChkRememberUser.IsChecked = settings.RememberUsername;
+            if (ChkRememberPwd != null) ChkRememberPwd.IsChecked = settings.RememberPassword;
             if (ChkAutoLogin != null) ChkAutoLogin.IsChecked = settings.AutoLogin;
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
@@ -999,6 +1001,7 @@ public partial class MainWindow : Window
         TxtChangeSeconds.Text = Math.Clamp(r.ChangeSeconds, 1, 60).ToString();
         TxtChangeStatusMin.Text = Math.Clamp(r.ChangeStatusMinutes, 1, 120).ToString();
         TxtChangeDelay.Text = Math.Clamp(r.ChangeDelayMinutes, 0, 60).ToString();
+        UpdateChangeDelayHint(r.ChangeDelayMinutes);
 
         // 语音：列出系统已安装语音，首项「系统默认」会自动优先选择中文语音
         ChkRemindVoice.IsChecked = r.VoiceEnabled;
@@ -1145,6 +1148,7 @@ public partial class MainWindow : Window
             r.ChangeSeconds = ParseRange(TxtChangeSeconds.Text, 1, 60, 15);
             r.ChangeStatusMinutes = ParseRange(TxtChangeStatusMin.Text, 1, 120, 10);
             r.ChangeDelayMinutes = ParseRange(TxtChangeDelay.Text, 0, 60, 2);
+            UpdateChangeDelayHint(r.ChangeDelayMinutes);
             r.VoiceEnabled = ChkRemindVoice.IsChecked == true;
             r.VoiceName = SelectedVoiceName();
             r.VoiceRate = (int)SlVoiceRate.Value;
@@ -1163,6 +1167,40 @@ public partial class MainWindow : Window
     /// <summary>解析有范围的整数设置；空或越界时返回默认值（避免用户删空输入框就把设置归零）。</summary>
     private static int ParseRange(string? text, int min, int max, int fallback)
         => int.TryParse(text?.Trim(), out var v) && v >= min && v <= max ? v : fallback;
+
+    /// <summary>
+    /// 把「上课中发生变化，延后到下课 N 分钟」的当前生效值直接显示在输入框下方。
+    /// <para>用户反馈"设了 2 分钟，上课时却立刻弹窗"——实际是输入框被填成了 0（0 = 立即弹）。
+    /// 光看数字 0 不直观，这里给一句人话，让设置是否生效一眼可见。</para>
+    /// </summary>
+    private void UpdateChangeDelayHint(int minutes)
+    {
+        if (TxtChangeDelayHint == null) return;
+        if (minutes <= 0)
+        {
+            TxtChangeDelayHint.Text = "当前：0 分钟 = 上课时间也会立即弹窗（课堂上会打断教学，建议填 2）";
+            TxtChangeDelayHint.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B));   // 红：提醒这是"不延迟"
+        }
+        else
+        {
+            TxtChangeDelayHint.Text = $"当前：上课中发生变化时，延后到该节下课 {minutes} 分钟后再弹窗";
+            TxtChangeDelayHint.Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x2E, 0x7D, 0x32));   // 绿：已按设置生效
+        }
+    }
+
+    /// <summary>用户中心的三个登录偏好勾选联动：自动登录必须有密码；取消记住密码则自动登录一并取消。</summary>
+    private void UserLoginPref_Changed(object sender, RoutedEventArgs e)
+    {
+        if (ChkAutoLogin == null || ChkRememberPwd == null) return;
+
+        if (ChkAutoLogin.IsChecked == true && ChkRememberPwd.IsChecked != true)
+            ChkRememberPwd.IsChecked = true;
+
+        if (ChkRememberPwd.IsChecked != true && ChkAutoLogin.IsChecked == true)
+            ChkAutoLogin.IsChecked = false;
+    }
 
     private void BtnToggleSch_Click(object sender, RoutedEventArgs e)
     {
@@ -1772,34 +1810,33 @@ public partial class MainWindow : Window
             s.SecurityQuestion = secQ;
             s.SecurityAnswer = secQ == "" ? "" : (TxtSecAnswer?.Text ?? "").Trim();
 
-            // ---- 自动登录：只允许受限角色 ----
+            // ---- 登录偏好：记住账号 / 记住密码 / 开机自动登录 ----
+            bool rememberUser = ChkRememberUser?.IsChecked == true;
+            bool rememberPwd = ChkRememberPwd?.IsChecked == true;
             bool wantAuto = ChkAutoLogin?.IsChecked == true;
-            if (acc.Role == UserRole.Admin)
+
+            s.RememberUsername = rememberUser;
+            s.RememberPassword = rememberPwd;
+
+            // 管理员永不参与自动登录；自动登录必须有密码
+            s.AutoLogin = wantAuto && rememberPwd && acc.Role != UserRole.Admin;
+
+            if (rememberPwd)
             {
-                // 管理员永不参与自动登录。勾选保持原样（表示"本机仍自动进入受限账号"），
-                // 但绝不用管理员自己的凭据。
-                s.AutoLogin = wantAuto;
+                s.AutoLoginUser = acc.Username;
+                s.AutoLoginPassword = p1.Length > 0 ? p1 : s.AutoLoginPassword;
             }
             else
             {
-                s.AutoLogin = wantAuto;
-                if (wantAuto)
-                {
-                    s.AutoLoginUser = acc.Username;
-                    s.AutoLoginPassword = p1.Length > 0 ? p1 : s.AutoLoginPassword;
-                }
-                else
-                {
-                    s.AutoLoginUser = "";
-                    s.AutoLoginPassword = "";
-                }
+                s.AutoLoginUser = "";
+                s.AutoLoginPassword = "";
             }
 
             // 改名后自动登录里记的旧名字要跟着改，否则下次开机自动登录失败
             if (changeUser && string.Equals(s.AutoLoginUser, oldName, StringComparison.OrdinalIgnoreCase))
                 s.AutoLoginUser = acc.Username;
 
-            s.LastUsername = acc.Username;
+            s.LastUsername = rememberUser ? acc.Username : "";
 
             // 游客模式不会落盘（EnablePersistence=false），符合「游客不保存」
             Store.SaveUsers(book);

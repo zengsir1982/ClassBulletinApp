@@ -26,8 +26,11 @@ public partial class LoginWindow : Window
     /// <summary>本次登录成功所用的用户名（供 App 记住，下次预填）。</summary>
     public string EnteredUser { get; private set; } = "";
 
-    /// <summary>登录窗上「记住账号密码，下次开机自动登录」的勾选状态。</summary>
+    /// <summary>登录窗上「开机自动登录」的勾选状态。</summary>
     public bool AutoLoginWanted { get; private set; } = true;
+
+    /// <summary>构造期间为 true：给勾选框赋初值时不要触发联动/写盘。</summary>
+    private bool _loading = true;
 
     public LoginWindow()
     {
@@ -35,21 +38,50 @@ public partial class LoginWindow : Window
 
         var s = Store.LoadSettings();
 
-        // 预填：优先用"自动登录账号"（受限身份），没有就退回上次登录名
-        string user = !string.IsNullOrWhiteSpace(s.AutoLoginUser)
-            ? s.AutoLoginUser
-            : (!string.IsNullOrWhiteSpace(s.LastUsername) ? s.LastUsername : s.Username);
+        // 预填用户名：勾了「记住账号」用上次登录名；没勾但记住了密码，也要知道是哪个账号
+        string user = "";
+        if (s.RememberUsername && !string.IsNullOrWhiteSpace(s.LastUsername))
+            user = s.LastUsername;
+        else if (!string.IsNullOrWhiteSpace(s.AutoLoginUser))
+            user = s.AutoLoginUser;
 
         TxtUser.Text = user ?? "";
 
-        // 只回填受限账号的密码（管理员密码从不写进 AutoLoginPassword）
-        if (!string.IsNullOrEmpty(user) && string.Equals(user, s.AutoLoginUser, StringComparison.OrdinalIgnoreCase))
+        // 预填密码：只在勾了「记住密码」且是记住的那个账号时（管理员密码从不写进 AutoLoginPassword）
+        if (s.RememberPassword && !string.IsNullOrEmpty(user)
+            && string.Equals(user, s.AutoLoginUser, StringComparison.OrdinalIgnoreCase))
             TxtPwd.Password = s.AutoLoginPassword ?? "";
 
+        ChkRememberUser.IsChecked = s.RememberUsername;
+        ChkRememberPwd.IsChecked = s.RememberPassword;
         ChkAutoLogin.IsChecked = s.AutoLogin;
 
-        if (!string.IsNullOrEmpty(user))
-            TxtSubtitle.Text = "已记住账号密码，日常开机无需再登录；也可以改用游客身份体验（不保存任何数据）";
+        _loading = false;
+        UpdateSubtitle();
+    }
+
+    /// <summary>三个勾选联动：自动登录必须有密码；取消记住密码则自动登录一并取消。</summary>
+    private void LoginPref_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+
+        if (ChkAutoLogin.IsChecked == true && ChkRememberPwd.IsChecked != true)
+            ChkRememberPwd.IsChecked = true;
+
+        if (ChkRememberPwd.IsChecked != true && ChkAutoLogin.IsChecked == true)
+            ChkAutoLogin.IsChecked = false;
+
+        UpdateSubtitle();
+    }
+
+    private void UpdateSubtitle()
+    {
+        if (ChkAutoLogin.IsChecked == true)
+            TxtSubtitle.Text = "已开启开机自动登录，日常开机无需再输入账号密码；也可以改用游客身份体验（不保存任何数据）";
+        else if (ChkRememberUser.IsChecked == true || ChkRememberPwd.IsChecked == true)
+            TxtSubtitle.Text = "已为你记住部分登录信息；也可以改用游客身份体验（不保存任何数据）";
+        else
+            TxtSubtitle.Text = "未记住账号密码，每次启动都需要重新登录；也可以改用游客身份体验（不保存任何数据）";
     }
 
     private void BtnLogin_Click(object sender, RoutedEventArgs e)
@@ -80,42 +112,44 @@ public partial class LoginWindow : Window
         EnteredUser = u.Username;
         AutoLoginWanted = ChkAutoLogin.IsChecked == true;
 
+        bool rememberUser = ChkRememberUser.IsChecked == true;
+        bool rememberPwd = ChkRememberPwd.IsChecked == true;
+
         // ---- 自动登录：只允许受限角色 ----
         var s = Store.LoadSettings();
         bool isAdmin = u.Role == UserRole.Admin;
 
-        if (isAdmin)
+        if (isAdmin && AutoLoginWanted)
         {
             // 管理员：不写自动登录凭据。用户若勾了，明确告知为什么忽略。
-            if (AutoLoginWanted)
-            {
-                MessageBox.Show(
-                    "管理员账号不参与「开机自动登录」。\n\n"
-                    + "这是为了防止教室机开机就变成管理员（谁坐到电脑前谁有权限）。\n"
-                    + "本机仍会自动以"
-                    + (string.IsNullOrWhiteSpace(s.AutoLoginUser) ? "受限账号" : $"「{s.AutoLoginUser}」")
-                    + "进入，要改数据时再从这里切到管理员即可。",
-                    "关于自动登录", MessageBoxButton.OK, MessageBoxImage.Information);
-                ChkAutoLogin.IsChecked = false;
-                AutoLoginWanted = false;
-            }
+            MessageBox.Show(
+                "管理员账号不参与「开机自动登录」。\n\n"
+                + "这是为了防止教室机开机就变成管理员（谁坐到电脑前谁有权限）。\n"
+                + "本机仍会自动以"
+                + (string.IsNullOrWhiteSpace(s.AutoLoginUser) ? "受限账号" : $"「{s.AutoLoginUser}」")
+                + "进入，要改数据时再从这里切到管理员即可。",
+                "关于自动登录", MessageBoxButton.OK, MessageBoxImage.Information);
+            ChkAutoLogin.IsChecked = false;
+            AutoLoginWanted = false;
+        }
+
+        s.RememberUsername = rememberUser;
+        s.RememberPassword = rememberPwd;
+        // 自动登录必须有密码，且管理员永不参与
+        s.AutoLogin = AutoLoginWanted && rememberPwd && !isAdmin;
+
+        if (rememberPwd)
+        {
+            s.AutoLoginUser = u.Username;
+            s.AutoLoginPassword = pwd;
         }
         else
         {
-            s.AutoLogin = AutoLoginWanted;
-            if (AutoLoginWanted)
-            {
-                s.AutoLoginUser = u.Username;
-                s.AutoLoginPassword = pwd;
-            }
-            else
-            {
-                s.AutoLoginUser = "";
-                s.AutoLoginPassword = "";
-            }
+            s.AutoLoginUser = "";
+            s.AutoLoginPassword = "";
         }
 
-        s.LastUsername = u.Username;
+        s.LastUsername = rememberUser ? u.Username : "";
         Store.SaveSettings(s);
 
         DialogResult = true;

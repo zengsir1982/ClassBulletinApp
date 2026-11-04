@@ -279,7 +279,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         {
             sp.Children.Add(new TextBlock
             {
-                Text = cell.Subject,
+                Text = cell.DisplaySubject,
                 FontWeight = FontWeights.Bold,
                 FontSize = 15,
                 Foreground = Brush(cell.SubjectColor),

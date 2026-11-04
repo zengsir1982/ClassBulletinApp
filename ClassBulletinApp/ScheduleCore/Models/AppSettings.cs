@@ -32,11 +32,22 @@ public class AppSettings
     public string LastUsername { get; set; } = "";
 
     /// <summary>
-    /// 记住账号密码并在启动时自动登录（默认开）。
-    /// <para>教室机每天开机就要用，每次输账号密码太麻烦，因此默认开启；
-    /// 需要重新选择「游客体验」或换账号时，到「用户中心」取消勾选，下次启动就会回到登录界面。</para>
-    /// <para>关闭后账号密码仍留在 <see cref="Username"/> / <see cref="Password"/> 里（登录界面会预填，密码以 * 显示），
-    /// 只是启动时不再自动进入。</para>
+    /// 是否记住登录账号（下次在登录界面预填用户名）。默认开。
+    /// <para>与「记住密码」「自动登录」彼此独立：用户可以只记账号不记密码。</para>
+    /// </summary>
+    public bool RememberUsername { get; set; } = true;
+
+    /// <summary>
+    /// 是否记住登录密码（下次在登录界面预填密码）。默认开（与旧版"记住账号密码"行为一致）。
+    /// <para>★ 密码明文保存在本机 settings.json，仅作教室机的简易保护；
+    /// 公用电脑建议关闭。关闭时会清空已保存的密码（<see cref="AutoLoginPassword"/>）。</para>
+    /// </summary>
+    public bool RememberPassword { get; set; } = true;
+
+    /// <summary>
+    /// 开机时自动登录（跳过登录界面，默认开）。
+    /// <para>需要同时「记住密码」才有凭据；管理员账号永不参与自动登录。</para>
+    /// <para>关闭后下次启动会回到登录界面，可换账号或改用「游客体验」。</para>
     /// </summary>
     public bool AutoLogin { get; set; } = true;
 

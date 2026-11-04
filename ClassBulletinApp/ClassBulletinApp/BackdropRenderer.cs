@@ -360,7 +360,7 @@ public static class BackdropRenderer
 
             right.Children.Add(new TextBlock
             {
-                Text = empty ? "—" : lesson!.Subject,
+                Text = empty ? "—" : lesson!.DisplaySubject,
                 FontSize = ScaleFont(19),
                 FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(empty ? muted : fg),

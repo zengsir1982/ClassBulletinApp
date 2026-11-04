@@ -384,7 +384,7 @@ public static class BackdropService
                     {
                         sb.Append('#').Append(r.PeriodText).Append(r.TimeRange);
                         foreach (var l in r.Lessons)
-                            sb.Append(l.Subject).Append(',').Append(l.Teacher).Append(',').Append(l.OverrideBadgeText);
+                            sb.Append(l.DisplaySubject).Append(',').Append(l.Teacher).Append(',').Append(l.OverrideBadgeText);
                     }
                     var slay = b.ScheduleLayout;
                     sb.Append("|L").Append(slay?.Anchor).Append(slay?.OffsetX)

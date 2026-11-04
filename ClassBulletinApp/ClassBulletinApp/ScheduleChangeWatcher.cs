@@ -126,7 +126,18 @@ public static class ScheduleChangeWatcher
             if (r.ChangeDelayMinutes > 0)
             {
                 var lessonEnd = CurrentLessonEnd(times, now);
-                if (lessonEnd.HasValue) at = lessonEnd.Value.AddMinutes(r.ChangeDelayMinutes);
+                if (lessonEnd.HasValue)
+                {
+                    // 明确在上课中：延后到该节下课 + N 分钟
+                    at = lessonEnd.Value.AddMinutes(r.ChangeDelayMinutes);
+                }
+                else if (times.Count == 0)
+                {
+                    // 课表拿不到节次时间（Excel 未带时间 / 数据暂缺）：无法判断是否上课，
+                    // 保守延后 N 分钟 —— 宁可课间晚一点提示，也不要在课堂上突然弹窗。
+                    at = now.AddMinutes(r.ChangeDelayMinutes);
+                }
+                // times 非空但当前不在任何节内 = 课间 / 放学后，立即弹（不会打断任何课）
             }
 
             if (_pendingAt == DateTime.MinValue || at < _pendingAt) _pendingAt = at;

@@ -31,7 +31,33 @@ public static class Store
     /// 持久化总开关：游客模式下为 false，所有 Save* 直接跳过（改动只留内存、不落盘），
     /// 退出后自动丢弃；登录（admin）通过 LoginWindow 置为 true 后正常保存。
     /// </summary>
-    public static bool EnablePersistence { get; set; }
+    private static bool _enablePersistence;
+    private static AppSettings? _deferredSettings;
+
+    /// <summary>
+    /// 持久化总开关：游客模式下为 false，所有 Save* 直接跳过（改动只留内存、不落盘），
+    /// 退出后自动丢弃；登录（admin / 受限账号）通过 LoginWindow 置为 true 后正常保存。
+    /// <para><b>从 false 切到 true 时立即落盘缓存：</b>开关关闭期间（如登录界面构造期、
+    /// 游客模式）的 <see cref="SaveSettings"/> 不再静默丢弃，而是先缓存到
+    /// <see cref="_deferredSettings"/>，待开关打开时一次性写出。这样「启动迁移（延迟 0→2）」
+    /// 与「登录界面的记住密码 / 自动登录」等改动，绝不会因开关时机问题而停留在内存、
+    /// 磁盘仍是旧值（曾导致「上课中变化立即弹窗」的 bug）。</para>
+    /// </summary>
+    public static bool EnablePersistence
+    {
+        get => _enablePersistence;
+        set
+        {
+            bool wasOff = !_enablePersistence;
+            _enablePersistence = value;
+            if (value && wasOff && _deferredSettings != null)
+            {
+                var d = _deferredSettings;
+                _deferredSettings = null;
+                SaveSettings(d);   // 此刻开关已为 true，会真正写盘
+            }
+        }
+    }
 
     /// <summary>
     /// 完全禁止任何写盘（含 <see cref="ForceWrite"/>）。诊断 / 截图模式用：
@@ -175,7 +201,15 @@ public static class Store
 
     public static void SaveSettings(AppSettings s)
     {
-        if (!EnablePersistence) return;
+        if (s == null) return;
+        if (!EnablePersistence)
+        {
+            // 开关关闭期间（登录界面构造期 / 游客模式）：先缓存，待开关打开时一次性落盘，
+            // 不再静默丢弃——否则「延迟 0→2」等迁移结果永远停在内存、磁盘仍是旧值。
+            _deferredSettings = s;
+            return;
+        }
+        _deferredSettings = null;
         Ensure();
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s, Opt));
     }
@@ -193,25 +227,36 @@ public static class Store
     }
 
     /// <summary>
-    /// 把「课表变化提醒」升到新默认值：<b>全屏大字 / 停留 15 秒 / 语音开</b>。
+    /// 把「课表变化提醒」升到新默认值：<b>全屏大字 / 停留 15 秒 / 语音开</b>，
+    /// 并把「上课中变化延后」的 0 分钟修正为 2 分钟。
     /// <para><b>为什么是强制写而不判断"是否仍是旧默认值"：</b>这几项在旧版里本来就有默认值
     /// （小窗 / 5 秒 / 语音开），用户可能已经手动调过（比如调成 10 秒），
     /// 按"旧默认值才升"的写法会把这些机器漏掉，导致"改了默认值却看不出变化"。</para>
     /// <para><b>代次（<see cref="AppSettings.ReminderDefaultsRev"/>）：</b>1 = 全屏 / 15 秒 / 语音关；
-    /// 2 = 再把语音改回开（本次需求变更）。代次只单向递增，保证每次调整只生效一次 ——
-    /// 用户升级后再改回去，下次启动不会被打回。</para>
+    /// 2 = 再把语音改回开；3 = 延迟 0 分钟（上课中也立即弹）改回 2 分钟。
+    /// 代次只单向递增，保证每次调整只生效一次 —— 用户升级后再改回去，下次启动不会被打回。</para>
     /// </summary>
     public static bool UpgradeChangeReminderDefaults(AppSettings s)
     {
         if (s == null) return false;
-        if (s.ReminderDefaultsRev >= 2) return false;
+        if (s.ReminderDefaultsRev >= 3) return false;
 
         var r = s.Reminder ??= new ReminderSettings();
-        r.ChangeFullScreen = true;   // 教室里后排也看得清
-        r.ChangeSeconds = 15;        // 15 秒够读完，又不至于一直挂在屏幕上
-        r.ChangeVoice = true;        // 语音播报默认开
 
-        s.ReminderDefaultsRev = 2;
+        // Rev 1→2：全屏大字 / 停留 15 秒 / 语音开
+        if (s.ReminderDefaultsRev < 2)
+        {
+            r.ChangeFullScreen = true;   // 教室里后排也看得清
+            r.ChangeSeconds = 15;        // 15 秒够读完，又不至于一直挂在屏幕上
+            r.ChangeVoice = true;        // 语音播报默认开
+        }
+
+        // Rev 2→3：把「延迟 0 分钟」改回 2 分钟。
+        // 0 = 上课时间也立即弹窗，正是用户反馈"更新课表时课堂上被打断"的配置；
+        // 只改 0，用户明确设了 5 / 10 等其它值不动。
+        if (r.ChangeDelayMinutes <= 0) r.ChangeDelayMinutes = 2;
+
+        s.ReminderDefaultsRev = 3;
         return true;
     }
 

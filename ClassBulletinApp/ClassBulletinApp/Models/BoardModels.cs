@@ -36,6 +36,12 @@ public class LessonView
     public string OverrideBadgeText { get; set; } = "";   // 徽章文案：已调课 / 代课
     public string OverrideBadgeColor { get; set; } = "#E67E22"; // 徽章底色：调=橙，代=蓝
     public string OverrideNote { get; set; } = "";
+
+    /// <summary>
+    /// 显示用的科目名：代课（<see cref="OverrideType"/> = 代）时显示「代课」，避免学生把代课看成原科目。
+    /// <para>★ 只用于显示；数据层 <see cref="Subject"/> 保持原值，否则拖拽调课时会把「代课」写回覆盖记录。</para>
+    /// </summary>
+    public string DisplaySubject => OverrideType == "代" ? "代课" : Subject;
 }
 
 /// <summary>周视图（整周课表）中的单个课程格子。</summary>
@@ -58,6 +64,9 @@ public class WeekCell
     public string BadgeColor { get; set; } = "";     // 徽章底色
     public string SubjectColor { get; set; } = "#222222";
     public bool HasLesson => !string.IsNullOrEmpty(Subject);
+
+    /// <summary>显示用的科目名：代课（<see cref="Type"/> = 代）时显示「代课」；数据层 Subject 保持原值。</summary>
+    public string DisplaySubject => Type == "代" ? "代课" : Subject;
 }
 
 /// <summary>整周课表数据：一周 7 列 × 各节次（从设置的周起始日开始）。</summary>

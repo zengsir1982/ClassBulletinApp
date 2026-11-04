@@ -58,7 +58,7 @@
                                             <TextBlock FontSize="19" FontWeight="Bold" Foreground="{Binding SubjectColor}"
                                                        TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                        VerticalAlignment="Center">
-                                                <Run Text="{Binding Subject}"/>
+                                                <Run Text="{Binding DisplaySubject, Mode=OneWay}"/>
                                                 <Run Text="{Binding WeekTag}" FontSize="12" Foreground="#9CA3AF" FontWeight="Normal"/>
                                             </TextBlock>
                                         </DockPanel>
