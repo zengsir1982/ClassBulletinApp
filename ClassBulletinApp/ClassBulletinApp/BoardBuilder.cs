@@ -31,8 +31,13 @@ public static class BoardBuilder
     /// 调课/代课记录。不传时读取 Store；
     /// 显示教师个人课表时由调用方传入「换算到该教师名下」的覆盖集合，以体现临时课表的最新安排。
     /// </param>
+    /// <param name="showAlternateWeek">
+    /// 是否把单双周里「不是本周」的那节课也列出来（灰色弱化）。
+    /// <para><b>默认 true = 保持旧行为</b>，因为上课提醒 / 课表变化检测需要看到完整数据；
+    /// 只有「显示给人看」的两处（悬浮课表、桌面背景）才按设置传 false 只留本周的课。</para>
+    /// </param>
     public static TodayResult Build(string? selectedClass, string semesterStart, ScheduleFile? schedule,
-        DateTime displayDate, List<LessonOverride>? overrides = null)
+        DateTime displayDate, List<LessonOverride>? overrides = null, bool showAlternateWeek = true)
     {
         var res = new TodayResult
         {
@@ -172,6 +177,9 @@ public static class BoardBuilder
                 foreach (var l in lessons)
                 {
                     bool active = l.Week == 0 || l.Week == parity;
+                    // 「只显示当前周」时，非本周那节直接不列；整格都没有本周的课时，
+                    // 这一节就只剩节次行（空白卡），看起来就是"这周这节没课"，正是想要的简洁效果。
+                    if (!showAlternateWeek && !active) continue;
                     row.Lessons.Add(new LessonView
                     {
                         DayIdx = dayIdx,

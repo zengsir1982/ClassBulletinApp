@@ -162,4 +162,7 @@ public partial class CountdownEditWindow : Window
     }
 
     private void BtnCancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    /// <summary>手写输入兜底入口（悬浮球被隐藏时用）：识别结果插回最后点过的输入框。</summary>
+    private void BtnHand_Click(object sender, RoutedEventArgs e) => HandwritingService.Open(this);
 }

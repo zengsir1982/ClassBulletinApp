@@ -81,6 +81,9 @@ public static class AppEvents
     /// <summary>悬浮课表底部「值日」快捷按钮被点击。</summary>
     public static event Action? QuickOpenDuty;
 
+    /// <summary>悬浮课表底部「设置」快捷按钮被点击（打开控制面板并切到「显示设置」页）。</summary>
+    public static event Action? QuickOpenSettings;
+
     /// <summary>悬浮课表底部「更新课表」快捷按钮被点击（检查并应用数据源更新）。</summary>
     public static event Action? QuickCheckUpdate;
 
@@ -90,6 +93,12 @@ public static class AppEvents
     /// 否则用户不知道是没更新到还是点了没反应。</para>
     /// </summary>
     public static event Action<bool, string>? QuickCheckUpdateDone;
+
+    /// <summary>
+    /// 手写悬浮球的显示状态变了（勾选框 / 球上的右键「隐藏」两边要同步）。
+    /// <para>球是常驻窗口，用户在球上右键隐藏后，控制面板里的勾选不能还亮着。</para>
+    /// </summary>
+    public static event Action? HandwritingBallChanged;
 
     public static void RaiseScheduleChanged() => ScheduleChanged?.Invoke();
     public static void RaiseLayoutChanged(PanelLayout? schedule = null, PanelLayout? notification = null)
@@ -111,7 +120,10 @@ public static class AppEvents
     public static void RaiseQuickOpenCustomNote() => QuickOpenCustomNote?.Invoke();
     public static void RaiseQuickOpenCountdown() => QuickOpenCountdown?.Invoke();
     public static void RaiseQuickOpenDuty() => QuickOpenDuty?.Invoke();
+    public static void RaiseQuickOpenSettings() => QuickOpenSettings?.Invoke();
     public static void RaiseQuickCheckUpdate() => QuickCheckUpdate?.Invoke();
     public static void RaiseQuickCheckUpdateDone(bool ok, string message)
         => QuickCheckUpdateDone?.Invoke(ok, message);
+
+    public static void RaiseHandwritingBallChanged() => HandwritingBallChanged?.Invoke();
 }

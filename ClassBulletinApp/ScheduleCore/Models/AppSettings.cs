@@ -147,6 +147,33 @@ public class AppSettings
     /// </summary>
     public bool AutoHideOnMaxWindow { get; set; }
 
+    /// <summary>
+    /// 触摸屏：手指点输入框时自动弹出系统触摸键盘（默认开）。
+    /// <para>教室一体机通常没有实体键盘，没有这一项就只能看见光标闪。</para>
+    /// <para>只在 <b>触摸</b> 触发时弹出，鼠标点击不弹，避免接着鼠标办公时被键盘挡住。</para>
+    /// <para>关闭后仍可手动点托盘/设置里的「触摸键盘」按钮调出。</para>
+    /// </summary>
+    public bool TouchKeyboardAutoShow { get; set; } = true;
+
+    /// <summary>
+    /// 是否显示「手写输入」悬浮球（<b>默认关</b>）。
+    /// <para><b>为什么默认关：</b>球是常驻在屏幕上的一个小圆，对用鼠标的教室机是干扰；
+    /// 而且不是每台教室机都装了手写识别组件。需要的人从「显示设置」勾一下、
+    /// 或任务栏图标右键菜单里打开，位置会被记住。</para>
+    /// <para><b>为什么要有悬浮球：</b>手写按钮原本只加在作业 / 缺交两个编辑窗里，倒计时、值日、
+    /// 通知、用户中心这些有输入框的地方都没有入口。与其给每个窗口各加一颗按钮
+    /// （漏一个就是一句「这里为什么不能手写」），不如给一个全局常驻的小球，一次做好处处可用。</para>
+    /// <para>球可以在屏幕上拖动、位置会记住；点一下弹出手写面板，写完点候选字直接插回
+    /// 「最后一次点过的输入框」。设为桌面背景时自动隐藏。</para>
+    /// </summary>
+    public bool ShowHandwritingBall { get; set; } = false;
+
+    /// <summary>手写悬浮球左上角 X（DIP 屏幕坐标）。为空 = 用默认位置（主屏右下角）。</summary>
+    public double? HandBallLeft { get; set; }
+
+    /// <summary>手写悬浮球左上角 Y（DIP 屏幕坐标）。</summary>
+    public double? HandBallTop { get; set; }
+
     /// <summary>当前选中的教师（用于教师个人课表）。</summary>
     public string SelectedTeacher { get; set; } = "";
 
@@ -217,10 +244,20 @@ public class AppSettings
     public double QlIconSize { get; set; } = 28;
 
     /// <summary>
-    /// 悬浮课表底部三个内置快捷（作业 / 缺交 / 便签）胶囊的字号（逻辑像素）。
+    /// 悬浮课表底部内置快捷（作业 / 缺交 / 便签 / 倒计时 / 值日 / 设置）胶囊的字号（逻辑像素）。
     /// <para>0 = 自动：跟着悬浮课表宽度挑档（窄窗收小，宽窗放大），见 QuickActionStyle。</para>
+    /// <para><b>六个胶囊共用这一个值</b>：它们是一整排，大小不一致会一眼看出「后加的三个没跟上」。</para>
     /// </summary>
     public double QaBuiltinFontSize { get; set; }
+
+    /// <summary>
+    /// 悬浮课表 / 桌面背景是否把单双周里「不是本周」的那节课也一起显示（灰色弱化）。
+    /// <para><b>默认 false = 只显示本周实际要上的课。</b>同一格单双周两门课时，旧行为是把两周的课
+    /// 上下都列出来、非本周那节显示成灰色 —— 信息全，但一屏里一半是灰字，看着乱。
+    /// 只有真的需要「下周还是这门吗」时才去勾选。</para>
+    /// <para>只影响显示，不影响调代课、上课提醒、变化检测（那些仍按完整数据算）。</para>
+    /// </summary>
+    public bool ShowAlternateWeekLessons { get; set; }
 
     /// <summary>
     /// 上一次在悬浮课表点「更新课表」是否失败。
@@ -435,6 +472,7 @@ public static class TrayCommands
     public const string BackdropHomework = "backdrop_homework";
     public const string BackdropMissing = "backdrop_missing";
     public const string BackdropOff = "backdrop_off";
+    public const string ToggleHandBall = "toggle_handball";
     public const string Exit = "exit";
 
     /// <summary>一条命令的默认文字与说明。</summary>
@@ -458,6 +496,7 @@ public static class TrayCommands
         new() { Id = BackdropHomework, Label = "作业公示 → 桌面背景", Hint = "把作业公示画到桌面壁纸上" },
         new() { Id = BackdropMissing,  Label = "缺交名单 → 桌面背景", Hint = "把缺交名单画到桌面壁纸上" },
         new() { Id = BackdropOff,      Label = "取消桌面背景", Hint = "撤掉画在壁纸上的内容，并把它们恢复成悬浮窗" },
+        new() { Id = ToggleHandBall,   Label = "手写悬浮球",   Hint = "开 / 关屏幕上的手写小圆（勾选表示当前已开）" },
         new() { Id = Exit,            Label = "退出",         Hint = "完全退出程序（含所有悬浮窗）" }
     };
 
@@ -475,12 +514,16 @@ public static class TrayCommands
 
     public static string HintOf(string? id) => Find(id)?.Hint ?? "";
 
-    /// <summary>内置默认菜单：打开控制面板 / 用户中心 / 退出（用户没配过时用它）。</summary>
+    /// <summary>
+    /// 内置默认菜单：打开控制面板 / 用户中心 / 手写悬浮球 / 退出（用户没配过时用它）。
+    /// <para>手写球默认是关的，把它放进默认菜单是为了"想用的人不用先翻到显示设置去找"。</para>
+    /// </summary>
     public static System.Collections.Generic.List<TrayMenuItem> Defaults() => new()
     {
         new TrayMenuItem { Command = Panel },
         new TrayMenuItem { Command = UserCenter },
         new TrayMenuItem { Command = Separator },
+        new TrayMenuItem { Command = ToggleHandBall },
         new TrayMenuItem { Command = Exit }
     };
 }

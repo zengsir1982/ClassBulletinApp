@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
 using ScheduleCore.Services;
@@ -13,6 +14,10 @@ public partial class App : System.Windows.Application
     /// ★ 这类模式绝不能弹模态对话框：自动化流程会卡在一个没人点的确认框上，直到超时。
     /// </summary>
     public static bool IsDiagnostic { get; private set; }
+
+    /// <summary>诊断用：某个窗口句柄当前是否处于"可用"状态（被 ShowDialog 禁用就是 false）。</summary>
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowEnabled(IntPtr hWnd);
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -34,6 +39,10 @@ public partial class App : System.Windows.Application
         // 全局异常捕获：避免“打开即闪退”且无任何提示。
         DispatcherUnhandledException += App_DispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+
+        // 触摸屏：手指点输入框自动弹系统触摸键盘（一次注册，全局生效）。
+        // 教室一体机没有实体键盘，这一句是"能输入"的前提。
+        try { TouchInputBinder.Install(); } catch { }
 
         // 诊断 / 预览：--render-backdrop <输出png> [宽] [高]
         // 按当前配置生成一张桌面背面图后退出，不修改系统壁纸（供预览与自动化测试使用）。
@@ -231,6 +240,8 @@ public partial class App : System.Windows.Application
                     "editor" => new BackdropEditorWindow(),
                     "homeworkedit" => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()),
                     "missingedit" => new MissingEditWindow(Store.LoadMissingBoard()),
+                    "handwriting" => new HandwritingPopup(),
+                    "handball" => new HandwritingBallWindow(),
                     "schedulewin" => new ScheduleWindow(),
                     "schedulewinfail" => DiagScheduleUpdateFail(),
                     "schedulewinuptodate" => DiagScheduleUpToDate(),
@@ -383,6 +394,28 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--test-handwriting <log> 用合成笔迹验证本机手写识别是否可用（不打开窗口）。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--test-handwriting", StringComparison.OrdinalIgnoreCase))
+        {
+            string hwLog = e.Args.Length >= 2
+                ? e.Args[1]
+                : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.handwriting.log");
+            string report;
+            try
+            {
+                // 放到线程池跑：WinRT 异步操作不要占 UI 线程同步等待，避免死锁。
+                report = System.Threading.Tasks.Task.Run(() => HandwritingPopup.SelfTestAsync())
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                report = "EXCEPTION=" + ex.GetType().Name + ": " + ex.Message + "\nRESULT=FAIL";
+            }
+            try { File.WriteAllText(hwLog, report); } catch { }
+            Shutdown();
+            return;
+        }
+
         // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
         // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
@@ -415,6 +448,8 @@ public partial class App : System.Windows.Application
             Check("MissingWindow", () => new MissingWindow());
             Check("MissingEditWindow", () => new MissingEditWindow(Store.LoadMissingBoard()));
             Check("HomeworkEditWindow", () => new HomeworkEditWindow(Store.LoadHomework() ?? new ScheduleCore.Models.HomeworkBoard()));
+            Check("HandwritingPopup", () => new HandwritingPopup());
+            Check("HandwritingBallWindow", () => new HandwritingBallWindow());
             Check("BackdropEditorWindow", () => new BackdropEditorWindow());
             Check("QuickLaunchWindow", () => new QuickLaunchWindow());
             Check("CustomNoteEditWindow", () => new CustomNoteEditWindow(DiagCustomNoteId()));
@@ -461,6 +496,95 @@ public partial class App : System.Windows.Application
             };
             MainWindow = win0;
             win0.Show();
+            return;
+        }
+
+        // 诊断：--ball-check 验证手写悬浮球的关键行为 —— 能显示、不抢焦点、位置落在屏幕内。
+        // 「不抢焦点」是整个方案的前提：一旦球被激活，当前输入框就失焦，手写结果无处可插。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--ball-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string blog = e.Args[1];
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                var ball = new HandwritingBallWindow();
+                ball.Show();
+                ball.UpdateLayout();
+
+                var wa = SystemParameters.WorkArea;
+                bool inside = ball.Left >= wa.Left - 1 && ball.Top >= wa.Top - 1
+                              && ball.Left + ball.ActualWidth <= wa.Right + 1
+                              && ball.Top + ball.ActualHeight <= wa.Bottom + 1;
+
+                sb.AppendLine("VISIBLE=" + ball.IsVisible);
+                sb.AppendLine("ACTIVE=" + ball.IsActive);
+                sb.AppendLine("FOCUS=" + (System.Windows.Input.Keyboard.FocusedElement?.GetType().Name ?? "null"));
+                sb.AppendLine($"RECT={ball.Left:0},{ball.Top:0} {ball.ActualWidth:0}x{ball.ActualHeight:0}");
+                sb.AppendLine("INSIDE_WORKAREA=" + inside);
+                sb.AppendLine("RESULT=" + (ball.IsVisible && !ball.IsActive && inside ? "OK" : "FAIL"));
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("RESULT=FAIL " + ex.GetType().Name + ": " + ex.Message);
+            }
+            try { File.WriteAllText(blog, sb.ToString()); } catch { }
+            Shutdown(0);
+            return;
+        }
+
+        // 诊断：--modal-check 验证"模态对话框打开时手写球还能不能用"。
+        // WPF 的 ShowDialog 会把同线程所有可见窗口 EnableWindow(FALSE)，球在里面就会被一起废掉
+        // （拖不动、点不响）——这是老师反馈"打开对话框后球失灵"的真正原因，必须回归。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--modal-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string mlog = e.Args[1];
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                var ball = new HandwritingBallWindow();
+                ball.Show();
+                ball.UpdateLayout();
+
+                var dlg = new Window
+                {
+                    Title = "modal-check",
+                    Width = 320,
+                    Height = 200,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen
+                };
+
+                dlg.Loaded += (_, _) =>
+                {
+                    var h = new System.Windows.Interop.WindowInteropHelper(ball).Handle;
+
+                    // 先记一次"模态刚打开"的瞬时状态，再等守护计时器跑几轮后记一次
+                    sb.AppendLine("AT_OPEN=" + IsWindowEnabled(h));
+
+                    var t = new System.Windows.Threading.DispatcherTimer
+                    {
+                        Interval = TimeSpan.FromMilliseconds(700)
+                    };
+                    t.Tick += (_, _) =>
+                    {
+                        t.Stop();
+                        bool enabled = IsWindowEnabled(h);
+                        sb.AppendLine("AFTER_GUARD=" + enabled);
+                        sb.AppendLine("VISIBLE=" + ball.IsVisible);
+                        sb.AppendLine("RESULT=" + (enabled && ball.IsVisible ? "OK" : "FAIL"));
+                        dlg.Close();
+                    };
+                    t.Start();
+                };
+
+                dlg.ShowDialog();
+                ball.Close();
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("RESULT=FAIL " + ex.GetType().Name + ": " + ex.Message);
+            }
+            try { File.WriteAllText(mlog, sb.ToString()); } catch { }
+            Shutdown(0);
             return;
         }
 
@@ -527,11 +651,46 @@ public partial class App : System.Windows.Application
             var win = new MainWindow();
             MainWindow = win;
             win.Show();
+            EnsureHandwritingBall();
         }
         catch (Exception ex)
         {
             LogCrash("MainWindow startup", ex);
             Shutdown(1);
+        }
+    }
+
+    /// <summary>
+    /// 手写悬浮球（全局单例）。
+    /// <para>登录之后、主面板起来时创建：登录窗里要写的是账号密码（字母数字），用不着手写，
+    /// 而登录前 <see cref="Store.EnablePersistence"/> 还是关的，球的拖动位置存不住。</para>
+    /// </summary>
+    public static HandwritingBallWindow? HandwritingBall { get; private set; }
+
+    /// <summary>按设置创建 / 显示 / 隐藏手写球（幂等，设置勾选、取消背景时都可以再调一次）。</summary>
+    public static void EnsureHandwritingBall()
+    {
+        try
+        {
+            if (HandwritingBall == null)
+            {
+                var ball = new HandwritingBallWindow();
+                ball.Closed += (_, _) => HandwritingBall = null;
+                HandwritingBall = ball;
+            }
+
+            bool show = Store.LoadSettings().ShowHandwritingBall;
+
+            // 桌面背景模式（「设为背景」）下球要藏起来：内容已经画在壁纸上了，
+            // 再浮一颗球上去既挡视线又不方便。这里统一兜住——托盘开关、显示设置勾选、
+            // 启动恢复都走这个方法，各自判断一次容易漏。
+            if (show && BackdropService.IsApplied()) show = false;
+
+            HandwritingBall.ApplyVisibility(show);
+        }
+        catch (Exception ex)
+        {
+            LogCrash("HandwritingBall", ex);
         }
     }
 

@@ -37,33 +37,30 @@
                 <TextBlock x:Name="TxtIconSize" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="10,0,0,0"/>
             </StackPanel>
 
-            <!-- 内置快捷（作业 / 缺交 / 便签）：这一排是程序自带的，另有独立的大小设置 -->
+            <!-- 内置快捷（作业 / 缺交 / 便签 / 倒计时 / 值日 / 设置）：六个是一整排，共用同一个大小 -->
             <Border Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="1" CornerRadius="10"
                     Padding="12,9" Margin="0,12,0,0">
                 <StackPanel>
                     <DockPanel LastChildFill="False">
-                        <TextBlock DockPanel.Dock="Left" Text="内置快捷（作业 / 缺交 / 便签）" FontSize="14" FontWeight="Bold"
-                                   Foreground="#1F2A37" VerticalAlignment="Center"/>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="大小" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <ComboBox x:Name="CbBuiltinSize" Width="196" FontSize="13.5" VerticalAlignment="Center"
-                                      SelectionChanged="CbBuiltinSize_SelectionChanged">
-                                <ComboBoxItem Content="自动（随悬浮课表宽度）" Tag="0"/>
-                                <ComboBoxItem Content="小" Tag="11"/>
-                                <ComboBoxItem Content="标准" Tag="12.5"/>
-                                <ComboBoxItem Content="大" Tag="14"/>
-                                <ComboBoxItem Content="特大" Tag="16"/>
-                                <ComboBoxItem Content="超大" Tag="18"/>
-                            </ComboBox>
-                        </StackPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="内置快捷（作业 / 缺交 / 便签 / 倒数 / 值日 / 设置）"
+                                   FontSize="14" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtBuiltinSize" DockPanel.Dock="Right" FontSize="13" Foreground="#6B7280"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
                     </DockPanel>
-                    <TextBlock Text="选「自动」会跟着悬浮课表宽度挑档位：窗口窄时自动收小，三个不会挤成两行；拉宽后自动放大，看着更整齐。"
-                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,4,0,6"/>
-                    <WrapPanel Orientation="Horizontal">
-                        <WrapPanel x:Name="BuiltinPreview" Orientation="Horizontal"/>
-                        <TextBlock x:Name="TxtBuiltinHint" FontSize="11.5" Foreground="#9CA3AF"
-                                   VerticalAlignment="Center" Margin="6,0,0,4"/>
-                    </WrapPanel>
+
+                    <Slider x:Name="SlBuiltinSize" Minimum="9" Maximum="22" TickFrequency="0.5"
+                            IsSnapToTickEnabled="True" Margin="0,8,0,0"
+                            ValueChanged="SlBuiltinSize_ValueChanged"
+                            ToolTip="拖动调整六个快捷按钮的大小（字号 9~22）。勾选下面的「自动」则跟随悬浮课表宽度。"/>
+
+                    <CheckBox x:Name="ChkBuiltinAuto" Content="自动：跟随悬浮课表宽度（推荐）" FontSize="13.5"
+                              Foreground="#1F2A37" Margin="0,6,0,0" Click="ChkBuiltinAuto_Click"
+                              ToolTip="窗口窄时自动收小，六个不会挤成两行；拉宽后自动放大"/>
+
+                    <TextBlock x:Name="TxtBuiltinHint" FontSize="12" Foreground="#6B7280" TextWrapping="Wrap"
+                               Margin="0,6,0,8"/>
+
+                    <WrapPanel x:Name="BuiltinPreview" Orientation="Horizontal"/>
                 </StackPanel>
             </Border>
 

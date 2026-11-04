@@ -1,7 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!--
+      目标框架带 Windows 10 版本号：为了用 WinRT 的 Windows.UI.Input.Inking（系统手写识别）。
+      .NET 8 的 WPF 已移除 InkAnalyzer，只剩绘制类型，识别必须走 WinRT。
+      SupportedOSPlatformVersion 压到 17763（Win10 1809），覆盖教室机实际版本；
+      Windows.UI.Input.Inking 从 Windows 8.1 就有，运行时不会缺 API。
+    -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -11,9 +18,9 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
 
     <!-- 版本信息：发版时只需改这里 -->
-    <Version>1.0.8</Version>
-    <AssemblyVersion>1.0.8.0</AssemblyVersion>
-    <FileVersion>1.0.8.0</FileVersion>
+    <Version>1.0.9</Version>
+    <AssemblyVersion>1.0.9.0</AssemblyVersion>
+    <FileVersion>1.0.9.0</FileVersion>
     <Company>逆流的鱼</Company>
     <Product>班级公布栏</Product>
     <Title>班级公布栏</Title>

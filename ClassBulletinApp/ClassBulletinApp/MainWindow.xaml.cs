@@ -76,7 +76,23 @@ public partial class MainWindow : Window
         AppEvents.QuickOpenCustomNote += OnQuickOpenCustomNote;
         AppEvents.QuickOpenCountdown += OnQuickOpenCountdown;
         AppEvents.QuickOpenDuty += OnQuickOpenDuty;
+        AppEvents.QuickOpenSettings += OnQuickOpenSettings;
         AppEvents.QuickCheckUpdate += OnQuickCheckUpdate;
+
+        // 球上右键「隐藏」时，这里的勾选要跟着取消（球是常驻窗口，两边状态必须一致）
+        AppEvents.HandwritingBallChanged += OnHandwritingBallChanged;
+    }
+
+    /// <summary>球被隐藏后，把控制面板里的勾选和托盘菜单的勾选一起同步。</summary>
+    private void OnHandwritingBallChanged()
+    {
+        try
+        {
+            bool on = Store.LoadSettings().ShowHandwritingBall;
+            if (ChkHandBall != null) ChkHandBall.IsChecked = on;
+            UpdateTrayMenuState();
+        }
+        catch { }
     }
 
     // ---------- 悬浮课表快捷按钮（作业 / 缺交 / 便签 / 更新课表） ----------
@@ -185,6 +201,18 @@ public partial class MainWindow : Window
         catch (Exception ex) { TxtStatus.Text = "打开值日生名单失败：" + ex.Message; }
     }
 
+    /// <summary>
+    /// 悬浮课表「设置」快捷入口：打开控制面板并切到「显示设置」页。
+    /// <para>为什么是这一页：字号、颜色、悬浮窗、手写球、触摸键盘这些"看得见"的开关都在这，
+    /// 老师从悬浮窗点进来通常就是奔着"字太小 / 颜色不好看 / 某个窗口不见了"。</para>
+    /// </summary>
+    private void OnQuickOpenSettings()
+    {
+        ShowMainWindow();
+        if (MainTabs != null) MainTabs.SelectedIndex = 2;   // 0 周课程表 / 1 数据管理 / 2 显示设置
+        TxtStatus.Text = "已打开「显示设置」：字号、颜色、悬浮窗、手写悬浮球都在这一页。";
+    }
+
     private async void OnQuickCheckUpdate()
     {
         if (!UserSession.CanManageUpdate)
@@ -278,6 +306,10 @@ public partial class MainWindow : Window
             if (ChkAutoLogin != null) ChkAutoLogin.IsChecked = settings.AutoLogin;
 
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
+            if (ChkTouchKb != null) ChkTouchKb.IsChecked = settings.TouchKeyboardAutoShow;
+            if (ChkHandBall != null) ChkHandBall.IsChecked = settings.ShowHandwritingBall;
+            if (ChkBothWeeks != null) ChkBothWeeks.IsChecked = settings.ShowAlternateWeekLessons;
+            TouchInputBinder.RefreshSetting();
             ReloadNotes();
             ReloadHomework();
             ReloadMissing();
@@ -1619,6 +1651,7 @@ public partial class MainWindow : Window
             case TrayCommands.BackdropHomework: ToggleBackdropHomework(); break;
             case TrayCommands.BackdropMissing: ToggleBackdropMissing(); break;
             case TrayCommands.BackdropOff: CancelBackdrop(confirm: false); break;
+            case TrayCommands.ToggleHandBall: SetHandwritingBall(!Store.LoadSettings().ShowHandwritingBall); break;
             case TrayCommands.Exit: ExitApp(); break;
         }
     }
@@ -1649,6 +1682,7 @@ public partial class MainWindow : Window
                     case TrayCommands.BackdropSchedule: mi.Checked = b.ShowSchedule; break;
                     case TrayCommands.BackdropHomework: mi.Checked = b.ShowHomework; break;
                     case TrayCommands.BackdropMissing: mi.Checked = b.ShowMissing; break;
+                    case TrayCommands.ToggleHandBall: mi.Checked = Store.LoadSettings().ShowHandwritingBall; break;
                 }
             }
         }
@@ -3453,8 +3487,81 @@ public partial class MainWindow : Window
             : "已关闭最大化窗口自动隐藏。";
     }
 
-    private void CheckMaxWindow(bool force = false)
+    // ---------- 单双周课程显示 ----------
+
+    /// <summary>
+    /// 「同时显示单双周」开关。默认关 = 只显示本周要上的那节。
+    /// <para>改完立刻重画悬浮课表与桌面背景（走课表变化事件，两边共用一次刷新），
+    /// 不用重启就能看出"少了一半灰字"。</para>
+    /// </summary>
+    private void ChkBothWeeks_Click(object sender, RoutedEventArgs e)
     {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.ShowAlternateWeekLessons = ChkBothWeeks.IsChecked == true;
+            Store.SaveSettings(s);
+
+            AppEvents.RaiseScheduleChanged();
+
+            TxtStatus.Text = s.ShowAlternateWeekLessons
+                ? "已改为同时显示单双周：同一格两门课都会列出来，不是本周的那节显示为灰色。"
+                : "已改为只显示本周课程：单双周交替的格子只列本周要上的那节，看起来更简洁。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换单双周显示失败：" + ex.Message;
+        }
+    }
+
+    // ---------- 触摸键盘自动弹出 ----------
+    private void ChkTouchKb_Click(object sender, RoutedEventArgs e){
+        var s = Store.LoadSettings();
+        s.TouchKeyboardAutoShow = ChkTouchKb.IsChecked == true;
+        Store.SaveSettings(s);
+        TouchInputBinder.RefreshSetting();
+
+        if (s.TouchKeyboardAutoShow)
+        {
+            TxtStatus.Text = TouchKeyboard.IsAvailable
+                ? "已开启：手指点输入框时会自动弹出触摸键盘。"
+                : "已开启，但本机没有找到触摸键盘程序（TabTip / osk），可能需要在系统里启用触摸键盘。";
+        }
+        else
+        {
+            TouchKeyboard.Hide();
+            TxtStatus.Text = "已关闭触摸键盘自动弹出（仍可从系统任务栏手动调出）。";
+        }
+    }
+
+    /// <summary>手写悬浮球开关。球是常驻窗口，改完要立即生效，不能让用户重启才知道。</summary>
+    private void ChkHandBall_Click(object sender, RoutedEventArgs e)
+        => SetHandwritingBall(ChkHandBall.IsChecked == true);
+
+    /// <summary>
+    /// 设置手写悬浮球的显示状态（「显示设置」勾选与任务栏右键菜单共用一个入口）。
+    /// <para>两边必须走同一段代码：勾选框、托盘勾选、球的可见性三者状态一旦分叉，
+    /// 就会出现"菜单里打勾但屏幕上没球"这种谁也说不清的毛病。</para>
+    /// </summary>
+    private void SetHandwritingBall(bool on)
+    {
+        var s = Store.LoadSettings();
+        s.ShowHandwritingBall = on;
+        Store.SaveSettings(s);
+
+        App.EnsureHandwritingBall();
+
+        if (ChkHandBall != null) ChkHandBall.IsChecked = on;
+        UpdateTrayMenuState();
+
+        TxtStatus.Text = on
+            ? (BackdropService.IsApplied()
+                ? "手写悬浮球已开启，但当前是「桌面背景」模式，取消背景后才会显示在桌面上。"
+                : "已显示手写悬浮球：点一下就能手写，按住可以拖到屏幕任意位置。")
+            : "已隐藏手写悬浮球（编辑窗里的「✎ 手写输入」按钮仍然可用）。";
+    }
+
+    private void CheckMaxWindow(bool force = false)    {
         try
         {
             bool enabled = Store.LoadSettings().AutoHideOnMaxWindow;

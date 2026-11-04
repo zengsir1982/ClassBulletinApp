@@ -81,7 +81,7 @@
             <StackPanel>
                 <DockPanel LastChildFill="False" Margin="0,0,0,8">
                     <TextBlock Text="各科作业" FontSize="16" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>
-                    <Button x:Name="BtnAddHw" DockPanel.Dock="Right" Content="＋ 添加科目" Click="BtnAddHw_Click" Padding="10,4" FontSize="13"
+                    <Button x:Name="BtnAddHw" DockPanel.Dock="Right" Content="＋ 添加科目" Click="BtnAddHw_Click" Padding="14,8" FontSize="14" MinHeight="40"
                             Background="#EAF1FD" BorderBrush="#B9CBE8"/>
                 </DockPanel>
                 <ItemsControl x:Name="HwItems">
@@ -97,9 +97,9 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBox Grid.Column="0" Style="{StaticResource HwSubjectBox}"
                                                  Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                 Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" ToolTip="科目"/>
-                                        <TextBox Grid.Column="1" Style="{StaticResource HwStyledBox}" Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="6" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="46" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="作业内容"/>
-                                        <Button Grid.Column="2" Content="删除" Padding="8,4" FontSize="12" Click="BtnDelHw_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                                                 Padding="8" MinHeight="40" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" ToolTip="科目"/>
+                                        <TextBox Grid.Column="1" Style="{StaticResource HwStyledBox}" Text="{Binding Content, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="8" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="58" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="作业内容"/>
+                                        <Button Grid.Column="2" Content="删除" Padding="10,6" FontSize="13" MinHeight="38" Click="BtnDelHw_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
                                     </Grid>
                                     <!-- 科目与内容各一个「B + 字号 + 颜色」，紧凑模式只占一行，不再分两块重复排版。
                                          用 WrapPanel 按「标签 + 控件」成组换行：窗口拉窄时「内容」整组掉到下一行，
@@ -131,11 +131,16 @@
         <!-- 底部按钮 -->
         <Border Grid.Row="2" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" Padding="16,10">
             <DockPanel LastChildFill="False">
+                <!-- 触摸屏专用入口：把手指写的字识别后插回当前输入框 -->
+                <Button x:Name="BtnHand" DockPanel.Dock="Left" Content="✎ 手写输入" Click="BtnHand_Click"
+                        MinHeight="44" Padding="14,6" FontSize="15" Margin="0,0,16,0"
+                        Background="#EEF5FF" BorderBrush="#B9CBE8"
+                        ToolTip="先用手指点一下要输入的输入框，再点这里手写"/>
                 <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#6B7280"
                            Text="提示：确定后会立即保存，并同步更新桌面背景（若已开启）。"/>
-                <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="20,7" FontSize="14" Margin="10,0,0,0"
+                <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="24,8" FontSize="15" MinHeight="44" Margin="10,0,0,0"
                         Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" IsDefault="True" Click="BtnOk_Click"/>
-                <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="20,7" FontSize="14"
+                <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="24,8" FontSize="15" MinHeight="44"
                         Background="White" BorderBrush="#D1D5DB" IsCancel="True" Click="BtnCancel_Click"/>
             </DockPanel>
         </Border>

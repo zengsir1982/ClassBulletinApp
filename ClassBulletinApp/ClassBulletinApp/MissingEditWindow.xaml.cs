@@ -119,5 +119,8 @@ public partial class MissingEditWindow : Window
 
     private void BtnOk_Click(object sender, RoutedEventArgs e) => DialogResult = true;
 
+    /// <summary>手写输入：识别结果插回"最后点过的那个输入框"（姓名生僻字的主要输入方式）。</summary>
+    private void BtnHand_Click(object sender, RoutedEventArgs e) => HandwritingService.Open(this);
+
     private void BtnCancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }

@@ -23,10 +23,10 @@ public partial class QuickLaunchWindow : Window
     private bool _iconOnly;
     private double _size = 28;
 
-    /// <summary>内置快捷（作业 / 缺交 / 便签）胶囊的字号；0 = 随悬浮课表宽度自动。</summary>
+    /// <summary>内置快捷（六个胶囊）的字号；0 = 随悬浮课表宽度自动。</summary>
     private double _builtinSize;
 
-    /// <summary>初始化期间 ComboBox 会触发 SelectionChanged，此标志避免把初始值当成用户改动。</summary>
+    /// <summary>初始化期间滑块 / 勾选框会触发事件，此标志避免把初始值当成用户改动。</summary>
     private bool _builtinReady;
 
     public QuickLaunchWindow()
@@ -43,51 +43,92 @@ public partial class QuickLaunchWindow : Window
         SlIconSize.Value = _size;
         TxtIconSize.Text = ((int)_size) + " px";
 
-        SelectBuiltinSizeOption();
+        InitBuiltinSize();
         RenderList();
         RenderPreview();
         RenderBuiltinPreview();
     }
 
-    // ---------- 内置快捷（作业 / 缺交 / 便签）的大小 ----------
+    // ---------- 内置快捷（六个胶囊）的大小 ----------
 
-    /// <summary>把设置值对应到下拉项（找不到就回到「自动」）。</summary>
-    private void SelectBuiltinSizeOption()
+    /// <summary>
+    /// 用设置值初始化滑块与「自动」勾选。
+    /// <para>自动档下滑块不动、灰掉，但停在"当前实际换算出来的字号"上 —— 让用户看得见自动到底给了多大。</para>
+    /// </summary>
+    private void InitBuiltinSize()
     {
         _builtinReady = false;
         try
         {
-            foreach (var obj in CbBuiltinSize.Items)
-            {
-                if (obj is ComboBoxItem it && TryParseTag(it, out double v)
-                    && Math.Abs(v - _builtinSize) < 0.01)
-                {
-                    it.IsSelected = true;
-                    return;
-                }
-            }
-            if (CbBuiltinSize.Items.Count > 0)
-                ((ComboBoxItem)CbBuiltinSize.Items[0]).IsSelected = true;
+            bool auto = _builtinSize <= 0;
+            double fs = QuickActionStyle.Resolve(_builtinSize, OwnerWidth());
+
+            ChkBuiltinAuto.IsChecked = auto;
+            SlBuiltinSize.Value = Math.Clamp(fs, SlBuiltinSize.Minimum, SlBuiltinSize.Maximum);
+            SlBuiltinSize.IsEnabled = !auto;
         }
         finally { _builtinReady = true; }
     }
 
-    private static bool TryParseTag(ComboBoxItem item, out double value)
-        => double.TryParse(item.Tag as string ?? "", System.Globalization.NumberStyles.Float,
-                           System.Globalization.CultureInfo.InvariantCulture, out value);
-
-    private double SelectedBuiltinSize()
-        => CbBuiltinSize.SelectedItem is ComboBoxItem it && TryParseTag(it, out double v) ? v : 0;
-
-    private void CbBuiltinSize_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>
+    /// 悬浮课表当前宽度（DIP）。<c>Owner</c> 在构造期还没赋值（对象初始化器是构造之后才设置的），
+    /// 所以再退一步找当前开着的悬浮课表；都没有就按默认宽度 420 算。
+    /// </summary>
+    private double OwnerWidth()
     {
-        if (!_builtinReady) return;
-        _builtinSize = SelectedBuiltinSize();
+        if (Owner is Window w && w.ActualWidth > 0) return w.ActualWidth;
+
+        // ★ 项目同时引用了 WinForms 与 WPF，Application 必须全限定（同名类型）
+        var app = System.Windows.Application.Current;
+        if (app != null)
+        {
+            foreach (Window win in app.Windows)
+            {
+                if (win is ScheduleWindow sw && sw.ActualWidth > 0) return sw.ActualWidth;
+            }
+        }
+        return 420;
+    }
+
+    private void SlBuiltinSize_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // XAML 加载期设置 Minimum/Maximum 会触发本事件，此时其它控件还没实例化
+        if (!_builtinReady || TxtBuiltinSize == null) return;
+        if (ChkBuiltinAuto.IsChecked == true) return;   // 自动档：滑块只是显示换算结果，不是输入
+
+        _builtinSize = SlBuiltinSize.Value;
+        RenderBuiltinPreview();
+    }
+
+    private void ChkBuiltinAuto_Click(object sender, RoutedEventArgs e)
+    {
+        if (TxtBuiltinSize == null) return;
+
+        _builtinReady = false;
+        try
+        {
+            bool auto = ChkBuiltinAuto.IsChecked == true;
+            SlBuiltinSize.IsEnabled = !auto;
+
+            if (auto)
+            {
+                _builtinSize = 0;
+                // 停在自动换算值上，让用户知道自动是多大
+                double fs = QuickActionStyle.Resolve(0, OwnerWidth());
+                SlBuiltinSize.Value = Math.Clamp(fs, SlBuiltinSize.Minimum, SlBuiltinSize.Maximum);
+            }
+            else
+            {
+                _builtinSize = SlBuiltinSize.Value;
+            }
+        }
+        finally { _builtinReady = true; }
+
         RenderBuiltinPreview();
     }
 
     /// <summary>
-    /// 预览三个内置快捷胶囊（与悬浮课表底部同一套样式 + 同一套大小换算）。
+    /// 预览六个内置快捷胶囊（与悬浮课表底部同一套样式 + 同一套大小换算）。
     /// 「自动」档按悬浮课表当前宽度换算，所以这里能直接看出窄窗下会不会挤成两行。
     /// </summary>
     private void RenderBuiltinPreview()
@@ -95,7 +136,7 @@ public partial class QuickLaunchWindow : Window
         if (BuiltinPreview == null) return;
         BuiltinPreview.Children.Clear();
 
-        double ownerWidth = Owner is Window w && w.ActualWidth > 0 ? w.ActualWidth : 420;
+        double ownerWidth = OwnerWidth();
         double fs = QuickActionStyle.Resolve(_builtinSize, ownerWidth);
         var style = TryFindResource("QuickActionBtn") as Style;
 
@@ -118,11 +159,15 @@ public partial class QuickLaunchWindow : Window
         Add("📋 作业", "#EAF2FD", "#9EC1F0");
         Add("📝 缺交", "#FFF4E5", "#F0C48A");
         Add("📌 便签", "#F2EDFD", "#BFAFE8");
+        Add("⏳ 倒数", "#FFF8E1", "#E8CE8A");
+        Add("🧹 值日", "#E8F5E9", "#A5CFA8");
+        Add("⚙ 设置", "#EEF1F5", "#B9C2CE");
 
+        if (TxtBuiltinSize != null) TxtBuiltinSize.Text = $"字号 {fs:0.#}";
         if (TxtBuiltinHint != null)
             TxtBuiltinHint.Text = _builtinSize > 0
-                ? $"当前按字号 {fs:0.#} 显示（固定档）"
-                : $"自动：按悬浮课表宽度 {Math.Round(ownerWidth)} 换算为字号 {fs:0.#}";
+                ? $"固定 {fs:0.#} 号（滑块 9~22；改完点「确定」生效）"
+                : $"自动：按悬浮课表宽度 {Math.Round(ownerWidth)} 换算为 {fs:0.#} 号（窗口窄了会自动收小，六个不挤成两行）";
     }
 
     private static WpfBrush HexBrush(string hex)

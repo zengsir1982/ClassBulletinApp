@@ -328,7 +328,8 @@ public static class BackdropService
         if (teacher)
             overrides = TeacherOverrideApplier.BuildTeacherOverrides(sf, name, Store.LoadOverrides());
 
-        var res = BoardBuilder.Build(name, s.SemesterStartMonday, sf, date, overrides);
+        var res = BoardBuilder.Build(name, s.SemesterStartMonday, sf, date, overrides,
+                                     showAlternateWeek: s.ShowAlternateWeekLessons);
         string title = string.IsNullOrWhiteSpace(res.ClassName) ? name : res.ClassName;
         if (teacher && !string.IsNullOrWhiteSpace(title)) title = title + " 老师";
         return (res, title, res.DateText, res.WeekLine);

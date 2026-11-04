@@ -154,8 +154,12 @@
                 </Grid>
             </Border>
 
-            <!-- 课表滚动区（紧凑，减小内边距与字号，留出更多底部空间） -->
-            <ScrollViewer Grid.Row="1" Margin="10" VerticalScrollBarVisibility="Auto">
+            <!-- 课表滚动区（紧凑，减小内边距与字号，留出更多底部空间）。
+                 滚动条 Hidden 而不是 Disabled：内容超长时仍能用滚轮 / 手指拖动滚动，
+                 只是不显示那条灰白竖条 —— 悬浮窗本来就窄，一条滚动条要吃掉十几个像素，
+                 而且教室屏幕大、课表通常一屏放得下，滚动条更多是"没内容也不该出现的装饰"。 -->
+            <ScrollViewer Grid.Row="1" Margin="10" VerticalScrollBarVisibility="Hidden"
+                          HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                 <StackPanel>
                     <ItemsControl x:Name="TodayPanel">
                         <ItemsControl.ItemTemplate>
@@ -231,12 +235,17 @@
                         <Button x:Name="BtnQaCountdown" Style="{StaticResource QuickActionBtn}" Click="BtnQaCountdown_Click"
                                 Background="#FFF8E1" BorderBrush="#E8CE8A"
                                 ToolTip="打开倒计时便签（期末考试 / 运动会还有几天）；还没有事件时会直接弹出编辑窗口">
-                            <TextBlock Text="⏳ 倒计时"/>
+                            <TextBlock Text="⏳ 倒数"/>
                         </Button>
                         <Button x:Name="BtnQaDuty" Style="{StaticResource QuickActionBtn}" Click="BtnQaDuty_Click"
                                 Background="#E8F5E9" BorderBrush="#A5CFA8"
                                 ToolTip="打开值日生名单便签；还没有安排时会直接弹出编辑窗口">
                             <TextBlock Text="🧹 值日"/>
+                        </Button>
+                        <Button x:Name="BtnQaSettings" Style="{StaticResource QuickActionBtn}" Click="BtnQaSettings_Click"
+                                Background="#EEF1F5" BorderBrush="#B9C2CE"
+                                ToolTip="打开控制面板的「显示设置」页（字号、颜色、悬浮窗、手写球等都在这里）">
+                            <TextBlock Text="⚙ 设置"/>
                         </Button>
                     </WrapPanel>
 

@@ -98,6 +98,10 @@
         <!-- 底部按钮 -->
         <Border Grid.Row="3" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" Padding="16,10">
             <DockPanel LastChildFill="False">
+                <Button x:Name="BtnHand" DockPanel.Dock="Left" Content="✎ 手写输入" Click="BtnHand_Click"
+                        Padding="14,7" FontSize="14" Margin="0,0,14,0"
+                        Background="#EEF5FF" BorderBrush="#9EC1F0"
+                        ToolTip="先在列表里双击要填的单元格（光标进了格子），再点这里手写；识别后插入"/>
                 <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#6B7280"
                            Text="提示：确定后立即保存。在屏幕上双击值日便签也可打开本窗口。"/>
                 <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="20,7" FontSize="14" Margin="10,0,0,0"

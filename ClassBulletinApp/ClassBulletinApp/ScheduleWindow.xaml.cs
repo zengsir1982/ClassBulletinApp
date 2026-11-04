@@ -170,6 +170,9 @@ public partial class ScheduleWindow : Window
         BtnQaNote.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
         BtnQaCountdown.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
         BtnQaDuty.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
+        // 「设置」不按编辑权限收：它只是个入口，控制面板本来就对所有角色开放
+        //（托盘右键「打开控制面板」同理）。学生看不到作业 / 便签，但想调字号颜色时仍有路可走。
+        BtnQaSettings.Visibility = Visibility.Visible;
         // 「更新课表」已移到标题栏，按「管理更新」权限独立显隐（与底部快捷栏无关）
         BtnQaUpdate.Visibility = UserSession.CanManageUpdate ? Visibility.Visible : Visibility.Collapsed;
 
@@ -178,7 +181,8 @@ public partial class ScheduleWindow : Window
                 || BtnQaMissing.Visibility == Visibility.Visible
                 || BtnQaNote.Visibility == Visibility.Visible
                 || BtnQaCountdown.Visibility == Visibility.Visible
-                || BtnQaDuty.Visibility == Visibility.Visible;
+                || BtnQaDuty.Visibility == Visibility.Visible
+                || BtnQaSettings.Visibility == Visibility.Visible;
         BuiltinWrap.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -191,6 +195,8 @@ public partial class ScheduleWindow : Window
     private void BtnQaCountdown_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenCountdown();
 
     private void BtnQaDuty_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenDuty();
+
+    private void BtnQaSettings_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenSettings();
 
     private void BtnQaUpdate_Click(object sender, RoutedEventArgs e)
     {
@@ -654,7 +660,8 @@ public partial class ScheduleWindow : Window
     }
 
     /// <summary>
-    /// 按设置调整底部三个内置快捷（作业 / 缺交 / 便签）胶囊的大小。
+    /// 按设置调整底部内置快捷（作业 / 缺交 / 便签 / 倒计时 / 值日 / 设置）胶囊的大小。
+    /// <para>六个共用同一档字号：它们是一整排，大小不一致会一眼看出「后加的三个没跟上」。</para>
     /// <para>设为「自动」时跟着悬浮课表宽度走：窄窗不挤成一团、宽窗也不显得太小。
     /// 设置值缓存在 <see cref="_qaFontSetting"/>，拖动缩放期间不会反复读设置文件。</para>
     /// </summary>
@@ -670,6 +677,9 @@ public partial class ScheduleWindow : Window
         QuickActionStyle.Apply(BtnQaHomework, fs);
         QuickActionStyle.Apply(BtnQaMissing, fs);
         QuickActionStyle.Apply(BtnQaNote, fs);
+        QuickActionStyle.Apply(BtnQaCountdown, fs);
+        QuickActionStyle.Apply(BtnQaDuty, fs);
+        QuickActionStyle.Apply(BtnQaSettings, fs);
     }
 
     /// <summary>按当前「仅图标 / 图标大小」把快捷方式渲染成底部应用栏（图标按钮 + 移除按钮）。</summary>
@@ -910,7 +920,9 @@ public partial class ScheduleWindow : Window
         if (_isTeacherMode)
             viewOverrides = TeacherOverrideApplier.BuildTeacherOverrides(_schedule, _selectedName, Store.LoadOverrides());
 
-        var res = BoardBuilder.Build(_selectedName, _semesterStart, _schedule, displayDate, viewOverrides);
+        // 单双周：默认只显示本周要上的那节（更简洁），可在显示设置里改回"两周都列出来（灰色）"
+        var res = BoardBuilder.Build(_selectedName, _semesterStart, _schedule, displayDate, viewOverrides,
+                                     showAlternateWeek: s.ShowAlternateWeekLessons);
 
         TxtClass.Text = string.IsNullOrEmpty(res.ClassName)
             ? (_isTeacherMode ? "未选择教师" : "未选择班级")

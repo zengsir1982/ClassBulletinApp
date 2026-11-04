@@ -132,6 +132,10 @@
                                     </WrapPanel>
                                     <CheckBox x:Name="ChkMaxHide" Content="桌面有窗口最大化时，自动隐藏课表与通知（避免遮挡正在使用的程序）"
                                               FontSize="14" Foreground="#1F2A37" Margin="2,6,0,0" Click="ChkMaxHide_Click"/>
+                                    <CheckBox x:Name="ChkTouchKb" Content="触摸屏：手指点输入框时自动弹出系统触摸键盘（教室一体机建议开启；鼠标点击不弹）"
+                                              FontSize="14" Foreground="#1F2A37" Margin="2,6,0,0" Click="ChkTouchKb_Click"/>
+                                    <CheckBox x:Name="ChkHandBall" Content="显示「手写」悬浮球（点一下就能手写输入，可拖到任意位置；比逐个窗口找「手写输入」按钮方便）"
+                                              FontSize="14" Foreground="#1F2A37" Margin="2,6,0,0" Click="ChkHandBall_Click"/>
                                 </StackPanel>
                             </Border>
 
@@ -147,6 +151,10 @@
                                         <Button x:Name="BtnHideTray" Content="隐藏到托盘" Style="{StaticResource TabBtn}" Click="BtnHideTray_Click"
                                                 ToolTip="把控制面板收到右下角托盘，双击图标可再打开"/>
                                     </WrapPanel>
+                                    <!-- 单双周：同一格单双周两门课时，只列本周那节（默认），避免一屏灰字 -->
+                                    <CheckBox x:Name="ChkBothWeeks" Content="课表同时显示单双周的课程（另一周用灰色标出；不勾选则只显示本周要上的课，更简洁）"
+                                              FontSize="14" Foreground="#1F2A37" Margin="2,10,0,0" Click="ChkBothWeeks_Click"
+                                              ToolTip="只影响显示：调代课记录、上课提醒、课表变化检测仍按完整数据计算"/>
                                 </StackPanel>
                             </Border>
 

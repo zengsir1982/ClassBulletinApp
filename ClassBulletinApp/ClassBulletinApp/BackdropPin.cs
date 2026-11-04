@@ -137,6 +137,11 @@ public static class BackdropPin
         }
 
         AppEvents.RaiseBackdropChanged();
+
+        // 上了壁纸就不要再浮一个手写球：壁纸的意义是"一眼看全"，球浮在上面挡住内容。
+        // 集中在这里隐藏，省得每个「设为背景」的入口各写一遍、漏一个就漏一个。
+        App.HandwritingBall?.ApplyVisibility(false);
+
         message = "已按当前位置与大小设为桌面背景（" + Math.Round(pw) + " × " + Math.Round(ph) + " 像素）。";
         return true;
     }
@@ -189,6 +194,9 @@ public static class BackdropPin
             BackdropService.Clear();
             AppEvents.RaiseBackdropChanged();
             if (tokens.Count > 0) AppEvents.RaiseRestoreFloating(tokens.ToArray());
+
+            // 球按设置恢复：只在「设为背景」时临时藏起来，不该顺手把用户的开关改掉
+            App.HandwritingBall?.ApplyVisibility(Store.LoadSettings().ShowHandwritingBall);
 
             message = applied ? "已取消桌面背景，系统原壁纸已恢复" : "已取消桌面背景设置";
             message += tokens.Count > 0 ? "；课表 / 便签已恢复为悬浮窗显示。" : "。";

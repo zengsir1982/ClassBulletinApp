@@ -19,7 +19,7 @@ namespace ClassBulletinApp;
 /// <summary>
 /// 任务栏图标右键菜单的编辑器。
 ///
-/// <para>默认菜单只有「打开控制面板 / 用户中心 / 退出」三项 —— 以前那排"课表悬浮：开/关"
+/// <para>默认菜单是「打开控制面板 / 用户中心 / 手写悬浮球 / 退出」—— 以前那排"课表悬浮：开/关"
 /// 和「自定义便签」子菜单，在控制面板里都能操作，塞进右键只会让菜单又长又容易点错。
 /// 需要的话可以在这里把某个开关加回来，并改成自己习惯的名字。</para>
 ///
@@ -69,8 +69,8 @@ public class TrayMenuWindow : Window
             FontSize = 12.5,
             Foreground = Brushes.DimGray,
             TextWrapping = TextWrapping.Wrap,
-            Text = "自定义在右下角托盘图标上点右键时弹出的菜单。默认只有「打开控制面板」「用户中心」「退出」三项；"
-                 + "需要哪些开关也可以加回来。文字留空则用该命令的默认名称。\n"
+            Text = "自定义在右下角托盘图标上点右键时弹出的菜单。默认是「打开控制面板」「用户中心」「手写悬浮球」「退出」；"
+                 + "需要哪些开关也可以增删。文字留空则用该命令的默认名称。\n"
                  + "★ 这些开关在控制面板里同样能操作，菜单加得越长越容易点错。"
         });
         DockPanel.SetDock(head, Dock.Top);
@@ -98,7 +98,7 @@ public class TrayMenuWindow : Window
             _items.Clear();
             foreach (var d in TrayCommands.Defaults()) _items.Add(d);
             RefreshList();
-            _status.Text = "已恢复默认三项（未保存）。";
+            _status.Text = "已恢复默认菜单（未保存）。";
         };
 
         var btnSave = Mk("保存", "#E8F6EE");
