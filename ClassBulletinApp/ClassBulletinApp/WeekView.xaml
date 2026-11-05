@@ -2,7 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ClassBulletinApp"
-             x:Name="Root">
+             x:Name="Root"
+             Stylus.IsPressAndHoldEnabled="False"
+             Stylus.IsFlicksEnabled="False">
     <DockPanel LastChildFill="True">
         <!-- 顶部工具栏 -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource PrimaryBrush}" Padding="12">
@@ -35,10 +37,18 @@
         <!-- 提示 -->
         <TextBlock x:Name="TxtHint" DockPanel.Dock="Top" FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="10,6"/>
 
-        <!-- 周表格（动态生成） -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-            <Grid x:Name="WeekGrid" Margin="10" MinWidth="900"/>
-        </ScrollViewer>
+        <!-- 周表格（动态生成）+ 拖动覆盖层。
+             ★ PanningMode 必须是 None：只要交给系统托管，ScrollViewer 就会在触摸按下时捕获并
+               标记「已处理」，触摸不再提升成鼠标事件，长按 / 拖动 / 双击全部失效。
+               滚动由代码自己做（单指快速划动 / 双指划动），与悬浮课表完全同一套规则。
+             ★ DragLayer 画在整个视图之上：幽灵卡跟手时不能被 ScrollViewer 裁掉。 -->
+        <Grid>
+            <ScrollViewer x:Name="WeekScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                          PanningMode="None">
+                <Grid x:Name="WeekGrid" Margin="10" MinWidth="900"/>
+            </ScrollViewer>
+            <Canvas x:Name="DragLayer" IsHitTestVisible="False"/>
+        </Grid>
 
         <!-- 状态栏 -->
         <Border DockPanel.Dock="Bottom" Background="#F5F7FA" Padding="8">

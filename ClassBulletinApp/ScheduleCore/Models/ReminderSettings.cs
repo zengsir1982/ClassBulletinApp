@@ -75,6 +75,28 @@ public class ReminderSettings
     /// <summary>小窗左上角 Y（逻辑像素）；null = 工作区顶部下方 72。</summary>
     public double? PopupTop { get; set; }
 
+    // ---------- 提醒弹窗的外观风格 ----------
+    // 上下课提醒的小窗、「课表有变化」的小窗与全屏大字提示共用这一套，
+    // 改一处三处一起变（用户要求"全屏和小窗套用同一风格"）。
+
+    /// <summary>
+    /// 外观预设：classic=经典白（白底深字）/ blue=深海蓝 / dark=墨黑黄 / green=护眼绿 / custom=自定义。
+    /// 预设只决定配色，不透明度与字号倍数是独立的两个参数。
+    /// </summary>
+    public string PopupStyle { get; set; } = "classic";
+
+    /// <summary>不透明度 0.55 ~ 1.0（1 = 完全不透明）。太低会让后排看不清，所以下限设在 55%。</summary>
+    public double PopupOpacity { get; set; } = 1.0;
+
+    /// <summary>字号倍数 0.8 ~ 1.8（在小窗自身缩放之外再乘一道）。</summary>
+    public double PopupFontScale { get; set; } = 1.0;
+
+    /// <summary>自定义风格的卡片底色（#RRGGBB）；仅 <see cref="PopupStyle"/>=custom 时生效，留空 = 按经典白。</summary>
+    public string PopupCardColor { get; set; } = "";
+
+    /// <summary>自定义风格的文字颜色（#RRGGBB）；仅 custom 时生效，留空 = 按经典白。</summary>
+    public string PopupTextColor { get; set; } = "";
+
     // ---------- 课表变化提醒 ----------
     // 「课程有变化」（手动调课 / 导入临时表 / 同步更新包 / 更新课表）时主动提示，
     // 与上下课提醒相互独立：上下课按时段触发，这里按内容变化触发。

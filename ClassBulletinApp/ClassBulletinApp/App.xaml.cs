@@ -243,6 +243,8 @@ public partial class App : System.Windows.Application
                     "handwriting" => new HandwritingPopup(),
                     "handball" => new HandwritingBallWindow(),
                     "schedulewin" => new ScheduleWindow(),
+                    "dragarmed" => new ScheduleWindow(),
+                    "weekdrag" => new MainWindow { InitialTabIndex = 0 },
                     "schedulewinfail" => DiagScheduleUpdateFail(),
                     "schedulewinuptodate" => DiagScheduleUpToDate(),
                     "notifywin" => new NotificationWindow(),
@@ -307,6 +309,25 @@ public partial class App : System.Windows.Application
                     waitTimer.Tick += (_, _) => { waitTimer.Stop(); waitFrame.Continue = false; };
                     waitTimer.Start();
                     Dispatcher.PushFrame(waitFrame);
+                    w0.UpdateLayout();
+                }
+
+                // 拖动状态截图：必须等课表真的填好数据（Refresh 在 Loaded 之后才跑），
+                // 否则一行容器都还没生成，什么也算不出来。
+                if (w0 is ScheduleWindow dsw
+                    && string.Equals(e.Args[1], "dragarmed", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { dsw.DiagArmDragVisual(); }
+                    catch (Exception ex) { try { File.WriteAllText(shotLog, "ARMFAIL " + ex.Message); } catch { } }
+                    w0.UpdateLayout();
+                }
+
+                // 周课表拖动状态截图：同样要等 WeekView 在 Loaded 后 Rebuild 完才有格子
+                if (w0 is MainWindow dmw
+                    && string.Equals(e.Args[1], "weekdrag", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { dmw.WeekViewManage.DiagArmDragVisual(); }
+                    catch (Exception ex) { try { File.WriteAllText(shotLog, "ARMFAIL " + ex.Message); } catch { } }
                     w0.UpdateLayout();
                 }
 
@@ -416,6 +437,280 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--change-check <log> 验证「老师自己手动调课，不该再被告知"课表有变化"」的判据。
+        // 判据在 Store：只有"差异记录全都是 manual"时才发 LocalManualEdit（监视器据此只更新基线）。
+        // 这里直接把四种序列跑一遍，确认该抑制的抑制、该提醒的（temp 导入）照旧提醒。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--change-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = e.Args.Length >= 2 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.changecheck.log");
+            var sb = new System.Text.StringBuilder();
+            string ovPath = Path.Combine(Store.AppDir, "overrides.json");
+            string backup = "";
+
+            // ★ 护栏：这个诊断要往 overrides.json 里写测试记录再还原，绝不允许直接跑在老师的
+            //   真实数据目录上（万一中途崩溃，课表里就会多出一条"诊断科目"）。必须用 CB_DATA_DIR 指副本。
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CB_DATA_DIR")))
+            {
+                try { File.WriteAllText(log, "拒绝：请用 CB_DATA_DIR 指向数据副本后再运行\n"); } catch { }
+                Shutdown(0);
+                return;
+            }
+            try
+            {
+                if (File.Exists(ovPath)) backup = File.ReadAllText(ovPath);
+                Store.EnablePersistence = true;
+
+                var hits = new List<string>();
+                void OnEdit(System.Collections.Generic.IReadOnlyCollection<string> cells)
+                    => hits.Add(string.Join(",", cells));
+                Store.LocalManualEdit += OnEdit;
+
+                string cls = Store.LoadSchedule()?.Classes?.FirstOrDefault()?.ClassName ?? "";
+                var list0 = Store.LoadOverrides();
+                string cell = $"{cls}|0|1";
+                sb.AppendLine($"class={cls} 起步记录={list0.Count}");
+
+                ScheduleCore.Models.LessonOverride Make(string source) => new()
+                {
+                    ClassName = cls, DayIdx = 0, Period = 1,
+                    Subject = "诊断科目", Teacher = "诊断老师", Source = source,
+                    ValidFrom = DateOnly.FromDateTime(DateTime.Today),
+                    ValidTo = DateOnly.FromDateTime(DateTime.Today)
+                };
+
+                void Step(string name, List<ScheduleCore.Models.LessonOverride> list, bool expect)
+                {
+                    int before = hits.Count;
+                    Store.SaveOverrides(list);
+                    bool fired = hits.Count > before;
+                    sb.AppendLine($"{name} → {(fired ? "触发" : "未触发")} 期望 {(expect ? "触发" : "未触发")}"
+                                  + $" cells={(fired ? hits[^1] : "-")}" + (fired == expect ? "" : "　★ 不符"));
+                }
+
+                // A：手动新增 → 应触发（监视器据此只更新基线，不弹窗）
+                var a = new List<ScheduleCore.Models.LessonOverride>(list0) { Make("manual") };
+                Step("A 手动新增", a, true);
+
+                // B：把这条改成 temp（等同导入临时表）→ 不该抑制，必须照旧提醒
+                var b = a.Select(o => new ScheduleCore.Models.LessonOverride
+                {
+                    ClassName = o.ClassName, DayIdx = o.DayIdx, Period = o.Period,
+                    Subject = o.Subject, Teacher = o.Teacher, Location = o.Location, Type = o.Type,
+                    IsEmpty = o.IsEmpty, Source = o.Source,
+                    ValidFrom = o.ValidFrom, ValidTo = o.ValidTo, UpdatedAt = o.UpdatedAt
+                }).ToList();
+                b[^1].Source = "temp";
+                Step("B 改成 temp", b, false);
+
+                // C：内容原样重存（只是又写了一遍盘）→ 不算变化，不该触发
+                Step("C 原样重存", b, false);
+
+                // D：删掉这条 temp 记录 → 来源是 temp，仍不该抑制
+                var d = new List<ScheduleCore.Models.LessonOverride>(list0);
+                Step("D 删除 temp", d, false);
+
+                // E：手动新增后再手动删掉（= 手动撤销一次调课）→ 应触发
+                var e1 = new List<ScheduleCore.Models.LessonOverride>(list0) { Make("manual") };
+                Step("E1 手动新增（撤销前）", e1, true);
+                var e2 = new List<ScheduleCore.Models.LessonOverride>(list0);
+                Step("E2 手动删除（= 撤销）", e2, true);
+
+                Store.LocalManualEdit -= OnEdit;
+                sb.AppendLine($"cells 精确匹配 {cell} = {(hits.Any(h => h.Contains(cell)) ? "ok" : "FAIL")}");
+
+                // 监视器侧的过滤：键必须是「班级|星期」+「|节次」才命中，
+                // 同班别的节次、别的星期都不能被误伤（宁可多提醒一次，也不能把真变化吞掉）。
+                bool skip1 = ScheduleChangeWatcher.DiagManualSkip($"{cls}|0", 1, new[] { cell });
+                bool skip2 = ScheduleChangeWatcher.DiagManualSkip($"{cls}|0", 2, new[] { cell });
+                bool skip3 = ScheduleChangeWatcher.DiagManualSkip($"{cls}|1", 1, new[] { cell });
+                sb.AppendLine($"watcher 跳过 第1节={(skip1 ? "ok" : "FAIL")}"
+                            + $" 第2节={(skip2 ? "FAIL" : "ok")}"
+                            + $" 星期二第1节={(skip3 ? "FAIL" : "ok")}");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("EX " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                // 一定还原：诊断跑在真实数据副本上也绝不留下痕迹
+                try
+                {
+                    if (backup.Length > 0) File.WriteAllText(ovPath, backup);
+                    else if (File.Exists(ovPath)) File.Delete(ovPath);
+                }
+                catch { }
+            }
+            try { File.WriteAllText(log, sb.ToString()); } catch { }
+            Shutdown(0);
+            return;
+        }
+
+        // 诊断：--notify-check <log> 端到端验证「手动调课不提醒、外部变化照旧提醒」。
+        // 前一个 --change-check 只验 Store 的判据；这里把监视器真跑起来，看状态栏红字到底挂没挂。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--notify-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = e.Args.Length >= 2 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.notifycheck.log");
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CB_DATA_DIR")))
+            {
+                try { File.WriteAllText(log, "拒绝：请用 CB_DATA_DIR 指向数据副本后再运行\n"); } catch { }
+                Shutdown(0);
+                return;
+            }
+
+            string ovPath = Path.Combine(Store.AppDir, "overrides.json");
+            string setPath = Path.Combine(Store.AppDir, "settings.json");
+            string ovBackup = "", setBackup = "";
+            try
+            {
+                if (File.Exists(ovPath)) ovBackup = File.ReadAllText(ovPath);
+                if (File.Exists(setPath)) setBackup = File.ReadAllText(setPath);
+            }
+            catch { }
+
+            Store.EnablePersistence = true;
+            var flashes = new List<string>();
+            AppEvents.ScheduleFlash += OnFlash;
+            void OnFlash(string text, int minutes) => flashes.Add(text);
+
+            var edits = new List<string>();
+            Store.LocalManualEdit += OnLocal;
+            Store.ExternalEdit += OnExt;
+            void OnLocal(System.Collections.Generic.IReadOnlyCollection<string> c) => edits.Add("manual:" + string.Join(",", c));
+            void OnExt(System.Collections.Generic.IReadOnlyCollection<string> c) => edits.Add("external:" + string.Join(",", c));
+
+            async void RunAsync()
+            {
+                var sb = new System.Text.StringBuilder();
+                try
+                {
+                    var st = Store.LoadSettings();
+                    // 让提醒条件稳定：开关打开、不因"正在上课"而延后
+                    st.Reminder ??= new ScheduleCore.Models.ReminderSettings();
+                    st.Reminder.ChangeEnabled = true;
+                    st.Reminder.ChangeDelayMinutes = 0;
+                    st.Reminder.ChangeVoice = false;
+                    st.Reminder.PlaySound = false;
+                    // 固定按"班级课表"采样，保证下面的改动落在监视器正在看的那张表上
+                    st.ScheduleKind = "Class";
+                    if (string.IsNullOrWhiteSpace(st.SelectedClass))
+                        st.SelectedClass = Store.LoadSchedule()?.Classes?.FirstOrDefault()?.ClassName ?? "";
+                    Store.SaveSettings(st);
+
+                    var list0 = Store.LoadOverrides();
+                    string cls = st.SelectedClass;
+                    var date = BoardBuilder.ResolveDisplayDate(st);
+                    int dayIdx = ((int)date.DayOfWeek + 6) % 7;
+                    sb.AppendLine($"class={cls} 显示日={date:yyyy-MM-dd} dayIdx={dayIdx} 起步记录={list0.Count}");
+
+                    ScheduleChangeWatcher.Start();
+                    AppEvents.RaiseScheduleChanged();
+                    await Task.Delay(700);          // 建立基线（首次只记录，不提醒）
+                    int baseline = flashes.Count;
+
+                    ScheduleCore.Models.LessonOverride Make(string subject, string source) => new()
+                    {
+                        ClassName = cls, DayIdx = dayIdx, Period = 1,
+                        Subject = subject, Teacher = "诊断老师", Source = source,
+                        ValidFrom = DateOnly.FromDateTime(date), ValidTo = DateOnly.FromDateTime(date)
+                    };
+
+                    void Replace(ScheduleCore.Models.LessonOverride rec)
+                    {
+                        var l = new List<ScheduleCore.Models.LessonOverride>(list0);
+                        l.RemoveAll(o => o.ClassName == rec.ClassName && o.DayIdx == rec.DayIdx && o.Period == rec.Period);
+                        l.Add(rec);
+                        Store.SaveOverrides(l);
+                        AppEvents.RaiseScheduleChanged();
+                    }
+
+                    // A：手动调课 → 期望"没有任何提醒"
+                    Replace(Make("诊断科目A", "manual"));
+                    await Task.Delay(700);
+                    bool manualSilent = flashes.Count == baseline;
+                    sb.AppendLine($"A 手动调课 → {(manualSilent ? "无提醒 ok" : "★ 仍然提醒了：" + string.Join(" | ", flashes))}");
+                    sb.AppendLine($"   state {ScheduleChangeWatcher.DiagState()}");
+                    sb.AppendLine($"   edits {string.Join(" / ", edits)}");
+
+                    // B：同样位置、改成外部来源（等同同步包改课）→ 期望"照旧提醒"
+                    Replace(Make("诊断科目B", "temp"));
+                    await Task.Delay(700);
+                    bool externalNotified = flashes.Count > baseline;
+                    sb.AppendLine($"B 外部改课 → {(externalNotified ? "有提醒 ok" : "★ 没提醒（变化被吞了）")}");
+                    sb.AppendLine($"   state {ScheduleChangeWatcher.DiagState()}");
+                    sb.AppendLine($"   edits {string.Join(" / ", edits)}");
+                    if (externalNotified) sb.AppendLine($"   红字：{flashes[^1]}");
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine("EX " + ex.GetType().Name + ": " + ex.Message);
+                }
+                finally
+                {
+                    try { ScheduleChangeWatcher.Stop(); } catch { }
+                    AppEvents.ScheduleFlash -= OnFlash;
+                    try
+                    {
+                        if (ovBackup.Length > 0) File.WriteAllText(ovPath, ovBackup);
+                        if (setBackup.Length > 0) File.WriteAllText(setPath, setBackup);
+                    }
+                    catch { }
+                    try { File.WriteAllText(log, sb.ToString()); } catch { }
+                    Shutdown(0);
+                }
+            }
+
+            RunAsync();
+            return;
+        }
+
+        // 诊断：--drag-check 不依赖手指，单独验证拖动链路的几何计算 ——
+        // 「落在行间缝隙也有落点」「幽灵卡与虚框尺寸位置合理」这两件纯逻辑的事。
+        // 触屏手势本身没法自动测，但这两块是最容易算错坐标的，先在这里兜住。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--drag-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = e.Args.Length >= 2 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.dragcheck.log");
+            try { File.WriteAllText(log, "start\n"); } catch { }
+            var w = new ScheduleWindow();
+            w.Show();
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+            t.Tick += (_, _) =>
+            {
+                t.Stop();
+                try { File.AppendAllText(log, w.DiagDragProbe()); }
+                catch (Exception ex) { try { File.AppendAllText(log, "EX " + ex.Message + "\n"); } catch { } }
+                try { w.Close(); } catch { }
+                Shutdown(0);
+            };
+            t.Start();
+            return;
+        }
+
+        // 诊断：--week-check 验证控制面板「周课程表」的手势改造（与悬浮课表同一套规则）。
+        // 只读演练：浮起 → 3px 不拖 → 40px 起拖 → 收尾，全程不写调代课数据。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--week-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = e.Args.Length >= 2 ? e.Args[1] : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.weekcheck.log");
+            try { File.WriteAllText(log, "start\n"); } catch { }
+            MainWindow? mw = null;
+            try { mw = new MainWindow(); mw.Show(); }
+            catch (Exception ex) { try { File.AppendAllText(log, "EX " + ex.Message + "\n"); } catch { } }
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+            t.Tick += (_, _) =>
+            {
+                t.Stop();
+                try
+                {
+                    if (mw != null) File.AppendAllText(log, mw.WeekViewManage.DiagWeekProbe());
+                }
+                catch (Exception ex) { try { File.AppendAllText(log, "EX " + ex.Message + "\n"); } catch { } }
+                try { mw?.Close(); } catch { }
+                Shutdown(0);
+            };
+            t.Start();
+            return;
+        }
+
         // 诊断：--ui-check 逐个构造所有窗口（XAML 解析 / 控件名 / 初始化取值全部走一遍）后退出，
         // 结果写入临时目录 ClassBulletinApp.uicheck.log，便于自动化回归检查。
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--ui-check", StringComparison.OrdinalIgnoreCase))
@@ -441,6 +736,9 @@ public partial class App : System.Windows.Application
             }
 
             Check("MainWindow", () => new MainWindow());
+            // 悬浮课表：手势与拖动逻辑都在这里，XAML 里的 Stylus 附加属性（关系统长按 / Flicks）
+            // 也只有构造一次才能确认解析没问题。
+            Check("ScheduleWindow", () => new ScheduleWindow());
             Check("LoginWindow", () => new LoginWindow());
             Check("RetrievePasswordWindow", () => new RetrievePasswordWindow());
             Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });
@@ -528,6 +826,47 @@ public partial class App : System.Windows.Application
                 sb.AppendLine("RESULT=FAIL " + ex.GetType().Name + ": " + ex.Message);
             }
             try { File.WriteAllText(blog, sb.ToString()); } catch { }
+            Shutdown(0);
+            return;
+        }
+
+        // 诊断：--touch-mode <log> 验证触屏手势的三条硬前提。
+        // ① PanningMode 必须 None —— 只要不是 None，ScrollViewer 就会在触摸按下时捕获并标记
+        //    已处理，WPF 不再把触摸提升为鼠标事件，单击 / 双击 / 拖动换节必然失效；
+        // ② 系统 Press-and-Hold 必须关 —— 否则 500ms 时系统会画圈并自己发右键，与"静止 500ms
+        //    浮起"打架；③ Flicks 也必须关。这三条截图都看不出来，只能打印。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--touch-mode", StringComparison.OrdinalIgnoreCase))
+        {
+            // 第二个参数可省：省了写到临时目录的固定文件名，便于脚本只传一个开关。
+            string tlog = e.Args.Length >= 2
+                ? e.Args[1]
+                : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.touchmode.log");
+            var sb = new System.Text.StringBuilder();
+            try
+            {
+                var w = new ScheduleWindow();
+                w.Show();
+                w.UpdateLayout();
+
+                // 不在这里 PushFrame 等 ContextIdle：窗口里还有时钟计时器等持续投递的任务，
+                // 某些环境下会一直等不到空闲 → 诊断卡死。这三条属性在构造完成时就已经确定。
+                bool two = Store.LoadSettings().TwoFingerScroll;
+                string line = w.DiagTouchMode();
+                bool okPanning = line.Contains("PanningMode=None");
+                bool okHold = line.Contains("systemPressHold=False");
+                bool okFlicks = line.Contains("systemFlicks=False");
+
+                sb.AppendLine(line);
+                sb.AppendLine("SETTING_TwoFingerScroll=" + two);
+                sb.AppendLine($"CHECK panning={okPanning} pressHold={okHold} flicks={okFlicks}");
+                sb.AppendLine("RESULT=" + (okPanning && okHold && okFlicks ? "OK" : "FAIL"));
+                w.Close();
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("RESULT=FAIL " + ex.GetType().Name + ": " + ex.Message);
+            }
+            try { File.WriteAllText(tlog, sb.ToString()); } catch { }
             Shutdown(0);
             return;
         }
@@ -843,7 +1182,7 @@ public partial class App : System.Windows.Application
     {
         var w = new FullScreenReminderWindow();
         w.Loaded += (_, _) => w.ShowReminder("课表已更新",
-            "第3节 数学 → 英语；第5节 体育 → 数学；第7节 新增 音乐", 60);
+            "第3节 数学 → 英语；第5节 体育 → 数学；第7节 新增 音乐", 60, Store.LoadSettings().Reminder);
         return w;
     }
 

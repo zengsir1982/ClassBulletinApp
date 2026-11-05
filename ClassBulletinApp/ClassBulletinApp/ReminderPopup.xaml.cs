@@ -29,6 +29,9 @@ public partial class ReminderPopup : Window
     /// <summary>当前生效的缩放比例。</summary>
     private double _scale = 1;
 
+    /// <summary>当前生效的配色 / 字号倍数（由「提醒设置 → 外观风格」决定，与全屏提示共用）。</summary>
+    private ReminderVisualStyle _style = ReminderVisualStyle.From(null);
+
     /// <summary>非空 = 正在「调整位置与大小」模式。</summary>
     private ReminderSettings? _layout;
     private Action<ReminderSettings>? _onLayoutSaved;
@@ -89,6 +92,7 @@ public partial class ReminderPopup : Window
         GripRight.Visibility = Visibility.Visible;
 
         ApplyLayout(src);
+        ApplyEditBarColors();
 
         Loaded += (_, _) =>
         {
@@ -101,14 +105,53 @@ public partial class ReminderPopup : Window
         if (!IsVisible) Show();
     }
 
+    /// <summary>
+    /// 调整模式下的提示条配色。原来写死成「半透明白底 + 白字」，只适合深色卡；
+    /// 现在底色可选白色，白字会看不见，所以按当前风格取中性色，保存按钮固定蓝底白字。
+    /// </summary>
+    private void ApplyEditBarColors()
+    {
+        try
+        {
+            EditBar.Background = _style.AccentFill;
+            EditBar.BorderBrush = _style.AccentBorder;
+            TxtEditHint.Foreground = _style.TextBrush(0.9);
+
+            BtnCancelLayout.Background = _style.AccentFill;
+            BtnCancelLayout.BorderBrush = _style.AccentBorder;
+            BtnCancelLayout.Foreground = _style.TextBrush(0.95);
+
+            var blue = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF));
+            BtnSaveLayout.Background = blue;
+            BtnSaveLayout.BorderBrush = blue;
+            BtnSaveLayout.Foreground = System.Windows.Media.Brushes.White;
+        }
+        catch { }
+    }
+
     // ---------- 位置 / 大小 ----------
 
     /// <summary>按设置套用缩放并还原位置（位置等布局完成后再放，避免高度还没测算出来）。</summary>
     private void ApplyLayout(ReminderSettings? r)
     {
         double s = r != null && r.PopupScale > 0 ? r.PopupScale : 1;
+        _style = ReminderVisualStyle.From(r);
         ApplyScale(s);
+        ApplyColors();
         Dispatcher.BeginInvoke(new Action(() => PlaceBySettings(r)), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>套用配色：底色（含不透明度）、描边、标题与详情文字。</summary>
+    private void ApplyColors()
+    {
+        try
+        {
+            Card.Background = _style.CardBrush;
+            Card.BorderBrush = _style.BorderBrush;
+            TxtTitle.Foreground = _style.TextBrush();
+            TxtDetail.Foreground = _style.TextBrush(0.82);
+        }
+        catch { }
     }
 
     private void ApplyScale(double scale)
@@ -123,8 +166,10 @@ public partial class ReminderPopup : Window
             Card.Padding = new Thickness(20 * _scale, 14 * _scale, 20 * _scale, 14 * _scale);
             Card.CornerRadius = new CornerRadius(16 * _scale);
 
-            TxtTitle.FontSize = 24 * _scale;
-            TxtDetail.FontSize = 15 * _scale;
+            // 字号 = 基础字号 × 位置大小缩放 × 外观字号倍数（两件事互不干扰）
+            double fs = _style.FontScale;
+            TxtTitle.FontSize = 24 * _scale * fs;
+            TxtDetail.FontSize = 15 * _scale * fs;
             TxtDetail.Margin = new Thickness(0, 6 * _scale, 0, 0);
         }
         catch { }

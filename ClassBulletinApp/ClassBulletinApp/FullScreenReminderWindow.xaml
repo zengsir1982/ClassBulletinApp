@@ -6,16 +6,16 @@
         ShowActivated="False" ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize">
     <!-- 半透明遮罩：整块屏幕压暗，中间浮一张大字卡片；点任意处立即关闭 -->
     <Grid x:Name="Root" Background="#B3000000" MouseLeftButtonDown="Root_Click">
-        <Border Background="White" CornerRadius="24" Padding="56,40" MaxWidth="1200"
+        <Border x:Name="Card" Background="White" CornerRadius="24" Padding="56,40" MaxWidth="1200"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 BorderBrush="#8FB4EE" BorderThickness="2">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="46" ShadowDepth="8" Opacity="0.45"/>
             </Border.Effect>
             <StackPanel>
-                <Border Background="#FFF3CD" CornerRadius="10" Padding="14,6" HorizontalAlignment="Center"
+                <Border x:Name="TagBorder" Background="#FFF3CD" CornerRadius="10" Padding="14,6" HorizontalAlignment="Center"
                         BorderBrush="#E6C25A" BorderThickness="1">
-                    <TextBlock Text="课表有变化" FontSize="22" FontWeight="Bold" Foreground="#8A6100"/>
+                    <TextBlock x:Name="TxtTag" Text="课表有变化" FontSize="22" FontWeight="Bold" Foreground="#8A6100"/>
                 </Border>
                 <TextBlock x:Name="TxtTitle" FontSize="54" FontWeight="Bold" Foreground="#1F2A37"
                            TextAlignment="Center" TextWrapping="Wrap" Margin="0,26,0,0"/>

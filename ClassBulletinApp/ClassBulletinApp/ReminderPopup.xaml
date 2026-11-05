@@ -34,7 +34,7 @@
                                 Padding="12,4" FontSize="13" Margin="8,0,0,0"
                                 Background="#33FFFFFF" BorderBrush="#66FFFFFF" Foreground="White"
                                 ToolTip="不保存，保持原来的位置与大小（Esc 也可以）"/>
-                        <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#F2F7FF"
+                        <TextBlock x:Name="TxtEditHint" VerticalAlignment="Center" FontSize="12" Foreground="#F2F7FF"
                                    Text="拖动窗口移动 · 拖右边框改大小"/>
                     </DockPanel>
                 </Border>

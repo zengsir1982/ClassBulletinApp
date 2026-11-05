@@ -3,9 +3,19 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ClassBulletinApp"
         Title="班级公布栏 · 控制面板" Height="900" Width="1400"
-        WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" KeyDown="Window_KeyDown">
+        MinHeight="600" MinWidth="1000"
+        WindowStartupLocation="CenterScreen" Loaded="Window_Loaded" KeyDown="Window_KeyDown"
+        PreviewTouchDown="OnPreviewTouchDownKeepInnerTouch">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- 颜色下拉的统一外观：左边色块、右边名字（通知条与提醒提示外观共用） -->
+        <DataTemplate x:Key="ColorSwatchTpl">
+            <StackPanel Orientation="Horizontal" Margin="2">
+                <Rectangle Width="16" Height="16" RadiusX="3" RadiusY="3" Fill="{Binding Swatch}"
+                           Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+            </StackPanel>
+        </DataTemplate>
         <Style x:Key="TabBtn" TargetType="Button">
             <Setter Property="Margin" Value="0,0,10,10"/>
             <Setter Property="Padding" Value="14,9"/>
@@ -60,7 +70,7 @@
 
                 <!-- 数据管理 -->
                 <TabItem Header="数据管理">
-                    <ScrollViewer Margin="14">
+                    <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel>
                             <!-- 两列：左边「课表数据」，右边「数据包分发 / 自动更新」——
                                  单列排下来在 1366×768 的教室屏上要滚两屏，自动更新状态会被藏在最底下 -->
@@ -108,7 +118,7 @@
 
                 <!-- 显示设置 -->
                 <TabItem Header="显示设置">
-                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="900">
                             <TextBlock Text="悬浮窗与展示" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
                             <TextBlock Text="作业便签、缺交名单便签的显示 / 隐藏，统一在「作业公示」标签页里开关，这里不再重复放。"
@@ -155,6 +165,11 @@
                                     <CheckBox x:Name="ChkBothWeeks" Content="课表同时显示单双周的课程（另一周用灰色标出；不勾选则只显示本周要上的课，更简洁）"
                                               FontSize="14" Foreground="#1F2A37" Margin="2,10,0,0" Click="ChkBothWeeks_Click"
                                               ToolTip="只影响显示：调代课记录、上课提醒、课表变化检测仍按完整数据计算"/>
+                                    <!-- 触屏手势：快速划动=滚动；静止按住 0.5 秒=浮起，原地松手=右键、拖走=换课；
+                                         左列「第N节」那块是专用抓手，按下即可拖，不用等长按 -->
+                                    <CheckBox x:Name="ChkTwoFinger" Content="触屏手势：按住课程卡左列「第N节」那块可直接拖动换课；按住卡片 0.5 秒浮起后拖动同样能换；快速划动或双指划动＝滚动课表"
+                                              FontSize="14" Foreground="#1F2A37" Margin="2,8,0,0" Click="ChkTwoFinger_Click"
+                                              ToolTip="抓手（最省力，推荐）：按住课程卡左边「第N节 / 时间」那块，卡片立刻跟手，拖到别的节松手就交换；按住不动直接松手＝打开调课（同右键）。卡片正文：按住 0.5 秒等地浮起再拖，效果相同。滚动：快速划动或双指划动。单击、双击、长按松手（＝右键）在所有机器上行为一致。"/>
                                 </StackPanel>
                             </Border>
 
@@ -204,7 +219,7 @@
 
                 <!-- 提醒设置（独立标签页） -->
                 <TabItem Header="提醒设置">
-                    <ScrollViewer x:Name="ReminderScroll" Margin="14">
+                    <ScrollViewer x:Name="ReminderScroll" Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="780">
                             <TextBlock Text="⏰ 上下课提醒" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
                             <TextBlock Text="依据当前显示的班级 / 教师课表（含临时课表调 / 代安排）到点提醒；调休日按「显示日」的课表提醒。同一提醒每天只弹一次。上课 / 下课 / 放学各自独立设置，文案与语音均可自定义。"
@@ -343,6 +358,66 @@
                                     <TextBlock x:Name="TxtChangeDelayHint" FontSize="12" Margin="0,4,0,0"
                                                TextWrapping="Wrap" Text=""/>
 
+                                    <!--
+                                        提示外观：小窗（上下课提醒 + 变化提示）与全屏大字提示共用同一套，
+                                        改这里三处一起变。配色只有一处真值来源 —— ReminderVisualStyle。
+                                    -->
+                                    <Border Background="White" BorderBrush="#E6C25A" BorderThickness="1" CornerRadius="9"
+                                            Padding="12,10" Margin="0,12,0,0">
+                                        <StackPanel>
+                                            <TextBlock Text="提示外观（全屏大字与顶部小窗共用同一套）"
+                                                       FontSize="14" FontWeight="Bold" Foreground="#1F2A37"/>
+                                            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,8,0,0">
+                                                <TextBlock Text="风格" FontSize="14" VerticalAlignment="Center" Width="64"/>
+                                                <ComboBox x:Name="CbPopupStyle" Width="230" FontSize="14"
+                                                          SelectionChanged="PopupStyle_Changed"/>
+                                                <Button x:Name="BtnPopupPreview" Content="预览效果" Padding="12,4" FontSize="13" Margin="10,0,0,0"
+                                                        Background="White" BorderBrush="#D1D5DB" Click="BtnPopupPreview_Click"
+                                                        ToolTip="按当前设置立刻弹一次示例提示：勾了「全屏大字」就弹全屏，否则弹小窗"/>
+                                            </WrapPanel>
+
+                                            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,10,0,0">
+                                                <TextBlock Text="不透明度" FontSize="14" VerticalAlignment="Center" Width="64"/>
+                                                <Slider x:Name="SlPopupOpacity" Minimum="55" Maximum="100" TickFrequency="5"
+                                                        IsSnapToTickEnabled="True" Width="200" VerticalAlignment="Center"
+                                                        ValueChanged="PopupStyle_ValueChanged"
+                                                        ToolTip="只把卡片底色调淡，文字保持清晰；调太低后排会看不清，所以最低 55%"/>
+                                                <TextBlock x:Name="TxtPopupOpacity" FontSize="13" Foreground="#6B7280"
+                                                           VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            </WrapPanel>
+
+                                            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,8,0,0">
+                                                <TextBlock Text="字号" FontSize="14" VerticalAlignment="Center" Width="64"/>
+                                                <Slider x:Name="SlPopupFont" Minimum="80" Maximum="180" TickFrequency="5"
+                                                        IsSnapToTickEnabled="True" Width="200" VerticalAlignment="Center"
+                                                        ValueChanged="PopupStyle_ValueChanged"
+                                                        ToolTip="在「调整小窗位置与大小」的缩放之外再乘一道，全屏与大字的字号同步变化"/>
+                                                <TextBlock x:Name="TxtPopupFont" FontSize="13" Foreground="#6B7280"
+                                                           VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                            </WrapPanel>
+
+                                            <WrapPanel x:Name="WrapPopupCustom" Orientation="Horizontal" VerticalAlignment="Center"
+                                                       Margin="0,8,0,0">
+                                                <TextBlock Text="自定义" FontSize="14" VerticalAlignment="Center" Width="64"/>
+                                                <TextBlock Text="字色" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <ComboBox x:Name="CbPopupText" Width="120" FontSize="14"
+                                                          ItemTemplate="{StaticResource ColorSwatchTpl}"
+                                                          SelectionChanged="PopupStyle_Changed"/>
+                                                <Button Content="调色…" Padding="9,3" FontSize="12" Margin="6,0,0,0"
+                                                        Background="White" BorderBrush="#D1D5DB" Click="BtnPopupTextPick_Click"/>
+                                                <TextBlock Text="底色" FontSize="13" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                                                <ComboBox x:Name="CbPopupCard" Width="120" FontSize="14"
+                                                          ItemTemplate="{StaticResource ColorSwatchTpl}"
+                                                          SelectionChanged="PopupStyle_Changed"/>
+                                                <Button Content="调色…" Padding="9,3" FontSize="12" Margin="6,0,0,0"
+                                                        Background="White" BorderBrush="#D1D5DB" Click="BtnPopupCardPick_Click"/>
+                                            </WrapPanel>
+
+                                            <TextBlock Text="说明：不透明度只压底色，文字始终清晰；「自定义」只在上面风格选到它时才生效。上下课提醒的小窗与课表变化提示共用这套外观。"
+                                                       FontSize="12" Foreground="#9CA3AF" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
                                     <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,12,0,0">
                                         <Button x:Name="BtnPopupLayout" Content="调整小窗位置与大小…" Padding="12,5" FontSize="13"
                                                 Background="White" BorderBrush="#D1D5DB" Click="BtnPopupLayout_Click"
@@ -386,7 +461,7 @@
 
                 <!-- 通知公告 -->
                 <TabItem Header="通知公告">
-                    <ScrollViewer Margin="14">
+                    <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="640">
                             <TextBlock Text="📢 通知 / 公告管理" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,12"/>
 
@@ -530,7 +605,7 @@
                 </TabItem>
                 <!-- 便签管理：只放预览 + 编辑按钮，内容 / 格式 / 主题都在弹窗里改 -->
                 <TabItem Header="便签管理">
-                    <ScrollViewer Margin="14">
+                    <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="820">
                             <!-- 标题行右侧放整页唯一的主操作：无论窗口多高都看得见，不用往下滚 -->
                             <Grid Margin="0,0,0,14">
@@ -662,7 +737,7 @@
 
                 <!-- 用户中心：修改用户名与密码 -->
                 <TabItem Header="用户中心">
-                    <ScrollViewer Margin="14">
+                    <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="900">
                             <TextBlock Text="👤 用户中心" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,4"/>
                             <TextBlock Text="这里显示当前登录的账号，可修改自己的用户名和密码。升级后原账号即「管理员」（密码沿用你以前登录用的那套）；教室机开机自动登录的是受限账号 local / 000，只能控制显示，改设置请点下方「切换账号…」用管理员登录，不用重启程序。右侧找回密码信息全机共用一份，只有管理员能改。"
@@ -762,7 +837,7 @@
                 </TabItem>
                 <!-- 关于：软件简介 + 版本 + 软件更新（Gitee）+ 运行信息（独立标签，不占用户中心） -->
                 <TabItem x:Name="TabAbout" Header="关于">
-                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="900">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                 <TextBlock Text="ℹ 关于　班级公布栏" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" VerticalAlignment="Center"/>

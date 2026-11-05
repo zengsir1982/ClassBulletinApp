@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
@@ -60,6 +61,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        FitToWorkArea();
         CbClass.ItemsSource = ClassNames;
         NotificationsPanel.ItemsSource = Notifications;
 
@@ -81,6 +83,93 @@ public partial class MainWindow : Window
 
         // 球上右键「隐藏」时，这里的勾选要跟着取消（球是常驻窗口，两边状态必须一致）
         AppEvents.HandwritingBallChanged += OnHandwritingBallChanged;
+
+        // 页面级滚动已经打开触摸拖动（XAML 里 PanningMode="VerticalOnly"），
+        // 但 ScrollViewer 在触摸按下的一瞬间就会捕获触摸并吃掉事件，落到子控件上的触摸
+        // 也就不再下发 —— 语速 / 音量两个滑块会变成「一拖就滚页面、滑块纹丝不动」，
+        // 嵌套的说明框同理。窗口的 PreviewTouchDown（隧道最外层，比 ScrollViewer 的类处理更早）
+        // 里先看落点，命中滑块或「自己能滚的嵌套框」时把外层 ScrollViewer 的接管临时关掉。
+        // 处理函数挂在 XAML 的 PreviewTouchDown 上，不在代码里 new 委托（省掉类型名依赖）。
+    }
+
+    /// <summary>
+    /// 触摸落点保护：页面滚动开起来之后，滑块与嵌套滚动框仍然要能被手指直接操作。
+    /// <para>做法是「临时摘掉外层 ScrollViewer 的接管」而不是标记事件已处理 —— 标记已处理会连
+    /// 滑块自己也收不到触摸。摘掉只影响这一次按下（ScrollViewer 只在 TouchDown 时读 PanningMode），
+    /// 所以按着不放拖动也不会中途被抢，延时恢复即可。</para>
+    /// </summary>
+    private void OnPreviewTouchDownKeepInnerTouch(object sender, TouchEventArgs e)
+    {
+        try
+        {
+            var dep = e.OriginalSource as DependencyObject;
+            var host = FindTouchHostScrollViewer(dep);
+            if (host == null || host.PanningMode == PanningMode.None) return;
+
+            var old = host.PanningMode;
+            host.PanningMode = PanningMode.None;
+
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                host.PanningMode = old;
+            };
+            timer.Start();
+        }
+        catch
+        {
+            // 触摸自适应失败最多是「滑块拖不动」，绝不打断正常使用
+        }
+    }
+
+    /// <summary>落点是否属于「必须自己处理触摸」的控件；是的话返回应当让位的那层 ScrollViewer。</summary>
+    private static ScrollViewer? FindTouchHostScrollViewer(DependencyObject? dep)
+    {
+        // ① 滑块：滑块自己会滚（例外：滑块在哪个 ScrollViewer 里就摘哪个）
+        var slider = FindAncestor<Slider>(dep);
+        if (slider != null) return FindAncestor<ScrollViewer>(dep);
+
+        // ② 嵌套滚动框（例如「关于」页里 150 高的发行说明）：它自己能滚就禁掉它的外层
+        var inner = FindAncestor<ScrollViewer>(dep);
+        if (inner == null || inner.ScrollableHeight <= 0.5) return null;
+
+        if (inner.PanningMode == PanningMode.None) inner.PanningMode = PanningMode.VerticalOnly;
+        return FindAncestor<ScrollViewer>(VisualTreeHelper.GetParent(inner));
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? dep) where T : DependencyObject
+    {
+        while (dep != null)
+        {
+            if (dep is T t) return t;
+            dep = VisualTreeHelper.GetParent(dep);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 把控制面板的尺寸收进当前屏幕的工作区（只缩不放）。
+    /// <para><b>为什么需要：</b>XAML 里 <c>Height="900"</c> 是按 100% 缩放（1080p 工作区约 1040 DIP）
+    /// 调出来的。屏幕改成 125% 缩放后，系统只给程序 1536×830 左右的逻辑画布，900 大于 830，
+    /// 而 <c>CenterScreen</c> 会忠实居中，于是顶部工具栏和底部按钮各被切掉一截 —— 而且窗口本身
+    /// 没有滚动条，用户既看不到也拖不动，只能改系统缩放。</para>
+    /// <para>预留 24 DIP 余量，避免窗口边框贴住任务栏；大屏上不触发任何改动。</para>
+    /// </summary>
+    private void FitToWorkArea()
+    {
+        try
+        {
+            var wa = SystemParameters.WorkArea;          // 已是 DIP，跟随当前 DPI
+            double maxH = Math.Max(MinHeight, wa.Height - 24);
+            double maxW = Math.Max(MinWidth, wa.Width - 24);
+            if (Height > maxH) Height = maxH;
+            if (Width > maxW) Width = maxW;
+        }
+        catch
+        {
+            // 取不到工作区（极老的系统 / 远程会话）就保持 XAML 原尺寸，至少不会崩
+        }
     }
 
     /// <summary>球被隐藏后，把控制面板里的勾选和托盘菜单的勾选一起同步。</summary>
@@ -309,6 +398,7 @@ public partial class MainWindow : Window
             if (ChkTouchKb != null) ChkTouchKb.IsChecked = settings.TouchKeyboardAutoShow;
             if (ChkHandBall != null) ChkHandBall.IsChecked = settings.ShowHandwritingBall;
             if (ChkBothWeeks != null) ChkBothWeeks.IsChecked = settings.ShowAlternateWeekLessons;
+            if (ChkTwoFinger != null) ChkTwoFinger.IsChecked = settings.TwoFingerScroll;
             TouchInputBinder.RefreshSetting();
             ReloadNotes();
             ReloadHomework();
@@ -1047,8 +1137,147 @@ public partial class MainWindow : Window
         UpdateVoiceLabels();
         UpdateVoiceEnabledUi();
         UpdatePopupLayoutText(r);
+        ReloadPopupStyleUi(r);
 
         _remindReady = true;
+    }
+
+    // ---------- 提醒提示外观（小窗 + 全屏共用） ----------
+
+    /// <summary>外观控件是否已就绪（避免加载期 SelectionChanged / ValueChanged 触发保存）。</summary>
+    private bool _popupStyleReady;
+
+    /// <summary>提醒提示可选的文字 / 底色。深浅两类都放进来：白底要深字，深底要浅字。</summary>
+    private static List<NotifColorOption> PopupColorOptions() => new()
+    {
+        ColorOption("白色", "#FFFFFF"),
+        ColorOption("米白", "#FFF8E7"),
+        ColorOption("纯黑", "#111111"),
+        ColorOption("深灰", "#1F2A37"),
+        ColorOption("中灰", "#4B5563"),
+        ColorOption("深蓝", "#123A6B"),
+        ColorOption("海军蓝", "#0B2545"),
+        ColorOption("深绿", "#14532D"),
+        ColorOption("墨绿", "#10403B"),
+        ColorOption("酒红", "#5B1F2A"),
+        ColorOption("亮黄", "#FFD54F"),
+        ColorOption("金黄", "#E6A700"),
+        ColorOption("正红", "#D32F2F"),
+        ColorOption("草绿", "#2E7D32"),
+        ColorOption("天蓝", "#1565C0"),
+        ColorOption("淡蓝", "#DCEBFF"),
+        ColorOption("浅灰", "#D8DEE9"),
+        ColorOption("护眼绿", "#E7F4E9")
+    };
+
+    /// <summary>把设置里的风格 / 不透明度 / 字号 / 自定义颜色同步到控件（不触发保存）。</summary>
+    private void ReloadPopupStyleUi(ScheduleCore.Models.ReminderSettings r)
+    {
+        _popupStyleReady = false;
+        try
+        {
+            CbPopupStyle.ItemsSource = ReminderVisualStyle.Presets.Select(p => p.Name).ToList();
+            string key = (r.PopupStyle ?? "classic").Trim().ToLowerInvariant();
+            int idx = Array.FindIndex(ReminderVisualStyle.Presets, p => p.Key == key);
+            CbPopupStyle.SelectedIndex = idx < 0 ? 0 : idx;
+
+            SlPopupOpacity.Value = Math.Round(Math.Clamp(r.PopupOpacity <= 0 ? 1 : r.PopupOpacity, 0.55, 1.0) * 100);
+            SlPopupFont.Value = Math.Round(Math.Clamp(r.PopupFontScale <= 0 ? 1 : r.PopupFontScale, 0.8, 1.8) * 100);
+
+            var texts = PopupColorOptions();
+            CbPopupText.ItemsSource = texts;
+            CbPopupText.SelectedItem = EnsureNotifColor(texts, string.IsNullOrWhiteSpace(r.PopupTextColor) ? "#1F2A37" : r.PopupTextColor);
+
+            var cards = PopupColorOptions();
+            CbPopupCard.ItemsSource = cards;
+            CbPopupCard.SelectedItem = EnsureNotifColor(cards, string.IsNullOrWhiteSpace(r.PopupCardColor) ? "#FFFFFF" : r.PopupCardColor);
+        }
+        finally
+        {
+            _popupStyleReady = true;
+            UpdatePopupStyleLabels();
+        }
+    }
+
+    private string SelectedPopupStyleKey()
+    {
+        int i = CbPopupStyle?.SelectedIndex ?? 0;
+        return i >= 0 && i < ReminderVisualStyle.Presets.Length ? ReminderVisualStyle.Presets[i].Key : "classic";
+    }
+
+    private void UpdatePopupStyleLabels()
+    {
+        if (TxtPopupOpacity != null) TxtPopupOpacity.Text = $"{SlPopupOpacity.Value:0}%";
+        if (TxtPopupFont != null) TxtPopupFont.Text = $"{SlPopupFont.Value:0}%";
+
+        // 自定义颜色只在「自定义」风格下有意义：变灰但不隐藏，用户能看到还有这两个选项
+        bool custom = SelectedPopupStyleKey() == "custom";
+        if (WrapPopupCustom != null)
+        {
+            WrapPopupCustom.IsEnabled = custom;
+            WrapPopupCustom.Opacity = custom ? 1.0 : 0.45;
+        }
+    }
+
+    private void PopupStyle_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_popupStyleReady) return;
+        UpdatePopupStyleLabels();
+        SaveReminderUi();
+    }
+
+    private void PopupStyle_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_popupStyleReady) return;
+        UpdatePopupStyleLabels();
+        SaveReminderUi();
+    }
+
+    /// <summary>预览：先把当前界面值落盘，再用真实提醒窗口弹一次（看到的就是实际效果）。</summary>
+    private void BtnPopupPreview_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SaveReminderUi();
+            var r = Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings();
+            ScheduleChangeWatcher.Preview(r);
+            TxtStatus.Text = r.ChangeFullScreen
+                ? "已按当前外观弹一次全屏预览（点任意处或几秒后自动关闭）。"
+                : "已按当前外观弹一次小窗预览（几秒后自动消失）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "预览失败：" + ex.Message; }
+    }
+
+    private void BtnPopupTextPick_Click(object sender, RoutedEventArgs e) => PickPopupColor(text: true);
+
+    private void BtnPopupCardPick_Click(object sender, RoutedEventArgs e) => PickPopupColor(text: false);
+
+    /// <summary>系统取色器：取到的色补进下拉（下次打开还在），取消则保持原样。</summary>
+    private void PickPopupColor(bool text)
+    {
+        var cb = text ? CbPopupText : CbPopupCard;
+        if (cb == null) return;
+
+        var cur = cb.SelectedItem as NotifColorOption;
+        if (!EditorStyleOptions.TryPickColor(cur?.Hex, out string hex))
+        {
+            TxtStatus.Text = "没有取到颜色，保持原样。";
+            return;
+        }
+
+        var list = cb.ItemsSource as List<NotifColorOption> ?? PopupColorOptions();
+        var opt = EnsureNotifColor(list, hex);
+
+        _popupStyleReady = false;
+        try
+        {
+            cb.ItemsSource = null;
+            cb.ItemsSource = list;
+            cb.SelectedItem = opt;
+        }
+        finally { _popupStyleReady = true; }
+
+        SaveReminderUi();
     }
 
     /// <summary>「调整小窗位置与大小」：开一个和真实提醒一模一样的小窗，拖完保存。</summary>
@@ -1181,6 +1410,14 @@ public partial class MainWindow : Window
             r.ChangeStatusMinutes = ParseRange(TxtChangeStatusMin.Text, 1, 120, 10);
             r.ChangeDelayMinutes = ParseRange(TxtChangeDelay.Text, 0, 60, 2);
             UpdateChangeDelayHint(r.ChangeDelayMinutes);
+
+            // 提示外观（小窗 + 全屏共用）
+            r.PopupStyle = SelectedPopupStyleKey();
+            r.PopupOpacity = Math.Round(Math.Clamp(SlPopupOpacity.Value / 100.0, 0.55, 1.0), 2);
+            r.PopupFontScale = Math.Round(Math.Clamp(SlPopupFont.Value / 100.0, 0.8, 1.8), 2);
+            r.PopupCardColor = (CbPopupCard.SelectedItem as NotifColorOption)?.Hex ?? "";
+            r.PopupTextColor = (CbPopupText.SelectedItem as NotifColorOption)?.Hex ?? "";
+
             r.VoiceEnabled = ChkRemindVoice.IsChecked == true;
             r.VoiceName = SelectedVoiceName();
             r.VoiceRate = (int)SlVoiceRate.Value;
@@ -3511,6 +3748,32 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             TxtStatus.Text = "切换单双周显示失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// 触屏滚动方式：勾选 = 双指上下划滚动（默认，单指留给拖动换节）；
+    /// 取消 = 交回系统做单指滚动（老一体机只报单点触摸时用，代价是手指拖不动课程卡）。
+    /// <para>改完立刻生效：存盘 + 通知悬浮课表刷新，<c>ScheduleWindow.Refresh</c> 里会重设
+    /// <c>ScrollViewer.PanningMode</c>，不用重启。</para>
+    /// </summary>
+    private void ChkTwoFinger_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.TwoFingerScroll = ChkTwoFinger.IsChecked == true;
+            Store.SaveSettings(s);
+
+            AppEvents.RaiseScheduleChanged();
+
+            TxtStatus.Text = s.TwoFingerScroll
+                ? "已启用双指滚动：按住卡片左列「第N节」可直接拖动换课（或按住 0.5 秒浮起再拖），快速划动或双指划动＝滚动课表。"
+                : "已改为只认单指滚动：单指快速划动＝滚动课表，按住左列抓手或按住 0.5 秒再拖＝换课（不会响应第二根手指）。";
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换触屏滚动方式失败：" + ex.Message;
         }
     }
 

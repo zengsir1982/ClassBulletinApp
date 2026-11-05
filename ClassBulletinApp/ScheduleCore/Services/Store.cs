@@ -275,12 +275,129 @@ public static class Store
         return true;
     }
 
+    /// <summary>
+    /// 「本机手动调课」刚刚写盘。<b>参数 = 受影响的格子键</b>（<see cref="LessonOverride.CellKey"/>，
+    /// 即「班级|星期|节次」，同一格不同周算同一格）。
+    ///
+    /// <para><b>为什么要有这个事件：</b>「课表有变化」监视器只比对结果、不关心来源，
+    /// 所以老师自己拖一节课也会被它当成"课表被改了"，紧接着弹小窗、播报语音、状态栏挂红字 ——
+    /// 自己刚动完手就被告知"课表有变化"，只会让人以为出了错。</para>
+    ///
+    /// <para><b>为什么放在 Store 而不是各个调用点：</b>手动入口有六处（拖课、撤销、编辑窗、
+    /// 周课表拖动 / 清格 / 清全部），逐个挂标记早晚会漏掉将来新增的一个；而所有手写入最终都
+    /// 经过 <see cref="SaveOverrides"/>，在这里判一次就全都覆盖了。</para>
+    ///
+    /// <para><b>只在"变化的记录全是 manual"时才触发：</b>差异里只要牵涉 <c>temp</c>（导入临时表）
+    /// 或 <c>remote</c>（同步包），就不发这个事件，监视器照旧提醒 —— 那些变化确实该告诉老师。</para>
+    /// </summary>
+    public static event Action<IReadOnlyCollection<string>>? LocalManualEdit;
+
+    /// <summary>
+    /// 覆盖表刚被<b>非本机手动</b>的来源改过（<c>temp</c> / <c>remote</c> / <c>basePatch</c>），
+    /// 参数 = 受影响的格子键。
+    /// <para><b>为什么要发这个：</b>同一格如果老师 30 秒内先手动调、随后又被同步包覆盖，
+    /// 只靠 <see cref="LocalManualEdit"/> 记下的"手动格"会把后面这次真变化一起吞掉。
+    /// 监视器收到本事件后就把这几格的"手动"标记清掉，保证外部改动一定提醒。</para>
+    /// </summary>
+    public static event Action<IReadOnlyCollection<string>>? ExternalEdit;
+
     public static void SaveOverrides(List<LessonOverride> list)
     {
         if (!EnablePersistence) return;
         Ensure();
+
+        // 必须在写盘之前取样：写完之后再读就只剩新内容，比对不出差异了。
+        var (manualCells, externalCells) = DetectChange(list);
+
         File.WriteAllText(OverridesPath, JsonSerializer.Serialize(list, Opt));
+
+        try
+        {
+            if (manualCells.Count > 0) LocalManualEdit?.Invoke(manualCells);
+            if (externalCells.Count > 0) ExternalEdit?.Invoke(externalCells);
+        }
+        catch { /* 通知失败不影响保存 */ }
     }
+
+    /// <summary>
+    /// 比对"盘上的旧覆盖表"和"即将写入的新覆盖表"。
+    /// <para>返回 <c>(Manual, External)</c>：整批差异全部由 manual 记录构成时给 Manual（监视器据此不提醒）；
+    /// 只要掺进一条非 manual 记录，就整批算 External（宁可多提醒一次，也不能把同步包改动吞掉）。</para>
+    /// <para>纯只读：用 <see cref="ReadJsonOrNull{T}"/> 直接读文件，不走 <see cref="LoadOverrides"/>，
+    /// 否则会顺带触发旧数据迁移并二次写盘。</para>
+    /// </summary>
+    static (List<string> Manual, List<string> External) DetectChange(List<LessonOverride> after)
+    {
+        var none = (new List<string>(), new List<string>());
+        try
+        {
+            var before = ReadJsonOrNull<List<LessonOverride>>(OverridesPath);
+            if (before == null) return none;   // 首次写盘：没有"旧状态"，谈不上变化
+
+            var oldMap = new Dictionary<string, LessonOverride>(StringComparer.Ordinal);
+            foreach (var o in before)
+                if (o != null && !string.IsNullOrEmpty(o.Key)) oldMap[o.Key] = o;
+
+            var newMap = new Dictionary<string, LessonOverride>(StringComparer.Ordinal);
+            foreach (var o in after)
+                if (o != null && !string.IsNullOrEmpty(o.Key)) newMap[o.Key] = o;
+
+            // 1) 找出内容真的变了的记录（新增 / 删除 / 字段变化）。
+            //    不把 UpdatedAt 算进签名：同一条记录被原样重写一遍不算"课表变了"。
+            var changed = new List<string>();
+            foreach (var kv in newMap)
+            {
+                if (!oldMap.TryGetValue(kv.Key, out var o) || Signature(o) != Signature(kv.Value))
+                    changed.Add(kv.Key);
+            }
+            foreach (var kv in oldMap)
+                if (!newMap.ContainsKey(kv.Key)) changed.Add(kv.Key);
+
+            if (changed.Count == 0) return none;
+
+            // 2) 逐条看来源：全是手动才算"老师自己调的"
+            var cells = new List<string>();
+            foreach (var k in changed)
+            {
+                LessonOverride? rec = newMap.TryGetValue(k, out var n) ? n
+                                     : oldMap.TryGetValue(k, out var b) ? b : null;
+                if (rec == null) continue;
+
+                bool oldManual = !oldMap.TryGetValue(k, out var bo) || SourceOf(bo) == "manual";
+                bool newManual = !newMap.TryGetValue(k, out var bn) || SourceOf(bn) == "manual";
+                if (!oldManual || !newManual)
+                {
+                    // 掺了外部来源 → 整批当作外部变化（清掉手动标记，照旧提醒）
+                    var ext = new List<string>();
+                    foreach (var kk in changed)
+                    {
+                        LessonOverride? r2 = newMap.TryGetValue(kk, out var n2) ? n2
+                                           : oldMap.TryGetValue(kk, out var b2) ? b2 : null;
+                        if (r2 != null && !ext.Contains(r2.CellKey)) ext.Add(r2.CellKey);
+                    }
+                    return (new List<string>(), ext);
+                }
+
+                if (!cells.Contains(rec.CellKey)) cells.Add(rec.CellKey);
+            }
+            return (cells, new List<string>());
+        }
+        catch
+        {
+            return none;   // 判不出来就别抑制，宁可多提醒一次
+        }
+    }
+
+    static string SourceOf(LessonOverride o)
+        => string.IsNullOrWhiteSpace(o.Source) ? "manual" : o.Source.Trim().ToLowerInvariant();
+
+    /// <summary>记录内容签名：只含影响"显示成什么"的字段（不含 UpdatedAt）。</summary>
+    static string Signature(LessonOverride o)
+        => string.Join('\u0001',
+            o.Subject ?? "", o.Teacher ?? "", o.Location ?? "", o.Type ?? "",
+            o.IsEmpty ? "1" : "0", o.Suspended ? "1" : "0",
+            o.ValidFrom?.ToString("yyyy-MM-dd") ?? "", o.ValidTo?.ToString("yyyy-MM-dd") ?? "",
+            SourceOf(o));
 
     public static List<LessonOverride> LoadOverrides()
     {
