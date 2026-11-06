@@ -27,8 +27,11 @@ public class PanelLayout
     /// <summary>整体不透明度 0.2~1.0（用于“自动隐藏”/普通置顶显示的基础透明度）。</summary>
     public double Opacity { get; set; } = 1.0;
 
-    /// <summary>“置顶显示”时的透明度（同时开启鼠标穿透，方便操作底层窗口）。建议 0.4~0.7。</summary>
-    public double OverlayOpacity { get; set; } = 0.55;
+    /// <summary>
+    /// “置顶显示 / 常驻显示”时的窗口不透明度，1.0 = 完全不透明（默认）。
+    /// <para>需要看底层内容时可在设置页手动调低（0.2~1.0）；旧版默认 0.55，升级时一次性改为 1.0。</para>
+    /// </summary>
+    public double OverlayOpacity { get; set; } = 1.0;
 
     /// <summary>是否置顶显示（默认 false：悬浮窗置于普通层级；点击「置顶」后才置顶）。</summary>
     public bool TopMost { get; set; }

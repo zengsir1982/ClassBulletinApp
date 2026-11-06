@@ -105,7 +105,7 @@ public partial class NotificationWindow : Window
     {
         var s = Store.LoadSettings();
         _layout = live ?? s.NotificationLayout;
-        // 「常驻显示」= 半透明常驻且完全可交互（双击可编辑、隐藏按钮可单击）；
+        // 「常驻显示」= 默认不透明常驻且完全可交互（双击可编辑、隐藏按钮可单击）；
         // 只有在布局里显式勾选「鼠标穿透」时才打开穿透（此时通知条与隐藏按钮仍保持可点击）。
         bool topShow = !_layout.AutoHide;
         _clickThrough = _layout.ClickThrough && !_layout.AutoHide;

@@ -484,6 +484,33 @@ public partial class MainWindow : Window
 
         // 升级后一次性说明：等窗口真正显示出来再弹，否则 Owner 还没就位
         Loaded += (_, _) => ShowUpgradeNoticeOnce();
+
+        // 空闲预热：把"第一次调课为什么要等几秒"摊到启动后的空闲时间上。
+        // 首次拖动要现读全校课表 / 覆盖表 + 现 JIT 建表与刷新路径，冷启动那一下能明显卡住；
+        // 这些 read 有签名缓存，预热一次之后拖动就只走内存。
+        Dispatcher.BeginInvoke(new Action(WarmUpForFirstDrag),
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
+    /// <summary>空闲时把课表 / 覆盖表 / 今日看板读一遍，消除首次调课时的冷启动卡顿。</summary>
+    private void WarmUpForFirstDrag()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            _ = Store.LoadOverrides();
+            var sf = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase)
+                ? (Store.LoadTeacherSchedule() ?? Store.LoadSchedule())
+                : Store.LoadSchedule();
+            if (sf == null) return;
+            string name = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase)
+                ? s.SelectedTeacher : s.SelectedClass;
+            if (string.IsNullOrEmpty(name)) return;
+            // 走一遍建表（含覆盖表展开）：这条链正是调课后刷新要跑的
+            _ = BoardBuilder.Build(name, s.SemesterStartMonday, sf, BoardBuilder.ResolveDisplayDate(s),
+                                   null, showAlternateWeek: s.ShowAlternateWeekLessons);
+        }
+        catch { /* 预热失败无所谓，真用到时会再算 */ }
     }
 
     /// <summary>

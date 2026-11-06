@@ -36,6 +36,7 @@ public static class BackdropService
     }
 
     private static DispatcherTimer? _timer;
+    private static DispatcherTimer? _debounce;
     private static string _lastSignature = "";
     private static bool _busy;
     private static bool _started;
@@ -80,10 +81,22 @@ public static class BackdropService
     {
         if (_started) return;
         _started = true;
-        AppEvents.ScheduleChanged += () => RefreshIfNeeded();
+        // ★ 课表变化不立刻重绘桌面壁纸：重绘 = 按屏幕分辨率渲染整张图 + PNG 编码 + 设置系统壁纸，
+        //   在教室一体机上要几百毫秒到一两秒，正好挡在"松手 → 看到调课结果"中间。
+        //   改成 1.2 秒防抖：连续拖几次只画最后那一次，而且画的时候界面已经先给出结果了。
+        _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+        _debounce.Tick += (_, _) => { _debounce?.Stop(); RefreshIfNeeded(); };
+        AppEvents.ScheduleChanged += OnScheduleChangedDebounced;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         _timer.Tick += (_, _) => RefreshIfNeeded();
         _timer.Start();
+    }
+
+    static void OnScheduleChangedDebounced()
+    {
+        if (_debounce == null) { RefreshIfNeeded(); return; }   // Start() 之前来的通知：直接刷
+        _debounce.Stop();
+        _debounce.Start();
     }
 
     /// <summary>课表变化 / 定时轮询时，若已应用到桌面则按内容签名判断是否需要重绘。</summary>

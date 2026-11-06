@@ -231,6 +231,12 @@ public class AppSettings
     /// </summary>
     public int ReminderDefaultsRev { get; set; }
 
+    /// <summary>
+    /// 「悬浮课表 / 通知条常驻显示透明度」默认值升级代次：0 = 还没升过；1 = 已把旧默认 0.55 改为不透明。
+    /// 只用来保证这次调整只生效一次，用户之后手动调低不会被打回。
+    /// </summary>
+    public int OverlayOpacityDefaultsRev { get; set; }
+
     /// <summary>界面主题配色方案名称（见 ThemeManager 预设）。</summary>
     public string Theme { get; set; } = "ClassicBlue";
 
@@ -324,6 +330,7 @@ public class AppSettings
         Width = 420,
         Height = 760,
         Opacity = 0.96,
+        OverlayOpacity = 1.0,
         TopMost = false,
         ClickThrough = false,
         AutoHide = false,
@@ -337,6 +344,7 @@ public class AppSettings
         Width = 980,
         Height = 60,
         Opacity = 0.96,
+        OverlayOpacity = 1.0,
         TopMost = true,
         ClickThrough = false,
         AutoHide = false,

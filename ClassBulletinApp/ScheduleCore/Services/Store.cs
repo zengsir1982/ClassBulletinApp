@@ -101,10 +101,42 @@ public static class Store
         if (!EnablePersistence) return;
         Ensure();
         File.WriteAllText(SchedulePath, JsonSerializer.Serialize(sf, Opt));
+        _scheduleCacheValid = false;   // 下一次 LoadSchedule 重新读，绝不给出写之前的旧对象
+    }
+
+    // 课表 / 设置读盘缓存：以「文件最后写入时间」为签名，文件一变（本进程写、别的进程写、
+    // 同步包覆盖）签名就变，自动失效 —— 不需要手工 Clear，也不会有读到旧值的风险。
+    // ★ 为什么要加：调一次课要读 3~4 遍 schedule.json（全校总课表，几百 KB~几 MB）：
+    //   ApplyDrag 里读一次、Rebuild 里读一次、Upsert 比对再读一次…… 一体机上就是
+    //   松手后明显「卡一下」。加了缓存后同一帧内只真正读一次。
+    static ScheduleFile? _scheduleCache;
+    static DateTime _scheduleCacheStamp = DateTime.MinValue;
+    static DateTime _scheduleCacheAt;
+    static bool _scheduleCacheValid;
+
+    static DateTime StampOf(string path)
+    {
+        try { return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue; }
+        catch { return DateTime.MinValue; }
     }
 
     public static ScheduleFile? LoadSchedule()
-        => ReadJsonOrNull<ScheduleFile>(SchedulePath);
+    {
+        var path = SchedulePath;
+        var stamp = StampOf(path);
+        // 3 秒 TTL：只用来吞掉"同一次操作里连续读好几遍"，过期就重读 ——
+        // 万一别处原地改了这个对象又没保存，最多 3 秒后也会回到磁盘的真实内容。
+        if (_scheduleCacheValid && stamp == _scheduleCacheStamp
+            && (DateTime.UtcNow - _scheduleCacheAt).TotalSeconds < 3)
+            return _scheduleCache;
+
+        var sf = ReadJsonOrNull<ScheduleFile>(path);
+        _scheduleCache = sf;
+        _scheduleCacheStamp = stamp;
+        _scheduleCacheAt = DateTime.UtcNow;
+        _scheduleCacheValid = true;
+        return sf;
+    }
 
     public static void SaveTeacherSchedule(ScheduleFile sf)
     {
@@ -212,17 +244,40 @@ public static class Store
         _deferredSettings = null;
         Ensure();
         File.WriteAllText(SettingsPath, JsonSerializer.Serialize(s, Opt));
+        _settingsCache = s;                       // 刚写进去的就是当前值，直接当缓存
+        _settingsCacheStamp = StampOf(SettingsPath);
+        _settingsCacheValid = true;
     }
+
+    static AppSettings? _settingsCache;
+    static DateTime _settingsCacheStamp;
+    static DateTime _settingsCacheAt;
+    static bool _settingsCacheValid;
 
     public static AppSettings LoadSettings()
     {
-        var s = ReadJsonOrNull<AppSettings>(SettingsPath) ?? new();
-        // 旧版本的设置界面允许存 0~1440，而运行期只认 5~720 —— 于是"设 3 实际按 5 跑"，
-        // 设置窗显示的还不是真实生效值。自愈成合法区间并落盘，两处就永远一致了。
-        if (NormalizeUpdateInterval(s)) SaveSettings(s);
-        // 「课表变化提醒」的新默认值（全屏大字 / 15 秒 / 语音关）也要落到老配置上，否则改了默认
-        // 只有新装的机器生效，老机器还按 5 秒小窗跑。
-        if (UpgradeChangeReminderDefaults(s)) SaveSettings(s);
+        var path = SettingsPath;
+        var stamp = StampOf(path);
+        bool cached = _settingsCacheValid && _settingsCache != null
+                      && stamp == _settingsCacheStamp
+                      && (DateTime.UtcNow - _settingsCacheAt).TotalSeconds < 2;
+        var s = cached ? _settingsCache! : (ReadJsonOrNull<AppSettings>(path) ?? new());
+
+        if (!cached)
+        {
+            // 旧版本的设置界面允许存 0~1440，而运行期只认 5~720 —— 于是"设 3 实际按 5 跑"，
+            // 设置窗显示的还不是真实生效值。自愈成合法区间并落盘，两处就永远一致了。
+            if (NormalizeUpdateInterval(s)) SaveSettings(s);
+            // 「课表变化提醒」的新默认值（全屏大字 / 15 秒 / 语音关）也要落到老配置上，否则改了默认
+            // 只有新装的机器生效，老机器还按 5 秒小窗跑。
+            if (UpgradeChangeReminderDefaults(s)) SaveSettings(s);
+            // 「常驻显示透明度」改默认为不透明：老配置里存着 0.55，只改模型默认值对老机器无效。
+            if (UpgradeOverlayOpacityDefaults(s)) SaveSettings(s);
+            _settingsCache = s;
+            _settingsCacheStamp = StampOf(path);
+            _settingsCacheAt = DateTime.UtcNow;
+            _settingsCacheValid = true;
+        }
         return s;
     }
 
@@ -236,6 +291,25 @@ public static class Store
     /// 2 = 再把语音改回开；3 = 延迟 0 分钟（上课中也立即弹）改回 2 分钟。
     /// 代次只单向递增，保证每次调整只生效一次 —— 用户升级后再改回去，下次启动不会被打回。</para>
     /// </summary>
+    /// <summary>
+    /// 「常驻显示透明度」默认值升级：旧版悬浮课表与通知条默认 0.55 半透明，新默认改为完全不透明。
+    /// <para>只把恰好还是旧默认值 0.55、或非法值（小于等于 0）的改成 1.0；用户手动调过的
+    /// 其它数值一律保留。代次保证只跑一次，之后用户再调低也不会在下次启动被打回。</para>
+    /// </summary>
+    public static bool UpgradeOverlayOpacityDefaults(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.OverlayOpacityDefaultsRev >= 1) return false;
+        s.OverlayOpacityDefaultsRev = 1;
+        foreach (var l in new[] { s.ScheduleLayout, s.NotificationLayout })
+        {
+            if (l == null) continue;
+            if (l.OverlayOpacity <= 0 || System.Math.Abs(l.OverlayOpacity - 0.55) < 0.001)
+                l.OverlayOpacity = 1.0;
+        }
+        return true;
+    }
+
     public static bool UpgradeChangeReminderDefaults(AppSettings s)
     {
         if (s == null) return false;

@@ -105,8 +105,14 @@ public partial class WeekView : System.Windows.Controls.UserControl
     {
         InitializeComponent();
         _monday = WeekHelper.WeekStart(DateTime.Now, _weekStartDay);
-        Loaded += (_, _) => { AppEvents.ScheduleChanged += Rebuild; PopulateWeekStartCombo(); Rebuild(); };
-        Unloaded += (_, _) => { AppEvents.ScheduleChanged -= Rebuild; EndDrag(true); };
+        Loaded += (_, _) => { AppEvents.ScheduleChanged += OnScheduleChanged; PopulateWeekStartCombo(); Rebuild(); };
+        Unloaded += (_, _) => { AppEvents.ScheduleChanged -= OnScheduleChanged; EndDrag(true); };
+
+        // 控制面板停在别的页 / 主窗口最小化时攒下的重建，切回本页再补。
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible && _rebuildPending) { _rebuildPending = false; Rebuild(); }
+        };
 
         // 手势统一挂在这里（而不是每个格子一份 lambda）：格子在 Rebuild 时整批重建，
         // 事件挂在控件级才不会漏、也不会残留旧格子的闭包。
@@ -169,6 +175,20 @@ public partial class WeekView : System.Windows.Controls.UserControl
     }
 
     // ---------- 构建 ----------
+    private bool _rebuildPending;
+
+    /// <summary>
+    /// 课表变化 → 重建周视图。
+    /// <para><b>不可见时不重建：</b>这个页签在控制面板里，调课多在悬浮课表做，用户大多
+    /// 根本没看着它。原先不管看不看得见都重建 56 个格子，把悬浮课表拖动后的反应拖慢。
+    /// 这里只记脏标记，切回本页时由 <c>IsVisibleChanged</c> 补上。</para>
+    /// </summary>
+    private void OnScheduleChanged()
+    {
+        if (!IsVisible) { _rebuildPending = true; return; }
+        Rebuild();
+    }
+
     private void Rebuild()
     {
         var s = Store.LoadSettings();
@@ -1306,9 +1326,19 @@ public partial class WeekView : System.Windows.Controls.UserControl
         }
 
         Store.SaveOverrides(list);
-        AppEvents.RaiseScheduleChanged();
-        Rebuild();
-        TxtStatus.Text = $"已{(_editType == "代" ? "安排代课" : "调课")}：{src.DayName}第{src.Period}节 ⇄ {tgt.DayName}第{tgt.Period}节";
+
+        // ★ 反馈先行 + 只重建一次：原来 RaiseScheduleChanged() 会同步触发本控件订阅的
+        //   Rebuild，紧接着又手动 Rebuild 一次，整张周课表重建两遍，松手那一下明显卡住。
+        //   现在先把结果写进状态栏（立刻可见），重建推到下一帧、且只由事件触发一次。
+        string done = $"已{(_editType == "代" ? "安排代课" : "调课")}：{src.DayName}第{src.Period}节 ⇄ {tgt.DayName}第{tgt.Period}节";
+        TxtStatus.Text = done;
+
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try { AppEvents.RaiseScheduleChanged(); } catch { }
+            // Rebuild 会重置状态栏，刷新完补写一次结果
+            try { TxtStatus.Text = done; } catch { }
+        }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void BtnClearAll_Click(object sender, RoutedEventArgs e)

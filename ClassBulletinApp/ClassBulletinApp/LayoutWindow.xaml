@@ -36,7 +36,7 @@
                         <Slider x:Name="SlSchOpacity" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtSchOpacity" FontSize="12" Foreground="#6B7280"/>
 
-                        <TextBlock Text="置顶显示时的透明度（半透明常驻，不影响看底层内容）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <TextBlock Text="置顶显示时的透明度（默认不透明；需要看底层内容时可调低）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
                         <Slider x:Name="SlSchOverlay" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtSchOverlay" FontSize="12" Foreground="#6B7280"/>
 
@@ -80,7 +80,7 @@
                         <Slider x:Name="SlNotOpacity" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotOpacity" FontSize="12" Foreground="#6B7280"/>
 
-                        <TextBlock Text="置顶显示时的透明度（半透明常驻，不影响看底层内容）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
+                        <TextBlock Text="置顶显示时的透明度（默认不透明；需要看底层内容时可调低）" FontSize="14" FontWeight="Bold" Foreground="#1F2A37" Margin="0,16,0,4"/>
                         <Slider x:Name="SlNotOverlay" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotOverlay" FontSize="12" Foreground="#6B7280"/>
 

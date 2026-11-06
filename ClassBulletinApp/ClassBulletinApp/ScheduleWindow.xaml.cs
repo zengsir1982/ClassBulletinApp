@@ -1002,7 +1002,7 @@ public partial class ScheduleWindow : Window
     {
         var l = live ?? Store.LoadSettings().ScheduleLayout;
         _layout = l;
-        // 「常驻显示」= 半透明常驻且可交互（不靠边自动隐藏）；只有在布局里显式勾选「鼠标穿透」时才穿透，
+        // 「常驻显示」= 默认不透明常驻且可交互（不靠边自动隐藏）；只有在布局里显式勾选「鼠标穿透」时才穿透，
         // 且穿透时隐藏按钮、标题区、课表区仍保持可点击。
         bool topShow = !l.AutoHide;
         _clickThrough = l.ClickThrough && !l.AutoHide;
@@ -2941,13 +2941,20 @@ public partial class ScheduleWindow : Window
             UpsertOverride(list, src.DayIdx, src.Period, tgtLesson.Subject, tgtLesson.Teacher, RawLoc(tgtLesson.LocationText), TypeOf(tgtLesson));
         }
         Store.SaveOverrides(list);
-        AppEvents.RaiseScheduleChanged();
 
+        // ★ 反馈先行：先让「已交换」立刻出现，再把「通知所有窗口刷新」推到下一帧。
+        //   原来 RaiseScheduleChanged 是一次性同步多播，桌面壁纸全量重绘正好横在
+        //   「松手 → 看到结果」中间；配合 BackdropService 的 1.2 秒防抖，抬手即出结果。
         // 松手即生效，但给 5 秒反悔窗口 —— 触屏拖错一次不想再拖回去。
         _undoSnapshot = snapshot;
         string a = srcLesson.DisplaySubject;
         string b = tgtLesson?.DisplaySubject ?? "空节";
         ShowAction($"已交换　第{src.Period}节 {a} ⇄ 第{tgt.Period}节 {b}", undo: true, seconds: 5);
+
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try { AppEvents.RaiseScheduleChanged(); } catch { }
+        }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private void UpsertOverride(List<LessonOverride> list, int dayIdx, int period,

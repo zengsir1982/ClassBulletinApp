@@ -100,7 +100,26 @@ public static class AppEvents
     /// </summary>
     public static event Action? HandwritingBallChanged;
 
-    public static void RaiseScheduleChanged() => ScheduleChanged?.Invoke();
+    /// <summary>
+    /// 通知所有窗口「课表变了」。
+    /// <para><b>逐个订阅者隔离调用：</b>多播委托一次性 <c>Invoke()</c> 时，任何一个订阅者
+    /// 抛异常都会让排在它后面的窗口全部收不到通知，表现就是「盘上保存成功了、界面却不动」，
+    /// 而且没有任何报错。这里一个窗口坏掉不再连累其它窗口。</para>
+    /// </summary>
+    public static void RaiseScheduleChanged()
+    {
+        var handlers = ScheduleChanged;
+        if (handlers == null) return;
+        foreach (var d in handlers.GetInvocationList())
+        {
+            try { d.DynamicInvoke(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ClassBulletinApp] refresh FAIL {d.Method.DeclaringType?.Name}.{d.Method.Name}: {ex}");
+            }
+        }
+    }
     public static void RaiseLayoutChanged(PanelLayout? schedule = null, PanelLayout? notification = null)
         => LayoutChanged?.Invoke(schedule, notification);
     public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
