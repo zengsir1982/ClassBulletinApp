@@ -87,9 +87,39 @@ public class UpgradeNoticeWindow : Window
         };
         ok.Click += (_, _) => { DialogResult = true; };
 
-        root.Children.Add(ok);
-        Content = root;
-    
+        // r78：跳版升级（如 1.0.9 直接升到 1.0.13）会把中间每个版本的说明都带上，
+        // 十几段叠下来窗口会撑到屏幕外，底部「知道了」根本点不到 —— 视觉上像程序卡死。
+        // 现在：内容区封顶（工作区 82%）且可滚动，「知道了」固定在底部，不必滚到底才能关。
+        var body = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = root
+        };
+
+        DockPanel.SetDock(ok, Dock.Bottom);
+        ok.Margin = new Thickness(0, 12, 22, 14);
+
+        // 按钮条与滚动内容之间压一条细线：否则最后一段说明和「知道了」糊在一起，
+        // 看上去像按钮也是说明的一部分。
+        var divider = new Border
+        {
+            Height = 1,
+            Background = ChromePalette.BrushOf(ChromePalette.Line, "#E4E9F0"),
+            Margin = new Thickness(22, 0, 22, 0)
+        };
+        DockPanel.SetDock(divider, Dock.Bottom);
+
+        var shell = new DockPanel
+        {
+            LastChildFill = true,
+            MaxHeight = Math.Max(360, SystemParameters.WorkArea.Height * 0.82)
+        };
+        shell.Children.Add(ok);
+        shell.Children.Add(divider);
+        shell.Children.Add(body);
+        Content = shell;
+
         GlassChrome.Prepare(this);}
 
     /// <summary>
