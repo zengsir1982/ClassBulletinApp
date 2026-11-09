@@ -664,12 +664,28 @@ public static class SchedulePackage
             // 4) 通知：全校的覆盖，本班的保留
             if (pkg.Notices.Count > 0)
             {
-                var cur = Store.LoadNotifications();
-                cur.RemoveAll(n => n.Scope == "school");
-                cur.AddRange(pkg.Notices);
+                // ★ 用全量：旧的全校通知打墓碑而不是物理移除 ——
+                //   晚到的旧数据包再拉一次时，物理删掉的会被重新加回来。
+                var cur = Store.LoadNotificationsAll();
+                foreach (var old in cur.Where(n => n.Scope == "school" && !n.Deleted).ToList())
+                {
+                    old.Deleted = true;
+                    old.DeletedAt = DateTime.Now;
+                }
+                // 同 Id 的以包里的为准（复活而非重复追加）
+                var byId = new Dictionary<string, Notification>();
+                foreach (var x in cur) byId[x.Id] = x;
+                foreach (var n in pkg.Notices)
+                {
+                    n.Deleted = false;
+                    n.DeletedAt = null;
+                    if (byId.TryGetValue(n.Id, out var same)) cur.Remove(same);
+                    cur.Add(n);
+                    byId[n.Id] = n;
+                }
                 Store.SaveNotifications(cur);
                 res.NoticeAdded = pkg.Notices.Count;
-                res.NoticeKept = cur.Count(n => n.Scope != "school");
+                res.NoticeKept = cur.Count(n => n.Scope != "school" && !n.Deleted);
             }
 
             // 4.5) 用户表（可选）：包里有就整份替换本机用户表

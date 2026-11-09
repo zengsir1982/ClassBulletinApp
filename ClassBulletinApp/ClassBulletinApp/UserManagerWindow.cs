@@ -17,7 +17,7 @@ namespace ClassBulletinApp;
 /// 用户管理（仅管理员可用）。
 ///
 /// <para>改完点「保存并关闭」写进本机 <c>users.json</c>；发布数据包时它会一起下发到各教室机
-/// （只带用户名 / 哈希 / 盐 / 角色 / 班级，<b>绝不含明文密码</b>）。</para>
+/// （只带用户名 / 哈希 / 盐 / 角色 / 班级 / 任课科目，<b>绝不含明文密码</b>）。</para>
 ///
 /// <para>★ 界面上能做的限制，抵不过直接改 json 文件 —— 这是离线单机程序的固有边界，
 /// 权限在这里的作用是"不给入口、减少误操作"，不是安全防护。</para>
@@ -74,7 +74,7 @@ public class UserManagerWindow : Window
             return b;
         }
 
-        var btnAdd = Mk("新增账号", "#EAF2FD");
+        var btnAdd = Mk("新增账号", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"));
         btnAdd.Click += (_, _) => AddUser();
 
         var btnEdit = Mk("修改 / 重置密码");
@@ -118,7 +118,7 @@ public class UserManagerWindow : Window
         // 表头 + 列对齐：单行字符串拼起来看着是"管理员 管理员"这种重复，也看不出哪列是什么，
         // 用 Grid 按固定列宽排（列表项宽度一致，所以和表头天然对齐）。
         var head2 = MakeRow(
-            new[] { "用户名", "显示名", "角色", "班级", "状态" },
+            new[] { "用户名", "显示名", "角色", "班级", "任课科目", "状态" },
             ColWidths, bold: true, dim: true);
         head2.Margin = new Thickness(6, 6, 6, 4);
         DockPanel.SetDock(head2, Dock.Top);
@@ -133,10 +133,11 @@ public class UserManagerWindow : Window
 
         Content = root;
         Reload();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>列表列宽（表头与数据行共用，改一处两边一起变）。合计留出余量，避免出现横向滚动条。</summary>
-    static readonly double[] ColWidths = { 150, 160, 110, 210, 70 };
+    static readonly double[] ColWidths = { 140, 150, 100, 190, 110, 70 };
 
     static Grid MakeRow(IReadOnlyList<string> cells, double[] widths, bool bold = false, bool dim = false)
     {
@@ -191,9 +192,11 @@ public class UserManagerWindow : Window
                 shown = "—";
 
             string cls = u.ClassNames.Count == 0 ? "—" : string.Join("、", u.ClassNames);
+            // 老账号没填科目显示成「未填（不限）」，且只有科任老师这一列才真正起作用
+            string subject = u.SubjectCaption;
             string state = u.Enabled ? "启用" : "已停用";
 
-            var row = MakeRow(new[] { u.Username, shown, roleText, cls, state }, ColWidths);
+            var row = MakeRow(new[] { u.Username, shown, roleText, cls, subject, state }, ColWidths);
             if (!u.Enabled) row.Opacity = 0.55;
 
             _list.Items.Add(new ListBoxItem
@@ -302,9 +305,10 @@ public class UserManagerWindow : Window
     // ================== 导入名单 ==================
 
     /// <summary>
-    /// 从表格导入：列顺序 用户名 | 显示名 | 角色 | 班级 | 密码。
+    /// 从表格导入：列顺序 用户名 | 显示名 | 角色 | 班级 | 密码 | 任课科目（可选第 6 列）。
     /// 第一行是表头（会被跳过）；角色可写 管理员/班主任/学生，也可写 admin/teacher/student。
-    /// 用户名已存在的会被更新（同名不新增），密码留空则保留原密码。
+    /// 用户名已存在的会被更新（同名不新增），密码留空则保留原密码，
+    /// 任课科目留空则不覆盖原值（老账号保持「不限」）。
     /// </summary>
     void ImportUsers()
     {
@@ -334,6 +338,7 @@ public class UserManagerWindow : Window
             string roleText = Cell(r, 2);
             string clsText = Cell(r, 3);
             string pwd = Cell(r, 4);
+            string subjectText = r.Length > 5 ? Cell(r, 5) : "";   // 可选的「任课科目」列
 
             // 没写角色时按"有班级 = 班主任，无班级 = 电教管理员"推断，比默认成管理员安全
             string role = ParseRole(roleText)
@@ -356,6 +361,9 @@ public class UserManagerWindow : Window
                 exist.DisplayName = string.IsNullOrWhiteSpace(display) ? exist.DisplayName : display;
                 exist.Role = role;
                 exist.ClassNames = classes;
+                // 只在表格里确实填了科目时才覆盖，留空保持原值（老账号 = 不限）
+                if (!string.IsNullOrWhiteSpace(subjectText))
+                    exist.Subject = ScheduleCore.Models.BoardIds.NormalizeSubject(subjectText);
                 if (!string.IsNullOrEmpty(pwd)) PasswordHasher.SetPassword(exist, pwd);
                 updated++;
             }
@@ -372,7 +380,8 @@ public class UserManagerWindow : Window
                     Username = user,
                     DisplayName = display,
                     Role = role,
-                    ClassNames = classes
+                    ClassNames = classes,
+                    Subject = ScheduleCore.Models.BoardIds.NormalizeSubject(subjectText)
                 };
                 PasswordHasher.SetPassword(u, pwd);
                 _book.Users.Add(u);

@@ -5,7 +5,7 @@
         xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
         Title="缺交作业名单 · 编辑内容、格式与主题" Height="680" Width="740"
         MinWidth="560" MinHeight="460" WindowStartupLocation="CenterScreen"
-        ResizeMode="CanResizeWithGrip" Background="#F2F5FA">
+        ResizeMode="CanResizeWithGrip" Background="{DynamicResource BarSurfaceBrush}">
     <Window.Resources>
         <local:HexToBrushConverter x:Key="HexToBrush"/>
         <local:SizeLevelToFontSizeConverter x:Key="LevelToFont"/>
@@ -34,78 +34,88 @@
         </Style>
     </Window.Resources>
 
+    <!-- r71 统一排版：预览 → 主题 / 锁定 → 格式条 → 总标题 → 添加与输入 → 底栏 -->
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 顶部：总标题 + 主题风格 + 预览 -->
-        <Border Grid.Row="0" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,0,0,1" Padding="16,12">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="总标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox x:Name="TxtTitle" Width="240" FontSize="14" Padding="6" Background="White" BorderBrush="#D1D5DB"/>
-                    <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="18,0,8,0"/>
-                    <ComboBox x:Name="CbTheme" Width="190" FontSize="14" SelectionChanged="CbTheme_SelectionChanged">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="2">
-                                    <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
-                                               Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
+        <!-- ① 预览 -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+            <Border x:Name="PreviewCard" CornerRadius="10" Padding="12" BorderThickness="1"
+                    Background="#FCE4EC" BorderBrush="#F8BBD0">
+                <StackPanel>
+                    <TextBlock x:Name="PreviewTitle" Text="缺交作业名单" FontSize="16" FontWeight="Bold" Foreground="#AD1457"/>
+                    <TextBlock x:Name="PreviewLabel" Text="【数学】缺交：" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}" Margin="0,6,0,0"/>
+                    <TextBlock x:Name="PreviewBody" Text="示例：张三、李四" FontSize="13" Foreground="#5C2A3A" Margin="0,2,0,0"/>
                 </StackPanel>
+            </Border>
+        </Border>
 
-                <ctl:TextStylePicker x:Name="PickTitleStyle" Label="标题样式" PreviewText="缺交作业名单"
-                                     Margin="0,0,0,10"/>
+        <!-- ② 主题风格 + 锁定 -->
+        <Border Grid.Row="1" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox x:Name="CbTheme" Width="190" FontSize="14" SelectionChanged="CbTheme_SelectionChanged">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="2">
+                                <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
+                                           Fill="{Binding Background}" Stroke="{DynamicResource HintBrush}" StrokeThickness="1" Margin="0,0,8,0"/>
+                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <CheckBox x:Name="ChkLocked" Content="锁定便签" Margin="18,0,0,0" FontSize="14" VerticalAlignment="Center"
+                          ToolTip="锁定后该便签不能移动 / 缩放 / 编辑，防止误操作"/>
+            </WrapPanel>
+        </Border>
 
-                <Border x:Name="PreviewCard" CornerRadius="10" Padding="12" BorderThickness="1"
-                        Background="#FCE4EC" BorderBrush="#F8BBD0">
-                    <StackPanel>
-                        <TextBlock x:Name="PreviewTitle" Text="缺交作业名单" FontSize="16" FontWeight="Bold" Foreground="#AD1457"/>
-                        <TextBlock x:Name="PreviewLabel" Text="【数学】缺交：" FontSize="13" FontWeight="Bold" Foreground="#C0392B" Margin="0,6,0,0"/>
-                        <TextBlock x:Name="PreviewBody" Text="示例：张三、李四" FontSize="13" Foreground="#5C2A3A" Margin="0,2,0,0"/>
-                    </StackPanel>
-                </Border>
+        <!-- ③ 文字格式：全窗只一条工具条，焦点落在哪个输入框就改哪个字段的格式 -->
+        <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <DockPanel LastChildFill="False">
+                <TextBlock Text="文字格式" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <ctl:TextStylePicker x:Name="PickStyle"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ④ 标签标题（总标题） -->
+        <Border Grid.Row="3" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="总标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox x:Name="TxtTitle" Width="420" FontSize="14" Padding="6" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
             </StackPanel>
         </Border>
 
-        <!-- 中部：缺交记录列表 -->
-        <ScrollViewer Grid.Row="1" Margin="14" VerticalScrollBarVisibility="Auto">
+        <!-- ⑤ 添加记录 + 各字段输入框 -->
+        <ScrollViewer Grid.Row="4" Margin="14" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <DockPanel LastChildFill="False" Margin="0,0,0,8">
-                    <TextBlock Text="缺交记录" FontSize="16" FontWeight="Bold" Foreground="#C0392B" VerticalAlignment="Center"/>
+                    <TextBlock Text="缺交记录" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center"/>
+                    <ctl:HelpBubble Margin="8,0,0,0" PopupTitle="填写说明"
+                                    Text="科目留空表示不区分科目；学生姓名每行一个或用逗号 / 顿号分隔。"/>
                     <Button x:Name="BtnAddMiss" DockPanel.Dock="Right" Content="＋ 添加记录" Click="BtnAddMiss_Click" Padding="14,8" FontSize="14" MinHeight="40"
-                            Background="#FDE8E8" BorderBrush="#E0A0A0"/>
+                            Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}"/>
                 </DockPanel>
-                <TextBlock Text="科目留空表示不区分科目；学生姓名每行一个或用逗号 / 顿号分隔。"
-                           FontSize="12" Foreground="#6B7280" Margin="0,0,0,10" TextWrapping="Wrap"/>
                 <ItemsControl x:Name="MissItems">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Background="#FFF6F5" BorderBrush="#F3C9C4" BorderThickness="1" CornerRadius="10" Padding="10" Margin="0,0,0,8">
                                 <StackPanel>
                                     <DockPanel LastChildFill="True">
-                                        <Button DockPanel.Dock="Right" Content="删除" Padding="10,6" FontSize="13" MinHeight="38" Click="BtnDelMiss_Click" Tag="{Binding}" Background="#FDE8E8" BorderBrush="#E0A0A0"/>
-                                        <TextBox Style="{StaticResource MsSubjectBox}" Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="8" MinHeight="40" Margin="0,0,6,0" Background="White" BorderBrush="#D1D5DB" ToolTip="科目（留空表示通用）"/>
+                                        <Button DockPanel.Dock="Right" Content="删除" Padding="10,6" FontSize="13" MinHeight="38" Click="BtnDelMiss_Click" Tag="{Binding}" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}"/>
+                                        <TextBox Style="{StaticResource MsSubjectBox}" Text="{Binding Subject, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="8" MinHeight="40" Margin="0,0,6,0" Background="White" BorderBrush="{DynamicResource InputBorderBrush}" ToolTip="科目（留空表示通用）"
+                                                 GotFocus="MsSubject_GotFocus"/>
                                     </DockPanel>
-                                    <TextBox Style="{StaticResource MsStyledBox}" Text="{Binding Students, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="8" Margin="0,6,0,0" Background="White" BorderBrush="#D1D5DB" AcceptsReturn="True" Height="64" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="缺交学生姓名：每行一个或用逗号 / 顿号分隔"/>
-                                    <!-- 科目与名单各一个「B + 字号 + 颜色」，紧凑一行；窄窗口时成组换行，不被裁半截 -->
-                                    <WrapPanel Margin="0,7,0,0">
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,16,0">
-                                            <TextBlock Text="科目" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                            <ctl:TextStylePicker Compact="True" StyleData="{Binding SubjectStyle}"/>
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="名单" FontSize="12" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                            <ctl:TextStylePicker Compact="True" StyleData="{Binding ContentStyle}"/>
-                                        </StackPanel>
-                                    </WrapPanel>
+                                    <TextBox Style="{StaticResource MsStyledBox}" Text="{Binding Students, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="8" Margin="0,6,0,0" Background="White" BorderBrush="{DynamicResource InputBorderBrush}" AcceptsReturn="True" Height="64" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="缺交学生姓名：每行一个或用逗号 / 顿号分隔"
+                                             GotFocus="MsStudents_GotFocus"/>
+                                    <!-- r71：上方已有整窗格式条，这里不再重复一套紧凑工具条 -->
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -114,20 +124,20 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- 底部按钮 -->
-        <Border Grid.Row="2" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" Padding="16,10">
+        <!-- 底栏 -->
+        <Border Grid.Row="5" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,10">
             <DockPanel LastChildFill="False">
                 <!-- 触摸屏专用入口：把手指写的字识别后插回当前输入框（姓名里的生僻字靠它） -->
                 <Button x:Name="BtnHand" DockPanel.Dock="Left" Content="✎ 手写输入" Click="BtnHand_Click"
                         MinHeight="44" Padding="14,6" FontSize="15" Margin="0,0,16,0"
                         Background="#FDEFF1" BorderBrush="#E7B9C2"
                         ToolTip="先用手指点一下「学生姓名」输入框，再点这里手写"/>
-                <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#6B7280"
-                           Text="提示：确定后会立即保存，并同步更新桌面背景便签（若已开启）。"/>
+                <ctl:HelpBubble PopupTitle="保存说明"
+                                Text="确定后会立即保存，并同步更新桌面背景便签（若已开启）。"/>
                 <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="24,8" FontSize="15" MinHeight="44" Margin="10,0,0,0"
-                        Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" IsDefault="True" Click="BtnOk_Click"/>
+                        Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" IsDefault="True" Click="BtnOk_Click"/>
                 <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="24,8" FontSize="15" MinHeight="44"
-                        Background="White" BorderBrush="#D1D5DB" IsCancel="True" Click="BtnCancel_Click"/>
+                        Background="White" BorderBrush="{DynamicResource InputBorderBrush}" IsCancel="True" Click="BtnCancel_Click"/>
             </DockPanel>
         </Border>
     </Grid>

@@ -18,7 +18,7 @@ namespace ClassBulletinApp;
 /// 风格与设置项完全参照作业 / 缺交便签（主题 + 标题样式 + 内容样式 + 置顶 + 锁定 + 设为背景）。
 /// <para>摆放 / 置顶 / 锁定 / 是否显示存在 <see cref="AppSettings.NoteWindows"/> 的 <c>duty</c> 键下。</para>
 /// </summary>
-public partial class DutyWindow : Window
+public partial class DutyWindow : Window, IGlassSurface
 {
     /// <summary>在 <see cref="AppSettings.NoteWindows"/> 里的键名。</summary>
     internal const string PlacementKey = "duty";
@@ -57,7 +57,8 @@ public partial class DutyWindow : Window
             _renderedDay = DateTime.Today;
             RebuildContent();
         };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -76,6 +77,7 @@ public partial class DutyWindow : Window
         };
 
         AppEvents.DutyChanged += OnDutyChanged;
+        AppEvents.NoteLockChanged += UpdateLockButton;   // 编辑窗改了锁定，立刻同步锁头图标
         _dayTimer?.Start();
 
         if (_recentered) SavePlacement();
@@ -177,6 +179,8 @@ public partial class DutyWindow : Window
     private void SavePlacement()
     {
         if (_loading) return;
+        // 未显示的窗口 Left/Top 是 NaN：写进设置会让整个 settings.json 序列化失败
+        if (!FloatingHelper.IsFiniteRect(this)) return;
         try
         {
             var s = Store.LoadSettings();
@@ -246,7 +250,12 @@ public partial class DutyWindow : Window
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x5B, 0x64, 0x72));
+        GlassBrush.Apply(NoteBorder);
     }
+
+    /// <summary>IGlassSurface：设置变更时由 GlassBrush.RefreshAll 统一刷新底色。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(NoteBorder, settings);
 
     /// <summary>
     /// 重建条目区：每天一行 = 星期（小字）+ 值日生姓名（正文），下面一行可选写值日内容。
@@ -510,6 +519,7 @@ public partial class DutyWindow : Window
     {
         SavePlacement();
         AppEvents.DutyChanged -= OnDutyChanged;
+        AppEvents.NoteLockChanged -= UpdateLockButton;
         _posTimer?.Stop();
         _dayTimer?.Stop();
         base.OnClosed(e);

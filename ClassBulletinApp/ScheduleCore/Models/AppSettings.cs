@@ -99,8 +99,12 @@ public class AppSettings
     /// <summary>启动后是否自动弹出课表悬浮窗。</summary>
     public bool AutoShowSchedule { get; set; } = true;
 
-    /// <summary>启动后是否自动弹出通知悬浮窗（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
-    public bool AutoShowNotification { get; set; }
+    /// <summary>
+    /// 启动后是否自动弹出通知悬浮窗（顶部跑马灯通知条）。<b>默认开</b>：
+    /// 与「置顶常驻 + 鼠标穿透 + 悬停变透明 + 上课时间自动隐藏」配套，开机即常驻又不挡课堂。
+    /// <para>老配置由 <c>Store.UpgradeNotificationShowDefaults</c> 一次性升级；用户手动关掉不会被打回。</para>
+    /// </summary>
+    public bool AutoShowNotification { get; set; } = true;
 
     /// <summary>启动后是否自动弹出作业公示悬浮窗（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
     public bool AutoShowHomework { get; set; }
@@ -122,6 +126,13 @@ public class AppSettings
 
     /// <summary>启动后是否自动弹出缺交作业名单便签（首次安装默认关闭，仅显示悬浮课表与控制面板）。</summary>
     public bool AutoShowMissing { get; set; }
+
+    /// <summary>
+    /// 启动后是否自动弹出「事项列表」便签（通知 / 公告的便签形态）。
+    /// <para>★ 默认 <c>true</c>：它才是通知的完整清单，跑马灯只滚最新两条摘要。
+    /// 老配置没有这个字段，反序列化后取字段初始值 → 升级后自动出现，符合「通知改便签」的意图。</para>
+    /// </summary>
+    public bool AutoShowNotice { get; set; } = true;
 
     /// <summary>缺交作业名单便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
     public double? MsWinLeft { get; set; }
@@ -237,8 +248,81 @@ public class AppSettings
     /// </summary>
     public int OverlayOpacityDefaultsRev { get; set; }
 
+    /// <summary>
+    /// 「通知条默认置顶常驻 + 鼠标穿透 + 悬停变透明」升级代次：
+    /// 0 = 还没升过；1 = 已把老配置的通知条一次性改成这套默认。
+    /// <para>★ 与 <see cref="OverlayOpacityDefaultsRev"/> 分开记：那个只动透明度，
+    /// 这个动的是「置顶 / 穿透 / 悬停淡出」三件行为，各升各的，互不干扰。</para>
+    /// </summary>
+    public int NotificationOverlayRev { get; set; }
+
+    /// <summary>
+    /// 「通知条开机默认显示 + 上课时间自动隐藏」升级代次：0 = 未升过；1 = 已把老配置一次性改成这套默认。
+    /// <para>★ 与 <see cref="NotificationOverlayRev"/> 分开记：那个只动「置顶 / 穿透 / 悬停淡出」，
+    /// 这个动的是「开机自动显示」与「上课自动隐藏」，各升各的，互不干扰。</para>
+    /// </summary>
+    public int NotificationShowDefaultsRev { get; set; }
+
+    /// <summary>
+    /// 「作业 / 缺交条目稳定 Id」落盘迁移代次：0 = 未做过；1 = 已备份并把带 Id 的数据写回磁盘。
+    /// <para>★ 读盘时始终会在内存里补齐确定性 Id（两端同数据必然得到同一 Id），
+    /// 所以这个代次只用来控制「显式落盘迁移 + 迁移前自动备份」不要重复做。</para>
+    /// </summary>
+    public int BoardMigrationRev { get; set; }
+
     /// <summary>界面主题配色方案名称（见 ThemeManager 预设）。</summary>
     public string Theme { get; set; } = "ClassicBlue";
+
+    /// <summary>
+    /// 全局玻璃底色效果是否开启。<b>默认关闭</b>：教室一体机 / 远程会话零额外开销，
+    /// 老用户升级后界面一个像素都不变，想要的人自己去「布局与显示设置」打开。
+    /// </summary>
+    public bool GlassEnabled { get; set; }
+
+    /// <summary>
+    /// 玻璃通透度（0~65，0 = 完全实色即现状，65 = 最透，默认 45）。
+    /// <para>★ 只改悬浮窗根 Border 底色的 alpha，<b>文字与按钮始终 100% 不透明</b>；
+    /// 与 <see cref="PanelLayout.Opacity"/> / <c>OverlayOpacity</c> 的「整窗透明度」是两回事，互不干扰。</para>
+    /// </summary>
+    public double GlassOpacity { get; set; } = 45;
+
+    /// <summary>玻璃默认值升级代次：0 = 未升级；1 = 已规范过通透度越界值。</summary>
+    public int GlassDefaultsRev { get; set; }
+
+    /// <summary>
+    /// r74：<b>悬浮窗</b>（悬浮课表 / 各便签 / 通知条 …，即所有 <c>IGlassSurface</c>）是否用玻璃。
+    /// <para>与普通窗口的 <see cref="GlassAllWindows"/> <b>分开开关、分开通透度</b>：
+    /// 便签只占一小块，透一点好看；主窗内容多，往往想更实。总闸仍是 <see cref="GlassEnabled"/>。</para>
+    /// <para>老 settings.json 没有这个字段，反序列化会保留这里的 true，不需要 Rev 迁移。</para>
+    /// </summary>
+    public bool GlassFloatEnabled { get; set; } = true;
+
+    /// <summary>
+    /// r74：<b>普通窗口</b>（主窗 / 设置 / 编辑窗 / 向导 …，即 <c>GlassChrome</c> 接管的分层窗）的玻璃通透度。
+    /// <para>0~65，0 = 完全实色；与悬浮窗的 <see cref="GlassOpacity"/> 完全独立。
+    /// 首次升级由 <c>Store.UpgradeGlassSplit</c> 把老的通透度复制过来，老用户观感不变。</para>
+    /// </summary>
+    public double GlassChromeOpacity { get; set; } = 45;
+
+    /// <summary>
+    /// r74「悬浮窗 / 普通窗口通透度拆分」迁移代次：0 = 未迁移；1 = 已把老的
+    /// <see cref="GlassOpacity"/> 复制到 <see cref="GlassChromeOpacity"/>。
+    /// </summary>
+    public int GlassSplitRev { get; set; }
+
+    /// <summary>
+    /// r73：普通窗口（主窗 / 设置 / 编辑 / 向导等）是否也走系统级毛玻璃。
+    /// <para>默认开 —— 打开 <see cref="GlassEnabled"/> 总闸后就是「真·全局玻璃」。
+    /// 老 settings.json 没有这个字段，反序列化会保留这里的 true，不需要 Rev 迁移；
+    /// 觉得卡或远程桌面效果不对，可在「布局与显示设置」里单独关掉，不影响悬浮窗。</para>
+    /// </summary>
+    public bool GlassAllWindows { get; set; } = true;
+
+    /// <summary>
+    /// r73：普通窗口用哪种玻璃实现：auto（按系统版本自动）/ acrylic / mica / frosted（磨砂面板回退）。
+    /// <para>auto 在 Win11 22H2+ 走 DWM 亚克力、Win10 1809+ 走 AcrylicBlurBehind、更老的系统自动磨砂。</para>
+    /// </summary>
+    public string GlassBackdropMode { get; set; } = "auto";
 
     /// <summary>悬浮课表底部的常用软件 / 文件夹快捷入口。</summary>
     public System.Collections.Generic.List<QuickLaunchItem> QuickLaunchers { get; set; } = new();
@@ -255,6 +339,24 @@ public class AppSettings
     /// <para><b>六个胶囊共用这一个值</b>：它们是一整排，大小不一致会一眼看出「后加的三个没跟上」。</para>
     /// </summary>
     public double QaBuiltinFontSize { get; set; }
+
+    /// <summary>
+    /// 内置快捷胶囊「显示哪几个」的配置，<b>按角色分别保存</b>：键 = 角色（admin / teacher / subject / student），
+    /// 值 = 动作键（hw / missing / note / countdown / duty / settings / info / publish / week）→ 是否显示。
+    /// <para>某角色没有条目 = 用该角色的出厂默认（电教管理员：作业 / 缺交 / 便签 / 倒数 / 值日 / 信息；
+    /// 老师与管理员：发布 / 便签 / 周课 / 倒数 / 设置 / 信息）。</para>
+    /// <para>★ 按角色分开存：同一台机器上电教管理员和班主任都会登录，
+    /// 老师把「作业」关掉不该让第二天的电教管理员也找不到它。</para>
+    /// </summary>
+    public System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, bool>>
+        QaVisibleByRole { get; set; } = new();
+
+    /// <summary>
+    /// 消息台账的显示保留天数（默认 7 天，0 = 永久全部显示）。
+    /// <para>★ 只决定台账窗口「默认显示哪一段」：记录不会自动删除，未处理的收件箱也永远显示。
+    /// 真要删除必须人工点台账里的「清除台账…」（见 BoardSyncService.ClearLedger）。</para>
+    /// </summary>
+    public int BoardSyncLedgerKeepDays { get; set; } = 7;
 
     /// <summary>
     /// 悬浮课表 / 桌面背景是否把单双周里「不是本周」的那节课也一起显示（灰色弱化）。
@@ -337,7 +439,14 @@ public class AppSettings
         AutoHideDuringClass = false
     };
 
-    /// <summary>通知悬浮窗布局（顶部 / 底部字幕条）。</summary>
+    /// <summary>
+    /// 通知悬浮窗布局（顶部 / 底部字幕条）。
+    /// <para>★ 出厂默认是<b>置顶常驻 + 鼠标穿透 + 鼠标移上去变透明 + 上课时间自动隐藏</b>：
+    /// 通知条本来就是纯展示，常驻最前让全班随时看得见，穿透让下面的课件照常点，
+    /// 老师把鼠标移过去时它自己让开（透明），上课期间自动缩到边沿、下课再回来。
+    /// 老配置由 <c>Store.UpgradeNotificationOverlayDefaults</c> 与
+    /// <c>Store.UpgradeNotificationShowDefaults</c> 分两次一次性升级（各记各的代次）。</para>
+    /// </summary>
     public PanelLayout NotificationLayout { get; set; } = new()
     {
         Anchor = "Top",
@@ -346,9 +455,10 @@ public class AppSettings
         Opacity = 0.96,
         OverlayOpacity = 1.0,
         TopMost = true,
-        ClickThrough = false,
+        ClickThrough = true,
+        HoverFade = true,
         AutoHide = false,
-        AutoHideDuringClass = false,
+        AutoHideDuringClass = true,
         FullWidth = false,
         HAnchor = "Center",
         FontSize = 28,
@@ -381,6 +491,74 @@ public class AppSettings
 
     /// <summary>检查间隔的合法上限（分钟）。</summary>
     public const int MaxUpdateIntervalMinutes = 720;
+
+    // ==================== 班级内容同步（二期：结构化变更单摆渡） ====================
+
+    /// <summary>是否启用「办公室教师机 ⇄ 教室机」班级内容同步。默认关，老配置升级后行为不变。</summary>
+    public bool BoardSyncEnabled { get; set; }
+
+    /// <summary>
+    /// 摆渡根目录。留空 = 跟随上面的自动更新数据源（共享目录 / FTP 根）。
+    /// 想和发布包分开放时，可单独填另一个 UNC 路径或 ftp:// 地址。
+    /// </summary>
+    public string BoardSyncRoot { get; set; } = "";
+
+    /// <summary>
+    /// 本机唯一设备标识：消息 / 回执文件名都带它，保证「每台设备只写自己独占的文件」。
+    /// 首次启用时生成一次并落盘；两端各自独立，绝不相同。
+    /// </summary>
+    public string BoardSyncActorId { get; set; } = "";
+
+    /// <summary>轮询摆渡目录的间隔（秒）。默认 60，下限 15，避免给共享盘/FTP 造成登录压力。</summary>
+    public int BoardSyncPollSeconds { get; set; } = 60;
+
+    /// <summary>有新变更单时在课间弹提示窗；上课期间静默入档，绝不打断课堂。</summary>
+    public bool BoardSyncPopupDuringBreak { get; set; } = true;
+
+    /// <summary>
+    /// 允许「课间全屏提醒」：教师机发布时可以勾选「让全班当场注意到」，
+    /// 教室机收到这种变更单后，在课间 / 放学后弹一次整屏大字卡片（上课时间绝不打断课堂）。
+    /// <para>默认开 —— 发不发由发送方逐条决定；教室机这边只是想整体关掉强提醒时才关。</para>
+    /// </summary>
+    public bool BoardSyncFullScreenReminder { get; set; } = true;
+
+    /// <summary>
+    /// 教室机收到「带语音提醒」的变更单后是否朗读（音色 / 语速 / 音量沿用「提醒设置」里那套）。
+    /// <para>默认开 —— 发不发由发送方逐条决定（发布窗里的「🔊 语音提醒」），
+    /// 教室机只想整体静音时才关这个开关。</para>
+    /// <para>★ 与 <see cref="ReminderSettings.VoiceEnabled"/> 分开：上下课提醒的语音开关
+    /// 不该顺手决定班级信息要不要念出来，否则「关了上下课语音 → 通知也不念」很难查。</para>
+    /// </summary>
+    public bool BoardSyncVoiceReminder { get; set; } = true;
+
+    /// <summary>
+    /// 教室机是否允许「教师机指定直接增加」的本班通知自动落地（默认允许）。
+    /// <para>★ 只是教室机侧的总开关：关掉之后这类变更单<b>不丢</b>，退回普通收件箱由电教管理员裁决。
+    /// 教师机发布窗里的勾选只是「请求」，最终听这台机器的。自动增加永远只是新增一条，
+    /// 不覆盖 / 不删除教室机原有内容，所以不会抹掉教室机本地改过的东西。</para>
+    /// </summary>
+    public bool BoardSyncAutoApply { get; set; } = true;
+
+    /// <summary>
+    /// 「我的任教班级」（逗号 / 顿号分隔）：在「信息管理」页从下拉里逐个增加，
+    /// 形成本机自己的班级列表；既作为订阅范围，也作为发布信息时的可勾选目标。
+    /// <para>★ 兼容旧值：老版本这个字段叫「额外订阅班级」，存的也是逗号分隔班级名，
+    /// 升级后直接当成任教班级列表显示，不需要迁移、也不会丢订阅。</para>
+    /// </summary>
+    public string BoardSyncExtraClasses { get; set; } = "";
+
+    /// <summary>
+    /// 「作业公示 / 缺交名单」默认字号升级代次：1 = 把仍是「标准」档的标题 / 科目 / 内容 / 名单
+    /// 一次性升到「特大」（后排也能看清）。只跑一次，之后用户手动调回标准不会被打回。
+    /// </summary>
+    public int BoardFontDefaultsRev { get; set; }
+
+    /// <summary>
+    /// 本机是否是「教室机」：教室机会把本机作业 / 缺交 / 本班通知的当前内容发布成快照，
+    /// 供教师机新建变更单时选目标条目。用 student（电教管理员）身份登录时自动视为教室机，
+    /// 此开关用于身份与机器不对应的场合（以及诊断）。默认 false = 教师机，不发布快照。
+    /// </summary>
+    public bool BoardSyncIsClassroom { get; set; }
 
     /// <summary>
     /// 检查间隔（分钟），默认 30。合法区间 <see cref="MinUpdateIntervalMinutes"/>~<see cref="MaxUpdateIntervalMinutes"/>，

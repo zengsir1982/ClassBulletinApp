@@ -91,7 +91,8 @@ public partial class BackdropEditorWindow : Window
             if (ReferenceEquals(e.OriginalSource, _canvas)) Select(null);
         };
         Loaded += OnLoaded;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -196,6 +197,14 @@ public partial class BackdropEditorWindow : Window
             var dlay = b.DutyLayout ?? new HomeworkWallpaperLayout { Anchor = "BottomLeft", UseFixedSize = true, FixedWidth = 400, FixedHeight = 340 };
             _cards.Add(MakeCard("duty", () => BackdropRenderer.BuildDutyCard(dt, _typo, sf), dlay,
                 string.IsNullOrWhiteSpace(dt.Title) ? "值日生名单" : dt.Title));
+        }
+
+        // 事项列表：通知公告的便签形态（只画仍然有效的条目，墓碑与已过期的不上壁纸）
+        if (b.ShowNotice)
+        {
+            var live = NoticeWindow.LiveForBoard();
+            var nlay = b.NoticeLayout ?? new HomeworkWallpaperLayout { Anchor = "TopLeft", UseFixedSize = true, FixedWidth = 420, FixedHeight = 320 };
+            _cards.Add(MakeCard("notice", () => BackdropRenderer.BuildNoticeCard(live, _typo, sf), nlay, "通知公告"));
         }
 
         // 自定义便签：按设置里的显示开关，一张一卡（各自独立位置 / 大小）
@@ -588,6 +597,7 @@ public partial class BackdropEditorWindow : Window
         "missing" => "缺交作业名单",
         "countdown" => "倒计时",
         "duty" => "值日生名单",
+        "notice" => "通知公告",
         _ => "自定义便签"
     };
 
@@ -657,6 +667,14 @@ public partial class BackdropEditorWindow : Window
                         if (p.Left is double l6 && p.Top is double t6
                             && p.Width is double w6 && p.Height is double h6)
                         { dl = l6; dt = t6; dw = w6; dh = h6; }
+                    }
+                    break;
+                case "notice":
+                    {
+                        var p = s.PlacementOf(NoticeWindow.PlacementKey);
+                        if (p.Left is double l7 && p.Top is double t7
+                            && p.Width is double w7 && p.Height is double h7)
+                        { dl = l7; dt = t7; dw = w7; dh = h7; }
                     }
                     break;
                 default:
@@ -740,6 +758,7 @@ public partial class BackdropEditorWindow : Window
             else if (ce.Kind == "homework") b.HomeworkLayout = ce.Lay;
             else if (ce.Kind == "countdown") b.CountdownLayout = ce.Lay;
             else if (ce.Kind == "duty") b.DutyLayout = ce.Lay;
+            else if (ce.Kind == "notice") b.NoticeLayout = ce.Lay;
             else if (ce.NoteId.Length > 0) b.EntryOf(ce.NoteId).Layout = ce.Lay;
             else b.MissingLayout = ce.Lay;
         }

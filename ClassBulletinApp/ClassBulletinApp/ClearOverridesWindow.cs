@@ -62,13 +62,11 @@ public class ClearOverridesWindow : Window
             Margin = new Thickness(0, 0, 0, 6)
         });
 
-        root.Children.Add(new TextBlock
+        root.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作说明",
             Text = "这里清的是「临时」层：手动改课、从临时课表导入的调代、悬浮窗改的记录。"
                  + "长期改课（改在原始课表上的）属于底表本身，不受影响。",
-            FontSize = 12.5,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x6B, 0x72, 0x80)),
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
 
@@ -215,7 +213,8 @@ public class ClearOverridesWindow : Window
         _rWeek.IsChecked = true;   // 默认「本周」
         SyncDateEnabled();
         UpdatePreview();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     void OnScopeChanged()
     {

@@ -16,16 +16,34 @@ public class CountdownBoard
     public string Title { get; set; } = "倒计时";
 
     /// <summary>标题样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
-    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+    // r69：新建字段默认「特大 + 默认墨色」；JSON 里带 sizeLevel 的老数据会覆盖，不受影响。
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     /// <summary>条目样式（所有条目共用一套，省得设置项越排越长）。</summary>
-    public TextStyle ContentStyle { get; set; } = new();
+    public TextStyle ContentStyle { get; set; } = new() { SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     /// <summary>
     /// 右侧天数样式（「还有 30 天」里的数字与「天」字）。
-    /// <para>默认口径：字号 = 条目字号 + 4、加粗、主题强调色 —— 与加这个设置项之前完全一致。</para>
+    /// <para>r73c 口径：默认 = 红色 + 加粗 + 特大号。设了颜色就整段天数用它；
+    /// 样式为空 / 颜色为空时渲染端也回退到 <see cref="DaysDefaultColor"/>，不会退回主题强调色。</para>
     /// </summary>
-    public TextStyle DaysStyle { get; set; } = new();
+    public TextStyle DaysStyle { get; set; } = new()
+    {
+        Bold = true,
+        SizeLevel = HwTextStyle.ExtraLargeLevel,
+        Color = DaysDefaultColor
+    };
+
+    /// <summary>剩余天数的默认颜色（红）。编辑窗、悬浮便签、桌面壁纸三处共用这个口径。</summary>
+    public const string DaysDefaultColor = "#C0392B";
+
+    /// <summary>新建一份默认天数样式（红 + 加粗 + 特大号）。</summary>
+    public static TextStyle NewDaysStyle() => new()
+    {
+        Bold = true,
+        SizeLevel = HwTextStyle.ExtraLargeLevel,
+        Color = DaysDefaultColor
+    };
 
     /// <summary>倒计时事件（按目标日期升序显示）。</summary>
     public List<CountdownItem> Items { get; set; } = new();

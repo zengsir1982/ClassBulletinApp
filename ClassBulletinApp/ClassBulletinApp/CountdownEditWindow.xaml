@@ -2,114 +2,177 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
-        Title="倒计时便签 · 编辑" Height="660" Width="820"
-        MinWidth="640" MinHeight="520" WindowStartupLocation="CenterScreen"
-        ResizeMode="CanResizeWithGrip" Background="#F2F5FA">
+        Title="倒计时便签 · 编辑" Height="780" Width="820"
+        MinWidth="640" MinHeight="560" WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResizeWithGrip" Background="{DynamicResource BarSurfaceBrush}">
+    <!-- r71 统一排版：预览 → 主题 / 锁定 → 一条格式条 → 卡片标题 → 添加与输入 → 底栏
+         r73c：「剩余天数」改成事件卡片里的只读输入框，和名称 / 日期 / 备注一样可落焦点，
+                于是天数字体回到那条唯一的格式条上，不再需要单独加一条工具条。 -->
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 标题 + 主题风格 + 高亮今天 -->
-        <Border Grid.Row="0" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,0,0,1" Padding="16,12">
+        <!-- ① 预览：标题跟着输入框变，底色跟着主题下拉变 -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+            <Border x:Name="PreviewCard" CornerRadius="10" Padding="12" BorderThickness="1"
+                    Background="{Binding SelectedItem.Background, ElementName=CbTheme}"
+                    BorderBrush="{DynamicResource LineBrush}">
+                <StackPanel>
+                    <TextBlock Text="倒计时便签 · 预览（改字体这里立刻跟着变）" FontSize="11"
+                               Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,2"/>
+                    <TextBlock x:Name="PreviewTitle" Text="{Binding Text, ElementName=TxtTitle}"
+                               FontSize="16" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
+                    <!-- r73：事件名 / 剩余天数分开两段，各自按 ContentStyle / DaysStyle 实时渲染，
+                         以前整行写死 13 号，工具条改了字号却一点反馈都没有。 -->
+                    <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock x:Name="PreviewName" Text="期末考试" FontSize="13"
+                                   Foreground="{DynamicResource BodyBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="PreviewDays" Text="还剩 12 天" FontSize="13" FontWeight="Bold"
+                                   Foreground="#B45309" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+        </Border>
+
+        <!-- ② 主题风格 + 锁定 + 醒目色（同一行） -->
+        <Border Grid.Row="1" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="卡片标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="TxtTitle" Width="200" FontSize="14" Padding="6" Background="White" BorderBrush="#D1D5DB"/>
-                <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="18,0,8,0"/>
+                <TextBlock Text="主题风格" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <ComboBox x:Name="CbTheme" Width="176" FontSize="14" SelectionChanged="CbTheme_SelectionChanged">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="2">
                                 <Rectangle Width="18" Height="18" RadiusX="4" RadiusY="4"
-                                           Fill="{Binding Background}" Stroke="#9AA3AF" StrokeThickness="1" Margin="0,0,8,0"/>
+                                           Fill="{Binding Background}" Stroke="{DynamicResource HintBrush}" StrokeThickness="1" Margin="0,0,8,0"/>
                                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
                             </StackPanel>
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
+                <CheckBox x:Name="ChkLocked" Content="锁定便签" Margin="18,0,0,0" FontSize="14"
+                          VerticalAlignment="Center" ToolTip="锁定后该便签不能移动 / 缩放 / 编辑，防止误操作"/>
                 <CheckBox x:Name="ChkHighlight" Content="「就是今天」用醒目色" Margin="18,0,0,0" FontSize="14"
                           VerticalAlignment="Center" ToolTip="目标日期正好是今天时，右侧天数用强调色显示成「就是今天」"/>
             </WrapPanel>
         </Border>
 
-        <!-- 文字样式：标题 / 条目各一行，用统一的 TextStylePicker（加粗 + 字号 + 颜色 + 预览） -->
-        <Border Grid.Row="1" Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="0,0,0,1" Padding="16,10">
-            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <ctl:TextStylePicker x:Name="PickTitleStyle" Label="标题样式" PreviewText="期末考试倒计时"
-                                     Margin="0,0,26,0" StyleChanged="Style_Changed"/>
-                <ctl:TextStylePicker x:Name="PickContentStyle" Label="事件名" PreviewText="期末考试"
-                                     Margin="0,0,26,0" StyleChanged="Style_Changed"/>
-                <ctl:TextStylePicker x:Name="PickDaysStyle" Label="天数" PreviewText="还有 30 天"
-                                     StyleChanged="Style_Changed"/>
-            </WrapPanel>
+        <!-- ③ 文字格式：管「卡片标题」、每条事件的名称 / 日期 / 备注，以及剩余天数输入框 -->
+        <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <DockPanel LastChildFill="False">
+                <TextBlock Text="文字格式" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <ctl:TextStylePicker x:Name="PickStyle" StyleChanged="Style_Changed"/>
+                <ctl:HelpBubble DockPanel.Dock="Right" PopupTitle="怎么设置标题、事件文字和天数"
+                                Text="点「卡片标题」输入框、下面任意事件的名称 / 日期 / 备注输入框，或那条「剩余」输入框，本工具条就会切到对应字段；改字号 / 加粗 / 颜色，上方预览和事件卡片里立刻能看到效果。工具条右侧会显示当前正在设置的字段。"
+                                Margin="8,0,0,0"/>
+            </DockPanel>
         </Border>
 
-        <!-- 事件列表 -->
-        <Grid Grid.Row="2" Margin="14,12,14,8">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <!-- ④ 卡片标题 -->
+        <Border Grid.Row="3" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="卡片标题" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox x:Name="TxtTitle" Width="420" FontSize="14" Padding="6" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
+            </StackPanel>
+        </Border>
 
-            <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,6">
-                <TextBlock VerticalAlignment="Center" FontSize="14" Foreground="#4B5563"
-                           Text="倒计时事件（按目标日期由近到远自动排序；双击单元格可直接修改）"/>
-                <Button x:Name="BtnAdd" DockPanel.Dock="Right" Content="＋ 添加一条" Padding="12,5" FontSize="13"
-                        Background="{DynamicResource PrimaryBrush}" Foreground="White"
-                        BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnAdd_Click"
-                        ToolTip="新增一条倒计时事件"/>
-                <Button x:Name="BtnDel" DockPanel.Dock="Right" Content="删除选中" Padding="12,5" FontSize="13" Margin="0,0,8,0"
-                        Background="#FDE8E8" BorderBrush="#E0A0A0" Foreground="#C0392B" Click="BtnDel_Click"
-                        ToolTip="删除列表里选中的那一条（不可撤销）"/>
-                <Button x:Name="BtnUp" DockPanel.Dock="Right" Content="↑ 上移" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                        Background="White" BorderBrush="#D1D5DB" Click="BtnUp_Click" ToolTip="调整顺序（显示时仍按日期排序）"/>
-                <Button x:Name="BtnDown" DockPanel.Dock="Right" Content="↓ 下移" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                        Background="White" BorderBrush="#D1D5DB" Click="BtnDown_Click" ToolTip="调整顺序（显示时仍按日期排序）"/>
-            </DockPanel>
+        <!-- ⑤ 添加事件 + 事件卡片 -->
+        <ScrollViewer Grid.Row="4" Margin="14,12,14,8" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <DockPanel LastChildFill="False" Margin="0,0,0,10">
+                    <TextBlock Text="倒计时事件" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
+                    <TextBlock Text="按目标日期由近到远自动显示" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                               VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <Button x:Name="BtnAdd" DockPanel.Dock="Right" Content="＋ 添加事件" Padding="14,7" FontSize="14"
+                            MinHeight="38" Background="{DynamicResource PrimaryBrush}" Foreground="White"
+                            BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnAdd_Click"
+                            ToolTip="新增一条倒计时事件"/>
+                </DockPanel>
 
-            <DataGrid Grid.Row="1" x:Name="GridItems" AutoGenerateColumns="False" CanUserAddRows="False"
-                      CanUserDeleteRows="False" CanUserResizeRows="False" HeadersVisibility="Column"
-                      GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E8ECF2"
-                      RowHeight="34" FontSize="13" Background="White" BorderBrush="#D1D5DB"
-                      SelectionMode="Single" SelectionUnit="FullRow"
-                      AlternatingRowBackground="#FAFBFD">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="事件名称" Width="*" Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"/>
-                    <DataGridTemplateColumn Header="目标日期" Width="170">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding TargetDate}" VerticalAlignment="Center" Padding="6,0"/>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                        <DataGridTemplateColumn.CellEditingTemplate>
-                            <DataTemplate>
-                                <DatePicker SelectedDate="{Binding TargetDateValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                            BorderThickness="0" FirstDayOfWeek="Monday"/>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellEditingTemplate>
-                    </DataGridTemplateColumn>
-                    <DataGridTextColumn Header="还剩" Width="120" IsReadOnly="True" Binding="{Binding DaysTip}"/>
-                    <DataGridTextColumn Header="备注（可空）" Width="2*" Binding="{Binding Note, UpdateSourceTrigger=PropertyChanged}"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </Grid>
+                <ItemsControl x:Name="EventItems">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                    CornerRadius="10" Padding="12" Margin="0,0,0,10">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-        <!-- 底部按钮 -->
-        <Border Grid.Row="3" Background="White" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0" Padding="16,10">
+                                    <StackPanel Grid.Column="0">
+                                        <DockPanel LastChildFill="False" Margin="0,0,0,8">
+                                            <TextBlock Text="事件" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource BodyBrush}"
+                                                       VerticalAlignment="Center"/>
+                                            <Button DockPanel.Dock="Right" Content="删除" Padding="10,4" FontSize="12"
+                                                    MinHeight="30" Click="BtnDelEvent_Click" Tag="{Binding}"
+                                                    Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}" Foreground="{DynamicResource DangerBrush}"
+                                                    ToolTip="删掉这条事件"/>
+                                        </DockPanel>
+
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                            <TextBlock Text="名称" Width="46" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                            <TextBox Width="210" FontSize="14" Padding="6" MinHeight="34"
+                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                     Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     GotFocus="CdText_GotFocus" ToolTip="事件名称，例如「期末考试」"/>
+                                            <TextBlock Text="日期" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="16,0,8,0"/>
+                                            <DatePicker Width="160" FontSize="14" MinHeight="34" FirstDayOfWeek="Monday"
+                                                        SelectedDate="{Binding TargetDateValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                        GotFocus="CdText_GotFocus"/>
+                                        </StackPanel>
+
+                                        <!-- 备注撑满左列剩余宽度，卡片才不会拖着半片空白 -->
+                                        <DockPanel LastChildFill="True">
+                                            <TextBlock DockPanel.Dock="Left" Text="备注" Width="46" FontSize="13"
+                                                       Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                            <TextBox FontSize="14" Padding="6" MinHeight="34"
+                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                     Text="{Binding Note, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     GotFocus="CdText_GotFocus" ToolTip="可空，例如「语文 / 数学 / 英语」"/>
+                                        </DockPanel>
+
+                                        <!-- 剩余天数：只读输入框（r73c）。做成输入框就能落焦点，
+                                             于是复用了上面那条唯一的格式条 —— 不用再单独加一条工具条。 -->
+                                        <DockPanel LastChildFill="True" Margin="0,8,0,0">
+                                            <TextBlock DockPanel.Dock="Left" Text="剩余" Width="46" FontSize="13"
+                                                       Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                            <TextBlock DockPanel.Dock="Right" Text="点这里可改字 / 颜色" FontSize="11"
+                                                       Foreground="{DynamicResource HintBrush}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                            <TextBox x:Name="TxtDays" FontSize="14" Padding="6,2" MinHeight="34"
+                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Cursor="Hand"
+                                                     IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                                     Text="{Binding DaysTip, Mode=OneWay}"
+                                                     GotFocus="DaysText_GotFocus"
+                                                     Loaded="DaysText_Loaded" Unloaded="DaysText_Unloaded"
+                                                     ToolTip="剩余天数由目标日期自动算出，不能直接改；点这里可以用上面的「文字格式」调字体和颜色"/>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 底栏 -->
+        <Border Grid.Row="5" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,10">
             <DockPanel LastChildFill="False">
                 <Button x:Name="BtnHand" DockPanel.Dock="Left" Content="✎ 手写输入" Click="BtnHand_Click"
                         Padding="14,7" FontSize="14" Margin="0,0,14,0"
-                        Background="#EEF5FF" BorderBrush="#9EC1F0"
-                        ToolTip="先在列表里双击要填的单元格（光标进了格子），再点这里手写；识别后插入"/>
-                <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="#6B7280"
-                           Text="提示：确定后立即保存。在屏幕上双击倒计时便签也可打开本窗口。"/>
+                        Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}"
+                        ToolTip="先在列表里点要填的输入框（光标进去），再点这里手写；识别后插入"/>
+                <ctl:HelpBubble PopupTitle="保存说明"
+                                Text="确定后立即保存。在屏幕上双击倒计时便签也可打开本窗口。"/>
                 <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="20,7" FontSize="14" Margin="10,0,0,0"
-                        Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" IsDefault="True" Click="BtnOk_Click"/>
+                        Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" IsDefault="True" Click="BtnOk_Click"/>
                 <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="20,7" FontSize="14"
-                        Background="White" BorderBrush="#D1D5DB" IsCancel="True" Click="BtnCancel_Click"/>
+                        Background="White" BorderBrush="{DynamicResource InputBorderBrush}" IsCancel="True" Click="BtnCancel_Click"/>
             </DockPanel>
         </Border>
     </Grid>

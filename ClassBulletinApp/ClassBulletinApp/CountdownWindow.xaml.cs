@@ -20,7 +20,7 @@ namespace ClassBulletinApp;
 /// <para>摆放 / 置顶 / 锁定 / 是否显示存在 <see cref="AppSettings.NoteWindows"/> 的 <c>countdown</c> 键下，
 /// 与值日生名单共用同一套存储结构。</para>
 /// </summary>
-public partial class CountdownWindow : Window
+public partial class CountdownWindow : Window, IGlassSurface
 {
     /// <summary>在 <see cref="AppSettings.NoteWindows"/> 里的键名。</summary>
     internal const string PlacementKey = "countdown";
@@ -62,7 +62,8 @@ public partial class CountdownWindow : Window
             _renderedDay = DateTime.Today;
             RebuildContent();
         };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -81,6 +82,7 @@ public partial class CountdownWindow : Window
         };
 
         AppEvents.CountdownChanged += OnCountdownChanged;
+        AppEvents.NoteLockChanged += UpdateLockButton;   // 编辑窗改了锁定，立刻同步锁头图标
         _dayTimer?.Start();
 
         if (_recentered) SavePlacement();
@@ -183,6 +185,8 @@ public partial class CountdownWindow : Window
     private void SavePlacement()
     {
         if (_loading) return;
+        // 未显示的窗口 Left/Top 是 NaN：写进设置会让整个 settings.json 序列化失败
+        if (!FloatingHelper.IsFiniteRect(this)) return;
         try
         {
             var s = Store.LoadSettings();
@@ -255,7 +259,12 @@ public partial class CountdownWindow : Window
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x5B, 0x64, 0x72));
+        GlassBrush.Apply(NoteBorder);
     }
+
+    /// <summary>IGlassSurface：设置变更时由 GlassBrush.RefreshAll 统一刷新底色。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(NoteBorder, settings);
 
     /// <summary>
     /// 重建条目区：左侧事件名（+ 备注），右侧「还有 N 天」。
@@ -276,12 +285,14 @@ public partial class CountdownWindow : Window
         var bodyBrush = ThemeHelper.Brush(HwTextRender.ColorOr(cs, t.Foreground), Color.FromRgb(0x33, 0x3B, 0x47));
         var bodyWeight = HwTextRender.BoldOr(cs, false) ? FontWeights.Bold : FontWeights.Normal;
 
-        // 天数单独一套样式：默认口径与加设置项之前一致（比条目大 4 号、加粗、主题强调色）
+        // 天数单独一套样式：r73c 起默认「红色 + 加粗 + 特大号」，
+        // 样式为空 / 颜色为空时也回退红色（不再回退主题强调色，免得同一个便签在不同主题下颜色乱跳）
         var ds = _board.DaysStyle;
         double daysSize = HwTextRender.SizeOf(ds, 0);
         double unitSize = Math.Max(9, daysSize - 7);         // 「天」字 / 「已过」等小字
         var daysWeight = HwTextRender.BoldOr(ds, true) ? FontWeights.Bold : FontWeights.Normal;
-        var daysBrush = ThemeHelper.Brush(HwTextRender.ColorOr(ds, t.Accent), Color.FromRgb(0xA1, 0x74, 0x00));
+        var daysBrush = ThemeHelper.Brush(HwTextRender.ColorOr(ds, CountdownBoard.DaysDefaultColor),
+                                          Color.FromRgb(0xC0, 0x39, 0x2B));
         var daysUnitBrush = ThemeHelper.Brush(HwTextRender.ColorOr(ds, t.MutedColor), Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         // 名字与天数紧挨着排、整张卡像一块整体（而不是名字贴左、天数贴右、中间空一大截）；
@@ -578,6 +589,7 @@ public partial class CountdownWindow : Window
     {
         SavePlacement();
         AppEvents.CountdownChanged -= OnCountdownChanged;
+        AppEvents.NoteLockChanged -= UpdateLockButton;
         _posTimer?.Stop();
         _dayTimer?.Stop();
         base.OnClosed(e);

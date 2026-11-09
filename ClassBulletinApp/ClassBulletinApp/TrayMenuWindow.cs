@@ -64,11 +64,9 @@ public class TrayMenuWindow : Window
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 6)
         });
-        head.Children.Add(new TextBlock
+        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
-            FontSize = 12.5,
-            Foreground = Brushes.DimGray,
-            TextWrapping = TextWrapping.Wrap,
+            PopupTitle = "操作说明",
             Text = "自定义在右下角托盘图标上点右键时弹出的菜单。默认是「打开控制面板」「用户中心」「手写悬浮球」「退出」；"
                  + "需要哪些开关也可以增删。文字留空则用该命令的默认名称。\n"
                  + "★ 这些开关在控制面板里同样能操作，菜单加得越长越容易点错。"
@@ -188,7 +186,8 @@ public class TrayMenuWindow : Window
 
         Content = root;
         RefreshList();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     Button? _btnUp, _btnDown, _btnDel;
 

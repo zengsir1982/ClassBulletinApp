@@ -3,22 +3,101 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace ScheduleCore.Models;
+
+/// <summary>
+/// 作业 / 缺交条目的「同步身份」字段。
+/// <para>★ 为「办公室机 ⇄ 教室机」的结构化变更单与双向同步预留：远端指令必须能指到唯一条目，
+/// 否则只能整表覆盖，教室机本地改动会被抹掉。所有字段对老数据都是可缺省的 ——
+/// 老 JSON 里没有这些键时反序列化得到默认值，渲染行为完全不变。</para>
+/// <para>★ 老程序读新 JSON 会忽略未知字段，一旦保存就会把 Id / 墓碑抹掉，
+/// 因此启用同步的两端必须同时升级（见发布说明）。</para>
+/// </summary>
+public abstract class BoardItemBase
+{
+    /// <summary>稳定 Id（确定性派生，两端各自迁移无 Id 老数据也会得到同一个值）。空 = 尚未迁移。</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>软删除墓碑。物理删除会让对端一条晚到的旧字段 op 把条目「复活」。</summary>
+    public bool Deleted { get; set; }
+
+    /// <summary>来源：local = 本机编辑；teacher = 教师机变更单；用于信息管理器显示来源标签。</summary>
+    public string Origin { get; set; } = "local";
+
+    /// <summary>派生关系：「增加（两条都留）」产生的新条目指回原条目 Id 与变更单。</summary>
+    public string Parent { get; set; } = "";
+
+    /// <summary>字段级版本（字段名 → 变更单 Id / HLC），墓碑必须保留全部字段版本。</summary>
+    public Dictionary<string, string> FieldHlc { get; set; } = new();
+}
+
+/// <summary>
+/// 确定性 Id 与老数据迁移。算法与阶段 0 验证程序 probe.py 的 stable_id 一致：
+/// <c>prefix + sha256(classKey|归一科目|内容)[:16]</c>。
+/// <para>为什么不用 Guid：两端各自给同一份老数据生成随机 Id 会得到两个不同 Id，
+/// 合并后变成重复行。确定性 Id 让两端独立迁移也能对齐。</para>
+/// </summary>
+public static class BoardIds
+{
+    public static string NormalizeSubject(string? s)
+        => string.Concat((s ?? "").Replace('\u3000', ' ').Where(c => !char.IsWhiteSpace(c)));
+
+    public static string Compute(string prefix, string classKey, string? subject, string? content)
+    {
+        string raw = $"{classKey ?? ""}|{NormalizeSubject(subject)}|{(content ?? "").Trim()}";
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
+        return prefix + "-" + Convert.ToHexString(hash).ToLowerInvariant()[..16];
+    }
+
+    /// <summary>
+    /// 给一批条目补齐 Id（幂等：已有 Id 一律不动）。完全相同内容的条目按出现次序追加 #2/#3，
+    /// 保证 Id 唯一且两端算出的结果一致（两端老数据顺序相同）。返回是否发生了改动。
+    /// </summary>
+    public static bool Ensure<T>(IEnumerable<T> items, string prefix, string classKey,
+                                 Func<T, string?> subject, Func<T, string?> content,
+                                 Action<T, string> setId) where T : BoardItemBase
+    {
+        bool changed = false;
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var it in items)
+            if (!string.IsNullOrEmpty(it.Id)) used.Add(it.Id);
+
+        foreach (var it in items)
+        {
+            if (!string.IsNullOrEmpty(it.Id)) continue;
+            string baseId = Compute(prefix, classKey, subject(it), content(it));
+            string id = baseId;
+            int n = 2;
+            while (!used.Add(id)) id = baseId + "#" + n++;
+            setId(it, id);
+            changed = true;
+        }
+        return changed;
+    }
+}
 
 /// <summary>
 /// 单科作业条目。
 /// <para>实现 <see cref="INotifyPropertyChanged"/>：编辑窗口里改格式（加粗 / 颜色 / 字号）后，
 /// 行内输入框的即时预览与桌面背景能立刻跟着变，不必关掉重开。</para>
 /// </summary>
-public class HomeworkItem : INotifyPropertyChanged
+public class HomeworkItem : BoardItemBase, INotifyPropertyChanged
 {
     private string _subject = "";
     private string _content = "";
 
     public HomeworkItem()
     {
+        // 默认「特大」：标题 / 科目 / 内容都按这一档渲染，教室后排也看得清。
+        // 只设默认值，不挡用户改：JSON 里有 sizeLevel 时反序列化会覆盖它，
+        // 老数据里仍是标准档的由 Store.UpgradeBoardFontDefaults 一次性升级。
+        ContentStyle.SizeLevel = HwTextStyle.ExtraLargeLevel;
+        SubjectStyle.SizeLevel = HwTextStyle.ExtraLargeLevel;
+
         // 正文样式对象内部变化时，把属性名原样转发出去 ——
         // 编辑窗里绑定 {Binding Bold} / {Binding Color} 的输入框才能即时预览。
         ContentStyle.PropertyChanged += (_, e)
@@ -81,6 +160,13 @@ public static class HwTextStyle
 
     /// <summary>档位名称（下标即档位）。</summary>
     public static readonly string[] LevelNames = { "标准", "小", "大", "特大", "更小", "超大", "巨大" };
+
+    /// <summary>
+    /// 「特大」档下标。作业公示 / 缺交名单的标题、科目、内容 / 名单默认都用这一档，
+    /// 保证教室后排也看得清。★ 只改默认取值，绝不重排 <see cref="Sizes"/> / <see cref="LevelNames"/>
+    /// （它们是持久化下标，重排会让老数据变成别的字号）。
+    /// </summary>
+    public const int ExtraLargeLevel = 3;
 
     /// <summary>下拉框的显示顺序：按字号从小到大排列的档位下标（持久化仍用档位本身）。</summary>
     public static readonly int[] SizeOrder = { 4, 1, 0, 2, 3, 5, 6 };
@@ -265,13 +351,17 @@ public class HomeworkWallpaperLayout
 }
 
 /// <summary>单条缺交作业记录：可指定科目（留空表示通用），以及缺交学生姓名（换行 / 逗号分隔）。</summary>
-public class MissingHomeworkItem : INotifyPropertyChanged
+public class MissingHomeworkItem : BoardItemBase, INotifyPropertyChanged
 {
     private string _subject = "";
     private string _students = "";
 
     public MissingHomeworkItem()
     {
+        // 默认「特大」：科目标题 / 名单都按这一档渲染（与作业公示一致）。
+        ContentStyle.SizeLevel = HwTextStyle.ExtraLargeLevel;
+        SubjectStyle.SizeLevel = HwTextStyle.ExtraLargeLevel;
+
         ContentStyle.PropertyChanged += (_, e)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(e.PropertyName));
         SubjectStyle.PropertyChanged += (_, e)
@@ -313,10 +403,25 @@ public class MissingHomeworkItem : INotifyPropertyChanged
 /// <summary>作业公示栏内容：标题 + 各科目作业 + 主题风格 + 桌面背景摆放位置。</summary>
 public class HomeworkBoard
 {
+    /// <summary>所属班级键（按班分片同步用）。老数据为空，迁移时按当前显示班级补。</summary>
+    public string ClassKey { get; set; } = "";
+
+    /// <summary>存储格式代次：0 = 无 Id 的老格式；1 = 已带稳定 Id / 墓碑。</summary>
+    public int SchemaRev { get; set; }
+
+    /// <summary>可见条目（排除软删除墓碑）。渲染 / 统计一律用这个，别直接遍历 Items。</summary>
+    [JsonIgnore]
+    public IEnumerable<HomeworkItem> LiveItems => (Items ?? new()).Where(x => !x.Deleted);
+
+    /// <summary>可见条目数。<b>必须 JsonIgnore</b>：它是计算值，写进 JSON 会变成
+    /// 「看起来能改、其实下次读盘又算回去」的假字段。</summary>
+    [JsonIgnore]
+    public int LiveCount => (Items ?? new()).Count(x => !x.Deleted);
+
     public string Title { get; set; } = "各科作业公示";
 
-    /// <summary>总标题（顶部条那行字）的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
-    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+    /// <summary>总标题（顶部条那行字）的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 特大档。</summary>
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     public List<HomeworkItem> Items { get; set; } = new();
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
@@ -340,10 +445,25 @@ public class HomeworkBoard
 /// </summary>
 public class MissingBoard
 {
+    /// <summary>所属班级键（按班分片同步用）。老数据为空，迁移时按当前显示班级补。</summary>
+    public string ClassKey { get; set; } = "";
+
+    /// <summary>存储格式代次：0 = 无 Id 的老格式；1 = 已带稳定 Id / 墓碑。</summary>
+    public int SchemaRev { get; set; }
+
+    /// <summary>可见条目（排除软删除墓碑）。渲染 / 统计一律用这个，别直接遍历 Items。</summary>
+    [JsonIgnore]
+    public IEnumerable<MissingHomeworkItem> LiveItems => (Items ?? new()).Where(x => !x.Deleted);
+
+    /// <summary>可见条目数。<b>必须 JsonIgnore</b>：它是计算值，写进 JSON 会变成
+    /// 「看起来能改、其实下次读盘又算回去」的假字段。</summary>
+    [JsonIgnore]
+    public int LiveCount => (Items ?? new()).Count(x => !x.Deleted);
+
     public string Title { get; set; } = "缺交作业名单";
 
-    /// <summary>总标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
-    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+    /// <summary>总标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 特大档。</summary>
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     /// <summary>各科目缺交记录（科目可留空表示通用）。</summary>
     public List<MissingHomeworkItem> Items { get; set; } = new();
@@ -367,15 +487,17 @@ public class CustomNote
     /// <summary>便签标题（显示在顶部条）。</summary>
     public string Title { get; set; } = "自定义便签";
 
-    /// <summary>标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 标准档。</summary>
-    public TextStyle TitleStyle { get; set; } = new() { Bold = true };
+    /// <summary>标题的样式：字号 / 颜色 / 加粗；空 = 主题标题色 + 加粗 + 默认墨色。</summary>
+    // r69：默认「特大」；老数据里的 sizeLevel 会覆盖这个默认值。
+    public TextStyle TitleStyle { get; set; } = new() { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     /// <summary>便签正文（支持多行）。</summary>
     public string Content { get; set; } = "";
 
     /// <summary>正文样式（加粗 / 颜色 / 字号）；不参与序列化，下面三个属性是它的代理，JSON 格式保持不变。</summary>
     [JsonIgnore]
-    public TextStyle ContentStyle { get; set; } = new();
+    // r69：新建便签正文默认「特大」；老数据里的 sizeLevel 会覆盖。
+    public TextStyle ContentStyle { get; set; } = new() { SizeLevel = HwTextStyle.ExtraLargeLevel };
 
     /// <summary>正文是否加粗。</summary>
     public bool Bold { get => ContentStyle.Bold; set => ContentStyle.Bold = value; }

@@ -7,5 +7,6 @@ public partial class WeekWindow : Window
     public WeekWindow()
     {
         InitializeComponent();
-    }
+    
+        GlassChrome.Prepare(this);}
 }

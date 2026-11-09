@@ -107,7 +107,8 @@ public class SuspendedOverridesWindow : Window
 
         Content = root;
         Reload();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     static System.Windows.Media.Brush HexBrush(string hex)
     {

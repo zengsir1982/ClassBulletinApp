@@ -23,6 +23,19 @@ public class BackdropSettings
     /// <summary>壁纸中是否绘制「值日生名单」便签。</summary>
     public bool ShowDuty { get; set; }
 
+    /// <summary>壁纸中是否绘制「事项列表」便签（通知 / 公告的便签形态）。</summary>
+    public bool ShowNotice { get; set; }
+
+    /// <summary>事项列表便签在壁纸上的位置 / 大小（主题固定取自「清新蓝」）。</summary>
+    public HomeworkWallpaperLayout NoticeLayout { get; set; } = new()
+    {
+        // 其余 5 个锚点已被课表 / 作业 / 缺交 / 倒计时 / 值日占满，事项便签默认落左上
+        Anchor = "TopLeft",
+        UseFixedSize = true,
+        FixedWidth = 420,
+        FixedHeight = 320
+    };
+
     /// <summary>倒计时便签在壁纸上的位置 / 大小（主题取自 countdown.json 的 Theme）。</summary>
     public HomeworkWallpaperLayout CountdownLayout { get; set; } = new()
     {

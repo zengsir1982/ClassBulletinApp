@@ -42,12 +42,10 @@ public class BackupWindow : Window
             Margin = new Thickness(0, 0, 0, 4)
         };
 
-        var sub = new TextBlock
+        var sub = new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作说明",
             Text = "每次导入数据包、导入总课表或恢复备份前都会自动存档；最多保留 20 份，超出后自动删最旧的。",
-            FontSize = 12,
-            Foreground = System.Windows.Media.Brushes.Gray,
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10)
         };
 
@@ -73,7 +71,7 @@ public class BackupWindow : Window
             Margin = new Thickness(0, 2, 0, 12)
         };
 
-        var btnNow = MakeButton("立即备份一份", "#EAF2FD", "#9EC1F0");
+        var btnNow = MakeButton("立即备份一份", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"));
         btnNow.Click += (_, _) =>
         {
             string dir = Store.BackupNow("手动备份");
@@ -124,7 +122,8 @@ public class BackupWindow : Window
 
         Content = root;
         Reload();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     static Button MakeButton(string text, string bg, string border)
     {

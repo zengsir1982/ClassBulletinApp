@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using ClassBulletinApp.Controls;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 // 项目同时引用了 WPF 与 WinForms（均有同名类型），此处用别名消歧义
@@ -23,6 +24,10 @@ public partial class CustomNoteEditWindow : Window
     private CustomNote _src;
     private string _theme = "plain";
     private bool _loading;
+    private FocusStyleBinder? _binder;
+
+    /// <summary>诊断用：验证「焦点 → 样式对象」映射（<c>--ui-check</c>）。</summary>
+    internal FocusStyleBinder? DiagBinder => _binder;
 
     private sealed class ThemeOption
     {
@@ -38,7 +43,8 @@ public partial class CustomNoteEditWindow : Window
         InitializeComponent();
         InitCommon();
         LoadNote(note);
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>按便签 Id 编辑（控制面板入口：自动带出全部便签供选择）。</summary>
     public CustomNoteEditWindow(string noteId)
@@ -53,7 +59,8 @@ public partial class CustomNoteEditWindow : Window
         var target = notes.FirstOrDefault(x => x.Id == noteId) ?? _src;
         LoadNote(target);
         SelectNoteInList(target.Id);
-    }
+    
+        GlassChrome.Prepare(this);}
 
     // ---------- 初始化 ----------
     private void InitCommon()
@@ -69,6 +76,11 @@ public partial class CustomNoteEditWindow : Window
             })
             .ToList();
 
+        // ★ r69 焦点跟随：委托取 _src 的当前样式对象，切换便签后自动指向新便签，不用重绑。
+        _binder = new FocusStyleBinder(this, PickStyle);
+        _binder.Bind(TxtTitle, () => _src.TitleStyle, "便签标题");
+        _binder.Bind(TxtContent, () => _src.ContentStyle, "便签内容");
+
         _loading = false;
     }
 
@@ -83,11 +95,11 @@ public partial class CustomNoteEditWindow : Window
         ChkLocked.IsChecked = note.Locked;
         CbTheme.SelectedIndex = HomeworkThemes.IndexOf(_theme);
 
-        // 标题 / 内容样式：老数据没有这两个对象，补一个默认的（标题默认加粗），外观与以前一致
-        note.TitleStyle ??= new TextStyle { Bold = true };
-        note.ContentStyle ??= new TextStyle();
-        PickTitleStyle.StyleData = note.TitleStyle;
-        PickContentStyle.StyleData = note.ContentStyle;
+        // 标题 / 内容样式：老数据没有这两个对象时补「特大 + 默认墨色」的默认值
+        note.TitleStyle ??= new TextStyle { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
+        note.ContentStyle ??= new TextStyle { SizeLevel = HwTextStyle.ExtraLargeLevel };
+        // 换了便签：作用对象变了，先置灰，等老师点下一个输入框再激活（不悄悄回退到标题）
+        _binder?.Deactivate();
 
         _loading = false;
         ApplyFormatToEditor();
@@ -146,7 +158,7 @@ public partial class CustomNoteEditWindow : Window
     {
         Id = _src.Id,
         Title = (TxtTitle.Text ?? "").Trim(),
-        TitleStyle = (_src.TitleStyle ?? new TextStyle { Bold = true }).Clone(),
+        TitleStyle = (_src.TitleStyle ?? new TextStyle { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel }).Clone(),
         Content = (TxtContent.Text ?? "").Trim(),
         Theme = _theme,
         Locked = ChkLocked.IsChecked == true,

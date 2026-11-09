@@ -63,12 +63,10 @@ public class EffectiveRangeWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6)
         });
-        sp.Children.Add(new TextBlock
+        sp.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作说明",
             Text = "请选择这份临时安排生效的时间段（默认本周）。过期后自动失效，基础课表不受影响。",
-            FontSize = 13,
-            Foreground = System.Windows.Media.Brushes.Gray,
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
 
@@ -126,7 +124,8 @@ public class EffectiveRangeWindow : Window
         root.Children.Add(bar);
 
         Content = root;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     RadioButton MakeRadio(string text, bool isChecked)
     {

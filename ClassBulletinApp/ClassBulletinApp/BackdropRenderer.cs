@@ -51,7 +51,8 @@ public static class BackdropRenderer
         HomeworkBoard? homework, MissingBoard? missing, IReadOnlyList<CustomNote>? customNotes,
         BackdropSettings b, int width, int height, double dpi,
         string? backgroundPath, string outPath,
-        CountdownBoard? countdown = null, DutyBoard? duty = null)
+        CountdownBoard? countdown = null, DutyBoard? duty = null,
+        IReadOnlyList<Notification>? notice = null)
     {
         // typo = 每个 DIP 对应多少像素；所有字号 / 间距都按它换算，与悬浮窗保持同一视觉大小
         double typo = dpi > 0.1 ? dpi : 1.0;
@@ -101,6 +102,12 @@ public static class BackdropRenderer
         {
             var card = BuildDutyCard(duty, typo, ScaleFont);
             Place(canvas, card, b.DutyLayout ?? new HomeworkWallpaperLayout(), width, height);
+        }
+
+        if (b.ShowNotice && notice != null)
+        {
+            var card = BuildNoticeCard(notice, typo, ScaleFont);
+            Place(canvas, card, b.NoticeLayout ?? new HomeworkWallpaperLayout(), width, height);
         }
 
         // 自定义便签：每张各自的位置 / 大小，各自的主题（取自便签自身）
@@ -217,6 +224,63 @@ public static class BackdropRenderer
             card.Height = cardH;
         }
         double cardW = double.IsNaN(card.Width) ? card.DesiredSize.Width : card.Width;
+
+        // ★ r69 溢出兜底：「默认全部特大」之后，正文变多时卡片可能比屏幕可用区还高。
+        //   正常数据完全不走这段；只有真的装不下，才把整张卡等比缩小（字号一起缩），
+        //   ★ 绝不回写老师设置的字号值 —— 这只影响壁纸那一张图。
+        //   缩到 0.5 倍还装不下就裁掉，并在底部点一个「…」表示没显示完。
+        double availH = Math.Max(120, height - 2 * (60.0 * height / 1080.0));
+        if (cardH > availH)
+        {
+            if (card.Child is Viewbox alreadyFit)
+            {
+                // 固定尺寸分支已经包过 Viewbox：把框收进可用高度，Viewbox 自己会等比缩
+                card.Height = availH;
+                cardH = availH;
+            }
+            else if (card.Child is FrameworkElement overflowContent)
+            {
+                double padY = card.Padding.Top + card.Padding.Bottom;
+                double naturalH = overflowContent.DesiredSize.Height;
+                if (naturalH <= 0 || double.IsInfinity(naturalH)) naturalH = cardH;
+                double ratio = Math.Max(0.1, (availH - padY) / naturalH);
+
+                if (!fitContent) overflowContent.Width = innerW;
+                card.Child = null;   // 先断开，否则 content 无法再挂到 Viewbox 下
+                var vb = new Viewbox
+                {
+                    Stretch = Stretch.Uniform,
+                    StretchDirection = StretchDirection.DownOnly,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = overflowContent
+                };
+
+                if (ratio >= 0.5)
+                {
+                    card.Child = vb;
+                }
+                else
+                {
+                    // 极端情况（内容长度超过框高的两倍）：继续缩会小到看不清，改为裁切 + 省略号
+                    var wrap = new Grid();
+                    wrap.Children.Add(vb);
+                    wrap.Children.Add(new TextBlock
+                    {
+                        Text = "…",
+                        FontSize = Math.Max(12, 20 * height / 1080.0),
+                        Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Margin = new Thickness(0, 0, 0, 2)
+                    });
+                    card.Child = wrap;
+                    card.ClipToBounds = true;
+                }
+                card.Height = availH;
+                cardH = availH;
+            }
+        }
 
         AnchorOf(lay.Anchor, out string hAlign, out string vAlign);
         double scale = height / 1080.0;
@@ -508,7 +572,9 @@ public static class BackdropRenderer
             TextWrapping = TextWrapping.Wrap
         });
 
-        if (board.Items.Count == 0)
+        // ★ 只画未被软删除的条目：Deleted=true 是同步墓碑，不是用户可见内容
+        var live = board.LiveItems.ToList();
+        if (live.Count == 0)
         {
             stack.Children.Add(new TextBlock
             {
@@ -519,7 +585,7 @@ public static class BackdropRenderer
         }
         else
         {
-            foreach (var it in board.Items)
+            foreach (var it in live)
             {
                 var row = new StackPanel { Margin = new Thickness(0, 0, 0, 10 * scale) };
                 if (!string.IsNullOrWhiteSpace(it.Subject))
@@ -582,7 +648,7 @@ public static class BackdropRenderer
             TextWrapping = TextWrapping.Wrap
         });
 
-        var items = (board.Items ?? new List<MissingHomeworkItem>())
+        var items = board.LiveItems     // ★ 跳过软删除墓碑
             .Where(m => !string.IsNullOrWhiteSpace(m.Students) || !string.IsNullOrWhiteSpace(m.Subject))
             .ToList();
 
@@ -716,12 +782,12 @@ public static class BackdropRenderer
         var bodyBrush = new SolidColorBrush(ParseHwColor(HwTextRender.ColorOr(cs, theme.Foreground), fg));
         var bodyWeight = HwTextRender.BoldOr(cs, false) ? FontWeights.Bold : FontWeights.Normal;
 
-        // 天数单独一套样式（默认比条目大 4 号、加粗、主题强调色 —— 与加设置项之前一致）
+        // 天数单独一套样式（r73c 起默认红 + 加粗 + 特大号，颜色为空也回退红色）
         var ds = board.DaysStyle;
         double daysSize = HwTextRender.SizeOf(ds, 0);
         double unitSize = Math.Max(9, daysSize - 7);
         var daysWeight = HwTextRender.BoldOr(ds, true) ? FontWeights.Bold : FontWeights.Normal;
-        var daysColor = ParseHwColor(HwTextRender.ColorOr(ds, theme.Accent), accent);
+        var daysColor = ParseHwColor(HwTextRender.ColorOr(ds, CountdownBoard.DaysDefaultColor), accent);
         var daysUnitColor = ParseHwColor(HwTextRender.ColorOr(ds, theme.MutedColor), muted);
 
         var items = board.SortedItems();
@@ -977,6 +1043,120 @@ public static class BackdropRenderer
         stack.Children.Add(new TextBlock
         {
             Text = "更新于 " + board.UpdatedAt.ToString("MM-dd HH:mm"),
+            FontSize = ScaleFont(11),
+            Foreground = new SolidColorBrush(muted),
+            Margin = new Thickness(0, 8 * scale, 0, 0)
+        });
+
+        return Card(stack, scale, theme);
+    }
+
+    // ---------- 通知公告便签（通知 / 公告的便签形态） ----------
+    /// <summary>
+    /// 通知公告便签。字号与间距对齐悬浮便签；置顶那一行的圆点用强调色，
+    /// 「今天 / 明天」的截止标签用暖色加粗——真正要动手的那两条最先跳出来。
+    /// </summary>
+    internal static Border BuildNoticeCard(IReadOnlyList<Notification> live, double scale, Func<double, double> ScaleFont)
+    {
+        var theme = HomeworkThemes.Find("blue");
+        var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x1A, 0x3A, 0x5C));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x15, 0x65, 0xC0));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0x7A, 0x9A, 0xB5));
+        var hot = Color.FromRgb(0xC2, 0x41, 0x0C);
+
+        var stack = new StackPanel();
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = "通知公告",
+            FontSize = ScaleFont(19),
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(ParseHwColor(theme.TitleColor, Color.FromRgb(0x0D, 0x47, 0xA1))),
+            Margin = new Thickness(0, 0, 0, 10 * scale),
+            TextWrapping = TextWrapping.Wrap
+        });
+
+        if (live.Count == 0)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "（暂无通知，双击便签添加）",
+                FontSize = ScaleFont(12),
+                Foreground = new SolidColorBrush(muted),
+                TextWrapping = TextWrapping.Wrap
+            });
+            return Card(stack, scale, theme);
+        }
+
+        foreach (var n in live)
+        {
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 7 * scale) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var dot = new Border
+            {
+                Width = 6 * scale,
+                Height = 6 * scale,
+                CornerRadius = new CornerRadius(3 * scale),
+                Background = new SolidColorBrush(n.Pinned ? accent : muted),
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 6 * scale, 7 * scale, 0)
+            };
+            Grid.SetColumn(dot, 0);
+            grid.Children.Add(dot);
+
+            bool hasTitle = !string.IsNullOrWhiteSpace(n.Title);
+            var body = new StackPanel();
+            // r72：与悬浮便签同一套口径 —— 样式为 null 时基准字号正好是原来的 14 / 13，
+            // 颜色也仍跟随主题；只有老师在编辑窗里调过格式才会变。
+            if (hasTitle)
+                body.Children.Add(new TextBlock
+                {
+                    Text = n.Title,
+                    FontSize = ScaleFont(HwTextRender.ScaleSize(n.TitleStyle, 14)),
+                    FontWeight = HwTextRender.BoldOr(n.TitleStyle, true) ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(ParseHwColor(
+                        HwTextRender.ColorOr(n.TitleStyle, theme.Foreground), fg)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+            if (!string.IsNullOrWhiteSpace(n.Content))
+                body.Children.Add(new TextBlock
+                {
+                    Text = n.Content,
+                    FontSize = ScaleFont(HwTextRender.ScaleSize(n.ContentStyle, 13)),
+                    FontWeight = HwTextRender.BoldOr(n.ContentStyle, false) ? FontWeights.Bold : FontWeights.Normal,
+                    Foreground = new SolidColorBrush(ParseHwColor(
+                        HwTextRender.ColorOr(n.ContentStyle, hasTitle ? theme.MutedColor : theme.Foreground),
+                        hasTitle ? muted : fg)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, hasTitle ? 2 * scale : 0, 0, 0)
+                });
+            Grid.SetColumn(body, 1);
+            grid.Children.Add(body);
+
+            string due = n.DueText;
+            bool soon = due is "今天" or "明天";
+            var dueText = new TextBlock
+            {
+                Text = due,
+                FontSize = ScaleFont(11),
+                Foreground = new SolidColorBrush(soon ? hot : muted),
+                FontWeight = soon ? FontWeights.Bold : FontWeights.Normal,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(8 * scale, 2 * scale, 0, 0)
+            };
+            Grid.SetColumn(dueText, 2);
+            grid.Children.Add(dueText);
+
+            stack.Children.Add(grid);
+        }
+
+        int pinned = live.Count(x => x.Pinned);
+        stack.Children.Add(new TextBlock
+        {
+            Text = pinned > 0 ? $"共 {live.Count} 条 · 置顶 {pinned} 条" : $"共 {live.Count} 条",
             FontSize = ScaleFont(11),
             Foreground = new SolidColorBrush(muted),
             Margin = new Thickness(0, 8 * scale, 0, 0)

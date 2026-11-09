@@ -58,7 +58,8 @@ public partial class LoginWindow : Window
 
         _loading = false;
         UpdateSubtitle();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>三个勾选联动：自动登录必须有密码；取消记住密码则自动登录一并取消。</summary>
     private void LoginPref_Changed(object sender, RoutedEventArgs e)

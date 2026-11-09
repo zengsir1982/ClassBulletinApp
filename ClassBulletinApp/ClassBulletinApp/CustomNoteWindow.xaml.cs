@@ -19,7 +19,7 @@ namespace ClassBulletinApp;
 /// 整块可拖动 / 拉边改大小（WM_NCHITTEST 原生处理），支持主题、置顶、锁定，双击编辑。
 /// 摆放、置顶、锁定、是否显示都随便签一起持久化。
 /// </summary>
-public partial class CustomNoteWindow : Window
+public partial class CustomNoteWindow : Window, IGlassSurface
 {
     private readonly string _noteId;
     private CustomNote? _note;
@@ -46,7 +46,8 @@ public partial class CustomNoteWindow : Window
         InitializeComponent();
         _posTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _posTimer.Tick += (_, _) => { _posTimer.Stop(); SavePlacement(); };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -169,6 +170,8 @@ public partial class CustomNoteWindow : Window
     private void SavePlacement()
     {
         if (_loading || _note == null) return;
+        // 未显示的窗口 Left/Top 是 NaN：写进设置会让整个 settings.json 序列化失败
+        if (!FloatingHelper.IsFiniteRect(this)) return;
         try
         {
             var s = Store.LoadSettings();
@@ -247,7 +250,12 @@ public partial class CustomNoteWindow : Window
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x5B, 0x64, 0x72));
+        GlassBrush.Apply(NoteBorder);
     }
+
+    /// <summary>IGlassSurface：设置变更时由 GlassBrush.RefreshAll 统一刷新底色。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(NoteBorder, settings);
 
     private void RebuildContent()
     {

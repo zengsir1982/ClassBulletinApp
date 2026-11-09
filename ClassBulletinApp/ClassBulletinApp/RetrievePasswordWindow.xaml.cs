@@ -18,7 +18,8 @@ public partial class RetrievePasswordWindow : Window
     {
         InitializeComponent();
         Mode_Changed(null, null);
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Mode_Changed(object? sender, RoutedEventArgs? e)
     {

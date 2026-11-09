@@ -15,7 +15,8 @@ public partial class SettingsWindow : Window
         ChkFullscreen.IsChecked = s.LaunchFullscreen;
         ChkLocked.IsChecked = s.LaunchLocked;
         TxtVersion.Text = "班级公布栏 " + AppInfo.VersionText;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {

@@ -25,6 +25,51 @@ public static class UserSession
     /// </summary>
     static RolePolicy _policy = new();
 
+    /// <summary>
+    /// 「本次登录会话里临时增加的任教班级」：<b>只存在内存里，绝不写回 users.json</b>。
+    /// <para>★ 发布窗里老师临时给某个班发一条信息时，用 <see cref="GrantSessionClass"/> 放开班级范围；
+    /// 换账号 / 退出登录即清空，下次登录不会凭空多出一个班的权限。</para>
+    /// <para>★ 为什么不直接往 <see cref="AppUser.ClassNames"/> 里塞：那个对象来自用户表，
+    /// 一旦被别处保存就会把「临时班级」写进随包下发的 users.json，等于永久扩权。</para>
+    /// </summary>
+    static readonly System.Collections.Generic.HashSet<string> _sessionClasses =
+        new(System.StringComparer.Ordinal);
+
+    /// <summary>本次会话可用的班级清单 = 账号所属班级 + 会话内临时增加的班级（去重，只读）。</summary>
+    public static System.Collections.Generic.IReadOnlyList<string> SessionClassNames
+    {
+        get
+        {
+            var list = new System.Collections.Generic.List<string>();
+            if (_current != null)
+                foreach (var c in _current.ClassNames ?? new System.Collections.Generic.List<string>())
+                {
+                    string v = (c ?? "").Trim();
+                    if (v.Length > 0 && !list.Contains(v, System.StringComparer.Ordinal)) list.Add(v);
+                }
+            foreach (var c in _sessionClasses)
+                if (!list.Contains(c, System.StringComparer.Ordinal)) list.Add(c);
+            return list;
+        }
+    }
+
+    /// <summary>会话内临时放开一个班级（不写盘）。返回是否真的新增了。</summary>
+    public static bool GrantSessionClass(string? className)
+    {
+        string v = (className ?? "").Trim();
+        if (v.Length == 0) return false;
+        return _sessionClasses.Add(v);
+    }
+
+    /// <summary>班级范围判定：账号所属班级或本次会话临时增加的班级都算。</summary>
+    static bool OwnsClassInSession(string? className)
+    {
+        if (_current == null) return false;
+        if (_current.OwnsClass(className)) return true;
+        string v = (className ?? "").Trim();
+        return v.Length > 0 && _sessionClasses.Contains(v);
+    }
+
     /// <summary>当前登录用户；<c>null</c> = 游客（只能看和控显示，不能改任何数据）。</summary>
     public static AppUser? Current => _current;
 
@@ -64,12 +109,14 @@ public static class UserSession
     /// </summary>
     public static void SignIn(AppUser user, UserBook? book = null)
     {
+        _sessionClasses.Clear();      // 换账号 = 新会话，临时班级一律作废
         _current = user;
         _policy = (book ?? Store.LoadUsers()).PolicyFor(user.Role);
     }
 
     public static void SignOut()
     {
+        _sessionClasses.Clear();
         _current = null;
         _policy = new RolePolicy();
     }
@@ -114,7 +161,7 @@ public static class UserSession
         if (_current == null) return false;
         if (IsAdmin) return true;
         if (!_policy.EditSchedule) return false;
-        return _current.OwnsClass(className);
+        return OwnsClassInSession(className);
     }
 
     /// <summary>能否导入总课表 / 单班 / 教师课表 / 清除调课（会整份覆盖全年级数据）。</summary>
@@ -161,8 +208,25 @@ public static class UserSession
         if (_current == null) return false;
         if (IsAdmin) return true;
         if (!_policy.EditBoard) return false;
-        return _current.OwnsClass(className);
+        return OwnsClassInSession(className);
     }
+
+    /// <summary>当前登录账号的任课科目（未填 / 非科任老师返回空串）。</summary>
+    public static string Subject => _current?.NormalizedSubject ?? "";
+
+    /// <summary>
+    /// 能否改「指定班级 + 指定科目」的一条作业 / 缺交条目。
+    /// <para>★ 教师机生成结构化变更单时逐条走这里：班级范围与科目范围必须同时满足。
+    /// 按科限权只对科任老师生效；老账号没填科目 = 不限（见 <see cref="AppUser.OwnsSubject"/>）。</para>
+    /// </summary>
+    public static bool CanEditBoardItem(string? className, string? subject)
+        => CanEditBoardFor(className) && (_current?.OwnsSubject(subject) ?? false);
+
+    /// <summary>科目越权时的提示（供后续变更单发送界面使用）。</summary>
+    public static string DenyEditBoardItem(string? subject)
+        => $"当前身份（{RoleDisplay}）的任课科目是「{_current?.SubjectCaption ?? "未填"}」，"
+         + $"不能修改「{(string.IsNullOrWhiteSpace(subject) ? "通用" : subject)}」科目的作业条目。"
+         + "如需改别的科目，请让管理员在「用户管理」里调整该账号的任课科目。";
 
     /// <summary>
     /// 能否发布全校通知（随包下发到所有教室机）。
@@ -177,6 +241,15 @@ public static class UserSession
     /// 教室机开机自动登录的是电教管理员，这项一旦被关，改了共享文件夹路径就再也收不到更新。</para>
     /// </summary>
     public static bool CanManageUpdate => IsAdmin || _policy.ManageUpdate;
+
+    /// <summary>
+    /// 能否「发布信息」＝从教师机发作业 / 缺交 / 本班通知变更单给教室机。
+    /// <para>★ 电教管理员（教室机确认人）<b>默认没有</b>这项权限：自己发自己批会让双人核对失去意义。
+    /// 需要时由管理员在「用户管理 → 角色权限」里显式开通；管理员恒开、游客恒关。</para>
+    /// <para>★ 与 <see cref="CanPublish"/> 区分：那个是「发布到数据源」，一次影响全校课表，
+    /// 写死只给管理员，不进角色配置。</para>
+    /// </summary>
+    public static bool CanPublishInfo => IsAdmin || _policy.PublishInfo;
 
     /// <summary>能否操作本机显示（开关便签、切显示日、全屏、锁定）—— 所有人，含游客。</summary>
     /// <remarks>
@@ -247,6 +320,12 @@ public static class UserSession
     public static string DenyManageUpdate => IsGuest
         ? "当前是游客模式，不能修改更新设置。请用账号登录。"
         : $"当前身份（{RoleDisplay}）不能修改自动更新设置，请让管理员操作。";
+
+    /// <summary>不能发布信息时的统一提示（说清楚去哪里开通，避免以为是程序坏了）。</summary>
+    public static string DenyPublishInfo => IsGuest
+        ? "当前是游客模式，不能发布信息。请用教师账号登录后再发。"
+        : $"当前身份（{RoleDisplay}）默认没有「发布信息」的权限：电教管理员只负责在教室机确认并应用变更单，"
+          + "不能自己发自己批。请改用班主任 / 科任老师账号，或让管理员在「用户管理 → 角色权限」里开通。";
 }
 
 /// <summary>重新绑定身份的结果。</summary>

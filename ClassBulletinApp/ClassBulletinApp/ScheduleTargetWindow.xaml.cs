@@ -43,7 +43,8 @@ public partial class ScheduleTargetWindow : Window
             ListTarget.SelectedIndex = 0;
         ListTarget.ScrollIntoView(ListTarget.SelectedItem);
         TxtSearch.Focus();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     static List<string> Names(ScheduleCore.Models.ScheduleFile? sf)
     {

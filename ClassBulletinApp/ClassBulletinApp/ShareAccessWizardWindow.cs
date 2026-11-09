@@ -112,8 +112,8 @@ public class ShareAccessWizardWindow : Window
         });
         var tag = new Border
         {
-            Background = Hex("#EAF1FD"),
-            BorderBrush = Hex("#9DBDF0"),
+            Background = Hex(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
+            BorderBrush = Hex(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(11),
             Padding = new Thickness(10, 3, 10, 3),
@@ -123,19 +123,17 @@ public class ShareAccessWizardWindow : Window
                 Text = "仅发布机需要",
                 FontSize = 11.5,
                 FontWeight = FontWeights.Bold,
-                Foreground = Hex("#1E4FA8")
+                Foreground = Hex(ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8"))
             }
         };
         Grid.SetColumn(tag, 1);
         titleGrid.Children.Add(tag);
         head.Children.Add(titleGrid);
 
-        head.Children.Add(new TextBlock
+        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作步骤",
             Text = "课表 Excel 放在办公电脑的共享文件夹里，三台发布机从那里读；发布后的数据包再上传到 FTP，供 30 台教室机下载。",
-            FontSize = 12.5,
-            Foreground = Hex("#6B7280"),
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         });
 
@@ -151,7 +149,7 @@ public class ShareAccessWizardWindow : Window
         var bar = new DockPanel { Margin = new Thickness(0, 12, 0, 0), LastChildFill = false };
 
         _btnPrev = MakeButton("← 上一步", "#F3F4F6", "#D1D5DB");
-        _btnNext = MakeButton("下一步 →", "#2D6CDF", "#2D6CDF", white: true);
+        _btnNext = MakeButton("下一步 →", ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF"), ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF"), white: true);
         _btnDone = MakeButton("完成并保存", "#E8F6EE", "#7FC99A");
         var btnCancel = MakeButton("取消", "#F3F4F6", "#D1D5DB");
 
@@ -168,15 +166,12 @@ public class ShareAccessWizardWindow : Window
         DockPanel.SetDock(right, Dock.Right);
         bar.Children.Add(right);
 
-        var hint = new TextBlock
+        bar.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作提示",
             Text = "教室机不需要做第 1、2 步，只填 FTP 即可。",
-            FontSize = 11.5,
-            Foreground = Hex("#9CA3AF"),
-            VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 16, 0)
-        };
-        bar.Children.Add(hint);
+        });
 
         // ---------- 组装 ----------
         _pages.Add(BuildStep1());
@@ -195,7 +190,8 @@ public class ShareAccessWizardWindow : Window
         Load();
         GoTo(0);
         Loaded += (_, _) => GoTo(Math.Max(0, Math.Min(_pages.Count - 1, InitialStep)));
-    }
+    
+        GlassChrome.Prepare(this);}
 
     // ================= 框架 =================
 
@@ -249,8 +245,8 @@ public class ShareAccessWizardWindow : Window
         {
             bool on = i == _step;
             bool past = i < _step;
-            _badges[i].Background = on ? Hex("#2D6CDF") : past ? Hex("#E8F6EE") : Hex("#F3F4F6");
-            _badges[i].BorderBrush = on ? Hex("#2D6CDF") : past ? Hex("#7FC99A") : Hex("#D1D5DB");
+            _badges[i].Background = on ? Hex(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")) : past ? Hex("#E8F6EE") : Hex("#F3F4F6");
+            _badges[i].BorderBrush = on ? Hex(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")) : past ? Hex("#7FC99A") : Hex("#D1D5DB");
             _badges[i].BorderThickness = new Thickness(1);
             if (_badges[i].Child is TextBlock n)
                 n.Foreground = on ? Brushes.White : past ? Hex("#2F7A4E") : Hex("#9CA3AF");
@@ -276,7 +272,7 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Note(
             "本节在【办公电脑】上做，一次即可，需要管理员权限。做完之后换课表、加班级都不用再来，"
             + "只有当共享名、路径或密码变了才需要重做。",
-            "#EAF2FD", "#9EC1F0", "#1E4FA8"));
+            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         p.Children.Add(Field("办公电脑地址", _hostBox,
             "办公电脑的 IP 或计算机名，例如 192.168.40.168 或 ZLOVEK。不要带 \\\\，也不要带路径。"));
@@ -284,24 +280,13 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Field("课表子目录", _subBox,
             "默认 source。如果 Excel 就直接放在共享根目录里，这里留空。"));
 
-        var tip = new Border
+        p.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
-            Background = Hex("#FFFBEB"),
-            BorderBrush = Hex("#F3D08A"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(10, 7, 10, 7),
-            Margin = new Thickness(0, 2, 0, 14)
-        };
-        tip.Child = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = Hex("#8A5A00"),
+            PopupTitle = "注意事项",
             Text = "下面命令里的 D:\\dfzx 是示例路径，改成办公电脑上真实放课表的文件夹。"
-                 + "共享名 dfzx 保持不变即可。"
-        };
-        p.Children.Add(tip);
+                 + "共享名 dfzx 保持不变即可。",
+            Margin = new Thickness(0, 2, 0, 14)
+        });
 
         p.Children.Add(SectionTitle("① 建一个专用账号（不要用管理员账号，也不要用你自己的账号）"));
         p.Children.Add(CmdBlock(
@@ -366,7 +351,7 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Note(
             "本节在【本机】做，三台发布机各做一次。账号密码只写进 Windows 凭据管理器（等同于 cmdkey），"
             + "不写进 settings.json，也不随数据包下发。",
-            "#EAF2FD", "#9EC1F0", "#1E4FA8"));
+            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         var uncRow = new Border
         {
@@ -397,7 +382,7 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Field("密码", _smbPwd, "只在点击下面按钮时用一次，不会保存到本程序的配置文件里。"));
 
         var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 8) };
-        var btnTest = MakeButton("测试并保存凭据", "#EAF2FD", "#9EC1F0");
+        var btnTest = MakeButton("测试并保存凭据", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"));
         btnTest.Click += async (_, _) => await TestAndSave();
         var btnDel = MakeButton("删除本机凭据", "#F3F4F6", "#D1D5DB");
         btnDel.Click += (_, _) => DeleteCredential();
@@ -622,7 +607,7 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Note(
             "发布机把 Excel 打包成 data.cbpack，再连同 manifest.json 上传到 FTP；教室机只从 FTP 下载。"
             + "Excel 本身永远留在共享目录里，不上传 FTP。",
-            "#EAF2FD", "#9EC1F0", "#1E4FA8"));
+            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         _rbSchool.GroupName = "ftpMode";
         _rbOffice.GroupName = "ftpMode";
@@ -636,13 +621,11 @@ public class ShareAccessWizardWindow : Window
         _rbOffice.Checked += (_, _) => SyncFtpNote();
         p.Children.Add(_rbSchool);
 
-        p.Children.Add(new TextBlock
+        p.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作说明",
             Text = "办公电脑不用装 FTP，也不要求它 24 小时开机 —— 通道保持现状，只把「读 Excel 的地方」"
                  + "从 FTP 换成共享目录。三台发布机谁都能发布，因为读的是同一份 source。",
-            FontSize = 11.5,
-            Foreground = Hex("#6B7280"),
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(20, 0, 0, 6)
         });
         p.Children.Add(_rbOffice);
@@ -919,26 +902,20 @@ public class ShareAccessWizardWindow : Window
             Margin = new Thickness(0, top, 0, top + 8)
         };
 
-    static Border Note(string text, string bg, string border, string fg)
-    {
-        return new Border
+    /// <summary>
+    /// r70：整段操作说明收成「问号小图标 + 点击弹层」，不再用一整块彩色灰字占版面。
+    /// <para>★ 保留 bg / border / fg 三个参数是为了 8 处调用点一行都不动；
+    /// 颜色语义统一交给 HelpBubble 走 DesignTokens（切主题自动跟随）。</para>
+    /// <para>★ 返回 UIElement 而不是 Border：调用点全是 <c>Children.Add(Note(...))</c>，
+    /// 换成气泡控件后原结构完全成立。</para>
+    /// </summary>
+    static UIElement Note(string text, string bg, string border, string fg)
+        => new ClassBulletinApp.Controls.HelpBubble
         {
-            Background = Hex(bg),
-            BorderBrush = Hex(border),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(0, 6, 0, 12),
-            Child = new TextBlock
-            {
-                Text = text,
-                FontSize = 12,
-                LineHeight = 19,
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = Hex(fg)
-            }
+            PopupTitle = "操作说明",
+            Text = text,
+            Margin = new Thickness(0, 6, 0, 12)
         };
-    }
 
     static Grid Field(string label, System.Windows.Controls.Control input, string tip)
     {
@@ -998,8 +975,8 @@ public class ShareAccessWizardWindow : Window
             Content = "复制",
             Padding = new Thickness(10, 3, 10, 3),
             FontSize = 11.5,
-            Background = Hex("#EAF1FD"),
-            BorderBrush = Hex("#9DBDF0"),
+            Background = Hex(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
+            BorderBrush = Hex(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top
         };

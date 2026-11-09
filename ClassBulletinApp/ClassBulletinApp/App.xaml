@@ -3,6 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ClassBulletinApp">
     <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- P0 设计 token：颜色 / 字号 / 间距 / 圆角 / 组件样式。新 UI 一律引用这里的键。 -->
+                <ResourceDictionary Source="DesignTokens.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
         <SolidColorBrush x:Key="PrimaryBrush" Color="#2D6CDF"/>
         <SolidColorBrush x:Key="PrimaryDarkBrush" Color="#1E4FA8"/>
         <SolidColorBrush x:Key="PrimaryLightBrush" Color="#EAF1FD"/>
@@ -46,5 +52,6 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -19,8 +19,9 @@ namespace ClassBulletinApp;
 /// <summary>
 /// 角色权限配置（仅管理员可打开）。
 ///
-/// <para>八项能力 × 三个可配角色（班主任 / 科任老师 / 电教管理员）。管理员列<b>恒全权且不可改</b>；
-/// 「发布」与「管理用户」两项<b>刻意不出现</b>，因为它们一旦下放，整套权限会自己失效（详见 <see cref="RolePolicy"/> 注释）。</para>
+/// <para>九项能力 × 三个可配角色（班主任 / 科任老师 / 电教管理员）。管理员列<b>恒全权且不可改</b>；
+/// 「发布到数据源」与「管理用户」两项<b>刻意不出现</b>（下放会整套失效，详见 <see cref="RolePolicy"/> 注释）。
+/// 「发布信息」＝发作业 / 缺交 / 通知变更单，可配但电教管理员默认关。</para>
 ///
 /// <para>★ 配置存在 <c>users.json</c> 里，<b>随数据包下发</b>，所以只有"发布机"上的修改才有意义。
 /// 其他机器打开只读，否则会出现"在这台改松了、下次同步又被覆盖，而且没人查得出来"。</para>
@@ -93,6 +94,13 @@ public class RolePolicyWindow : Window
             Hint = "修改共享文件夹 / U 盘 / FTP 来源与是否启用自动更新；默认所有角色都开",
             Get = p => p.ManageUpdate,
             Set = (p, v) => p.ManageUpdate = v
+        },
+        new()
+        {
+            Name = "发布信息",
+            Hint = "教师机发作业 / 缺交 / 通知变更单；电教管理员默认关（不能自己发自己批）",
+            Get = p => p.PublishInfo,
+            Set = (p, v) => p.PublishInfo = v
         }
     };
 
@@ -115,6 +123,9 @@ public class RolePolicyWindow : Window
     public RolePolicyWindow(UserBook book)
     {
         _book = book;
+        // 老 users.json 里没有 PublishInfo 字段：先原地补齐（班主任/科任 true、电教管理员 false），
+        // 否则界面上会显示成"没勾"，保存时还可能把管理员刚做的显式设置覆盖回去。
+        _book.EnsurePolicyDefaults();
 
         // 只有发布机的修改能被带出去：权限存在 users.json 里、随数据包下发，
         // 在教室机上改了，下一次同步就被发布机的版本覆盖回去。
@@ -143,15 +154,15 @@ public class RolePolicyWindow : Window
             Margin = new Thickness(0, 0, 0, 6)
         });
 
-        var intro = new TextBlock
+        var intro = new ClassBulletinApp.Controls.HelpBubble
         {
-            FontSize = 12.5,
-            Foreground = Brushes.DimGray,
-            TextWrapping = TextWrapping.Wrap,
+            PopupTitle = "操作说明",
             Text = "勾选各角色能做的事。权限存在 users.json 里，随数据包下发到各教室机；"
                  + "管理员恒为全部权限，不在此配置。\n"
-                 + "★ 「发布」与「管理用户」两项刻意不开放：前者一次点击影响 30 台机器且无法回滚，"
-                 + "后者等于允许对方把自己改成管理员，整套权限会当场失效。"
+                 + "★ 「发布到数据源」与「管理用户」两项刻意不开放：前者一次点击影响 30 台机器且无法回滚，"
+                 + "后者等于允许对方把自己改成管理员，整套权限会当场失效。\n"
+                 + "★ 「发布信息」＝教师机发作业 / 缺交 / 通知变更单；电教管理员默认关，"
+                 + "因为他负责在教室机确认应用，不能自己发自己批。"
         };
         head.Children.Add(intro);
 
@@ -219,7 +230,8 @@ public class RolePolicyWindow : Window
         root.Children.Add(BuildTable());
 
         Content = root;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     Grid BuildTable()
     {
@@ -325,7 +337,8 @@ public class RolePolicyWindow : Window
                 + "班主任：改课表、作业/缺交、恢复停用调课、数据包/备份恢复、自动更新设置；"
                 + "不能导入总课表；默认不能发全校通知。\n"
                 + "科任老师：只能看课表 + 编辑所任教班级的作业/缺交，其余全关。\n"
-                + "电教管理员：改课表、作业/缺交、恢复停用调课、自动更新设置；不能导数据、不能发全校通知。",
+                + "电教管理员：改课表、作业/缺交、恢复停用调课、自动更新设置；不能导数据、不能发全校通知、不能发布信息。\n"
+                + "班主任 / 科任老师默认可「发布信息」，电教管理员默认不可。",
                 "恢复默认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
 

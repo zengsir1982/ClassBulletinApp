@@ -44,7 +44,8 @@ public partial class LessonOverrideWindow : Window
         CbType.SelectedIndex = curType == "代" ? 1 : 0;
 
         BuildSubjectList(schedule);
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>构建本班科目下拉：列出课表中出现过的科目，并记住各自教师，便于快速选择自动带出。</summary>
     private void BuildSubjectList(ScheduleFile? schedule)

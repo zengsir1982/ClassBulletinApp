@@ -26,6 +26,8 @@ public class UserEditWindow : Window
     readonly TextBox _display = new();
     readonly ComboBox _role = new();
     readonly TextBox _classes = new();
+    readonly TextBox _subject = new();
+    readonly TextBlock _subjectHint = new();
     readonly PasswordBox _pwd = new();
     readonly TextBlock _msg = new();
 
@@ -105,6 +107,23 @@ public class UserEditWindow : Window
             });
         }
 
+        root.Children.Add(Label("任课科目（只填一个，如「语文」；留空 = 不限科目）"));
+        _subject.FontSize = 14;
+        _subject.Padding = new Thickness(8, 6, 8, 6);
+        // 老账号为空时标灰提示，且绝不擅自填一个科目：升级不该让任何人突然少权限
+        _subject.Text = existing?.Subject ?? "";
+        _subject.ToolTip = "留空表示不限科目（老账号保持为空即可）；只对科任老师生效。";
+        root.Children.Add(_subject);
+
+        _subjectHint.FontSize = 11.5;
+        _subjectHint.Foreground = System.Windows.Media.Brushes.Gray;
+        _subjectHint.TextWrapping = TextWrapping.Wrap;
+        _subjectHint.Margin = new Thickness(0, 4, 0, 0);
+        root.Children.Add(_subjectHint);
+        _role.SelectionChanged += (_, _) => UpdateSubjectHint();
+        _subject.TextChanged += (_, _) => UpdateSubjectHint();
+        UpdateSubjectHint();
+
         root.Children.Add(Label(existing == null ? "密码" : "新密码（留空表示不修改）"));
         _pwd.FontSize = 14;
         _pwd.Padding = new Thickness(8, 6, 8, 6);
@@ -129,6 +148,25 @@ public class UserEditWindow : Window
 
         Content = root;
         Loaded += (_, _) => { if (existing == null) _user.Focus(); else _pwd.Focus(); };
+    
+        GlassChrome.Prepare(this);}
+
+    /// <summary>按当前角色提示任课科目的作用，避免管理员以为填了就能限制班主任。</summary>
+    void UpdateSubjectHint()
+    {
+        string role = (_role.SelectedItem as ComboBoxItem)?.Tag as string ?? UserRole.Student;
+        if (role == UserRole.SubjectTeacher)
+        {
+            _subjectHint.Foreground = System.Windows.Media.Brushes.DarkOrange;
+            _subjectHint.Text = string.IsNullOrWhiteSpace(_subject.Text)
+                ? "★ 当前是科任老师且未填科目：暂按「不限科目」处理（老账号兼容）。建议填上，将来教师机按科限权才生效。"
+                : "★ 科任老师：将来教师机发变更单时，只能修改本科目条目；班主任 / 管理员不受此限制。";
+        }
+        else
+        {
+            _subjectHint.Foreground = System.Windows.Media.Brushes.Gray;
+            _subjectHint.Text = "只对「科任老师」生效；班主任 / 管理员 / 电教管理员不按科目限权。";
+        }
     }
 
     void Confirm()
@@ -172,6 +210,8 @@ public class UserEditWindow : Window
         target.DisplayName = (_display.Text ?? "").Trim();
         target.Role = role;
         target.ClassNames = classes;
+        // 单选、自由文本、归一化（去全角/半角空白）；留空 = 不限科目
+        target.Subject = BoardIds.NormalizeSubject(_subject.Text);
         target.Enabled = true;
         if (pwd.Length > 0) PasswordHasher.SetPassword(target, pwd);
 

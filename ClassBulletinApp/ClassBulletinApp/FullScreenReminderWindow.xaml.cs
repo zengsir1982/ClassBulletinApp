@@ -11,7 +11,7 @@ namespace ClassBulletinApp;
 /// <para>与 <see cref="ReminderPopup"/>（顶部小窗）二选一，由「提醒设置 → 课表变化提醒」决定。</para>
 /// <para>★ 用 <c>ShowActivated=False</c>：教室屏上弹提醒不该把焦点从正在用的软件里抢走。</para>
 /// </summary>
-public partial class FullScreenReminderWindow : Window
+public partial class FullScreenReminderWindow : Window, IGlassSurface
 {
     private DispatcherTimer? _closeTimer;
 
@@ -25,14 +25,17 @@ public partial class FullScreenReminderWindow : Window
         Top = 0;
         Width = SystemParameters.PrimaryScreenWidth;
         Height = SystemParameters.PrimaryScreenHeight;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>显示提示；重复调用会重置自动关闭的倒计时。</summary>
     /// <param name="style">外观来源（与顶部小窗共用同一套风格）；null = 经典白。</param>
-    public void ShowReminder(string title, string detail, int seconds, ReminderSettings? style = null)
+    /// <param name="tag">左上角那枚小标签的文字；空 = 沿用「课表有变化」。</param>
+    public void ShowReminder(string title, string detail, int seconds, ReminderSettings? style = null, string? tag = null)
     {
         ApplyStyle(style);
 
+        TxtTag.Text = string.IsNullOrWhiteSpace(tag) ? "课表有变化" : tag!;
         TxtTitle.Text = title ?? "";
         TxtDetail.Text = detail ?? "";
         TxtDetail.Visibility = string.IsNullOrWhiteSpace(detail) ? Visibility.Collapsed : Visibility.Visible;
@@ -73,12 +76,17 @@ public partial class FullScreenReminderWindow : Window
             TxtTitle.FontSize = 54 * fs;
             TxtDetail.FontSize = 24 * fs;
             TxtTag.FontSize = Math.Clamp(22 * fs, 16, 34);
+            ApplyGlass();
         }
         catch
         {
             // 配色出问题也要把提示弹出来，不能让提醒本身失效
         }
     }
+
+    /// <summary>IGlassSurface：全屏遮罩 Root 不动，只让中间卡片变玻璃。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(Card, settings);
 
     private void Root_Click(object sender, MouseButtonEventArgs e)
     {

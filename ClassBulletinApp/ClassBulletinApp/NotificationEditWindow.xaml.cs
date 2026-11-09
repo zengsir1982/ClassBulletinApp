@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using ClassBulletinApp.Controls;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
@@ -12,13 +14,68 @@ public partial class NotificationEditWindow : Window
 {
     private readonly ObservableCollection<Notification> _items = new();
 
+    /// <summary>r72 焦点跟随：全窗只有一条工具条，把标题 / 内容输入框映射到各自的草稿样式。</summary>
+    private FocusStyleBinder? _binder;
+
+    // 编辑区的「当前草稿样式」：列表是多条通知，输入框一次只编辑一条。
+    // 用独立对象而不是直接改列表项，老师改了格式但没点「添加 / 更新」时不会悄悄写进别的条目。
+    private TextStyle _draftTitle = NewDefaultTitleStyle();
+    private TextStyle _draftContent = NewDefaultContentStyle();
+
+    /// <summary>默认档（标准 = 档位 0）配合渲染端的基准字号换算，外观与加功能之前完全一致。</summary>
+    private static TextStyle NewDefaultTitleStyle() => new() { Bold = true, SizeLevel = 0 };
+    private static TextStyle NewDefaultContentStyle() => new() { SizeLevel = 0 };
+
     public NotificationEditWindow()
     {
         InitializeComponent();
         Lst.ItemsSource = _items;
+        DtpDue.SelectedDate = DateTime.Today;   // 默认有效期为当天
         Reload();
         ApplyScopePermission();
+
+        // 委托取「当前草稿」：切换条目 / 重置草稿后工具条自动指向新对象，不用重绑。
+        _binder = new FocusStyleBinder(this, PickStyle);
+        _binder.Bind(TxtTitle, () => _draftTitle, "通知标题");
+        _binder.Bind(TxtContent, () => _draftContent, "通知正文");
+        // 置灰态也绑定本窗的默认档位：工具条控件出厂显示的是「27 特大」，
+        // 不先 Attach 一次，老师点输入框时会看到字号从 27 突然跳到 19，以为格式被改小了。
+        PickStyle.Attach(_draftTitle, "通知标题");
+        PickStyle.Deactivate();
+        ApplyFormatToEditor();
+    
+        GlassChrome.Prepare(this);}
+
+    // ---------- 诊断钩子（--ui-check 用，同程序集可见） ----------
+    internal FocusStyleBinder? DiagBinder => _binder;
+    internal System.Windows.Controls.TextBox DiagTitleBox => TxtTitle;
+    internal System.Windows.Controls.TextBox DiagContentBox => TxtContent;
+    internal TextStyle DiagTitleStyle => _draftTitle;
+    internal TextStyle DiagContentStyle => _draftContent;
+    internal ClassBulletinApp.Controls.TextStylePicker DiagPicker => PickStyle;
+    internal void DiagLoadDraft(Notification? n) => LoadDraftFrom(n);
+
+    /// <summary>把某条通知的样式载入草稿（老数据 / 同步落地的数据没有样式对象 → 用默认外观）。</summary>
+    private void LoadDraftFrom(Notification? n)
+    {
+        _draftTitle = n?.TitleStyle?.Clone() ?? NewDefaultTitleStyle();
+        _draftContent = n?.ContentStyle?.Clone() ?? NewDefaultContentStyle();
+        // 换了条目：作用对象变了，先置灰，等老师点下一个输入框再激活（不悄悄回退到标题）
+        _binder?.Deactivate();
+        ApplyFormatToEditor();
     }
+
+    /// <summary>把当前草稿样式即时应用到两个输入框（所见即所得）；颜色只在工具条预览里显示。</summary>
+    private void ApplyFormatToEditor()
+    {
+        if (TxtTitle == null) return;
+        TxtTitle.FontWeight = _draftTitle.Bold ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal;
+        TxtTitle.FontSize = Math.Max(10, HwTextRender.ScaleSize(_draftTitle, 15) - 1);
+        TxtContent.FontWeight = _draftContent.Bold ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal;
+        TxtContent.FontSize = Math.Max(10, HwTextRender.ScaleSize(_draftContent, 14) - 1);
+    }
+
+    private void Style_Changed(object? sender, EventArgs e) => ApplyFormatToEditor();
 
     /// <summary>
     /// 按当前身份决定能否勾「全校通知」。
@@ -44,14 +101,53 @@ public partial class NotificationEditWindow : Window
     private void Reload()
     {
         _items.Clear();
-        foreach (var n in Store.LoadNotifications()
-                     .OrderByDescending(x => x.Pinned)
+        // 勾上「显示已撤下」才把墓碑项也列出来，平时只列还在用的
+        bool showDeleted = ChkShowDeleted.IsChecked == true;
+        var src = showDeleted ? Store.LoadNotificationsAll() : Store.LoadNotifications();
+        foreach (var n in src
+                     .Where(x => showDeleted || !x.Deleted)
+                     .OrderBy(x => x.Deleted)
+                     .ThenByDescending(x => x.Pinned)
+                     .ThenBy(x => x.DueAt ?? DateTime.MaxValue)
                      .ThenByDescending(x => x.CreatedAt))
             _items.Add(n);
     }
 
+    /// <summary>
+    /// 把界面上的条目 patch 回全量列表（含墓碑）再保存。
+    /// <para>★ 绝不能直接 <c>SaveNotifications(_items)</c>：_items 只装当前显示的那部分，
+    /// 直接保存会把墓碑整批冲掉，等于又退回物理删除。</para>
+    /// </summary>
     private void Persist()
-        => Store.SaveNotifications(_items.ToList());
+    {
+        var all = Store.LoadNotificationsAll();
+        var byId = new Dictionary<string, Notification>();
+        foreach (var x in all) byId[x.Id] = x;
+        foreach (var n in _items)
+        {
+            if (byId.TryGetValue(n.Id, out var target))
+            {
+                target.Title = n.Title;
+                target.Content = n.Content;
+                target.Scope = n.Scope;
+                target.Pinned = n.Pinned;
+                target.DueAt = n.DueAt;
+                // r72：标题 / 正文的文字格式也要 patch 回全量，否则「更新选中」后样式悄悄丢失
+                target.TitleStyle = n.TitleStyle?.Clone();
+                target.ContentStyle = n.ContentStyle?.Clone();
+            }
+            else all.Add(n);
+        }
+        Store.SaveNotifications(all);
+        if (Store.LastWriteError != null)
+            System.Windows.MessageBox.Show(Store.LastWriteError, "没有保存", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    /// <summary>日历选中的日期 → 绝对截止时间（当天 23:59；留空 = 长期 → null）。</summary>
+    private DateTime? SelectedDueAt()
+        => DtpDue.SelectedDate is DateTime d ? d.Date.AddHours(23).AddMinutes(59) : null;
+
+    private void ChkShowDeleted_Click(object sender, RoutedEventArgs e) => Reload();
 
     private void Lst_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
@@ -60,6 +156,8 @@ public partial class NotificationEditWindow : Window
             TxtTitle.Text = n.Title;
             TxtContent.Text = n.Content;
             ChkSchool.IsChecked = n.Scope == "school";
+            DtpDue.SelectedDate = n.DueAt?.Date;   // null（长期有效）会让日历留空
+            LoadDraftFrom(n);                      // 格式条切到这条通知自己的样式
         }
     }
 
@@ -73,13 +171,18 @@ public partial class NotificationEditWindow : Window
             Title = title,
             Content = content,
             CreatedAt = DateTime.Now,
-            Scope = EffectiveSchoolScope(false) ? "school" : "local"
+            Scope = EffectiveSchoolScope(false) ? "school" : "local",
+            DueAt = SelectedDueAt(),
+            TitleStyle = _draftTitle.Clone(),
+            ContentStyle = _draftContent.Clone()
         };
         _items.Insert(0, n);
         Persist();
         TxtTitle.Text = "";
         TxtContent.Text = "";
         ChkSchool.IsChecked = false;
+        LoadDraftFrom(null);                    // 新条目从默认外观重新开始，别把上一条的格式串过来
+        Reload();
         AppEvents.RaiseNotificationChanged();
     }
 
@@ -91,10 +194,21 @@ public partial class NotificationEditWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+        bool reviving = n.Deleted;
         n.Title = TxtTitle.Text.Trim();
         n.Content = TxtContent.Text.Trim();
         n.Scope = EffectiveSchoolScope(n.Scope == "school") ? "school" : "local";
+        n.DueAt = SelectedDueAt();
+        n.TitleStyle = _draftTitle.Clone();
+        n.ContentStyle = _draftContent.Clone();
+        // 对一条「已撤下」的项点更新，就是把它恢复回来
+        if (reviving)
+        {
+            n.Deleted = false;
+            n.DeletedAt = null;
+        }
         Persist();
+        Reload();
         Lst.Items.Refresh();
         AppEvents.RaiseNotificationChanged();
     }
@@ -103,18 +217,30 @@ public partial class NotificationEditWindow : Window
     {
         if (Lst.SelectedItem is not Notification n)
         {
-            System.Windows.MessageBox.Show("请先在列表中选中要删除的通知。", "提示",
+            System.Windows.MessageBox.Show("请先在列表中选中要撤下的通知。", "提示",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var r = System.Windows.MessageBox.Show($"确定删除通知「{(string.IsNullOrEmpty(n.Title) ? n.Content : n.Title)}」吗？",
-            "删除通知", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        var r = System.Windows.MessageBox.Show(
+            $"确定撤下通知「{(string.IsNullOrEmpty(n.Title) ? n.Content : n.Title)}」吗？\r\n" +
+            "撤下后不再显示在通知公告便签和跑马灯上，但数据保留，勾选「显示已撤下」可以恢复。",
+            "撤下通知", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (r != MessageBoxResult.OK) return;
-        _items.Remove(n);
-        Persist();
+
+        // 打墓碑而不是移除：物理删除会让晚到的旧变更单把它重新加回来
+        var all = Store.LoadNotificationsAll();
+        var target = all.FirstOrDefault(x => x.Id == n.Id);
+        if (target != null)
+        {
+            target.Deleted = true;
+            target.DeletedAt = DateTime.Now;
+            Store.SaveNotifications(all);
+        }
         TxtTitle.Text = "";
         TxtContent.Text = "";
         ChkSchool.IsChecked = false;
+        LoadDraftFrom(null);
+        Reload();
         AppEvents.RaiseNotificationChanged();
     }
 

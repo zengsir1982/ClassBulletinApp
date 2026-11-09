@@ -36,7 +36,7 @@ public class UpgradeNoticeWindow : Window
             Text = $"已更新到 {version}",
             FontSize = 18,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = ChromePalette.BrushOf(ChromePalette.Ink, "#1F2A37"),
             Margin = new Thickness(0, 0, 0, 4)
         });
 
@@ -44,7 +44,7 @@ public class UpgradeNoticeWindow : Window
         {
             Text = "下面几处跟以前不一样。不需要做任何操作也能正常上课；要改设置时再看第 1 条。这个提示只会出现一次。",
             FontSize = 12.5,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x6B, 0x72, 0x80)),
+            Foreground = ChromePalette.BrushOf(ChromePalette.Muted, "#6B7280"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
@@ -58,7 +58,7 @@ public class UpgradeNoticeWindow : Window
                 Text = "· " + title,
                 FontSize = 14,
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(MediaColor.FromRgb(0x2D, 0x6C, 0xDF)),
+                Foreground = ChromePalette.BrushOf(ChromePalette.Primary, "#2D6CDF"),
                 TextWrapping = TextWrapping.Wrap
             });
 
@@ -82,14 +82,15 @@ public class UpgradeNoticeWindow : Window
             Padding = new Thickness(26, 8, 26, 8),
             HorizontalAlignment = HAlign.Right,
             Margin = new Thickness(0, 8, 0, 0),
-            Background = new SolidColorBrush(MediaColor.FromRgb(0xEA, 0xF2, 0xFD)),
-            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0x9E, 0xC1, 0xF0))
+            Background = ChromePalette.BrushOf(ChromePalette.PrimaryLight, "#EAF2FD"),
+            BorderBrush = ChromePalette.BrushOf(ChromePalette.PrimaryBorder, "#9EC1F0")
         };
         ok.Click += (_, _) => { DialogResult = true; };
 
         root.Children.Add(ok);
         Content = root;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>
     /// 按当前状态拼出本次要说明的内容。抽成静态方法便于测试与 <c>--shot</c> 预览。
@@ -103,6 +104,44 @@ public class UpgradeNoticeWindow : Window
     {
         var items = new List<(string, string)>();
         int from = ParseRelease(fromVersion);
+
+        // ===== 1.0.12（界面重做 + 玻璃底色 + 格式条点哪改哪 + 通知公告便签化）=====
+        if (from < 12)
+        {
+            items.Add(("控制面板重新排版：左边分组导航，多了一个「今日」首页",
+                "原来一排平铺的标签页改成左侧 5 个分组（今日 / 课表 / 便签 / 同步 / 设置），点标题展开该组页面，"
+              + "右上角二级条切换组内页面，当前分组会高亮。\n"
+              + "新增的「今日」页把当天课表、通知、作业、值日集中在一屏，开机默认就是它。\n"
+              + "★ 原来各页的位置和按钮基本没变，只是入口更集中；一时找不到某页，先点左侧对应分组。"));
+
+            items.Add(("字体格式条：点哪个输入框，就改哪一段的字",
+                "以前要先框选一段文字，工具条才知道改谁；现在光标落在哪一段（标题、正文、某一行的天数），"
+              + "工具条就自动对准那一段，右侧会显示「正在设置：xxx」，改字号 / 加粗 / 颜色立刻生效。\n"
+              + "★ 工具条上的按钮不会再抢走光标，连续调几次不用重新点回输入框。\n"
+              + "★ 通知公告、作业公示、缺交名单、值日、自定义便签、倒计时全部是同一条工具条，长得一样、位置一样。\n"
+              + "★ 倒计时的「剩余天数」改成卡片里一个只读框，点它就能改颜色和字号；新建的倒计时默认红色加粗特大，一眼能看到。"));
+
+            items.Add(("新增「玻璃底色」：窗口和便签能透出桌面（默认关闭）",
+                "设置 → 布局与显示 → 最下面的「全局玻璃底色」。打开后悬浮便签 / 课表 / 通知条能透出桌面；"
+              + "主窗、设置窗、编辑窗也能透，这几个窗口会换成同风格的自绘标题栏（左边窗口名，右边最小化 / 最大化 / 关闭，"
+              + "按住标题栏拖、拖边角改大小、双击标题栏最大化）。\n"
+              + "★ 悬浮窗与主窗分两组，各自开关、各自调通透度；文字和按钮始终完全不透明，不会被背景糊住。\n"
+              + "★ 两条要知道：① 已经打开的窗口不会变，要关掉重开；② 换成自绘标题栏后回不到系统标题栏 —— "
+              + "运行中关掉玻璃只是「变不透明 + 保留自绘标题栏」，新开的窗口才完全恢复原样。\n"
+              + "★ 老机器或远程桌面觉得卡，把总开关关掉即可，其它功能不受影响。"));
+
+            items.Add(("通知公告：能设标题和正文格式，还能设截止日期、置顶、撤回",
+                "通知公告和作业公示一样，标题、正文可以分别调字体字号颜色；每条可以填截止日期（留空＝长期有效），"
+              + "到期自动从列表和桌面壁纸撤下，但存档仍然保留，随时能查。列表里可置顶（置顶的不受截止日期限制），也可一键撤回。\n"
+              + "★ 新增「通知便签」小窗和跑马灯，可以像作业便签一样常驻显示在屏幕上。\n"
+              + "★ 往共享盘发布时，同班同标题的旧通知会被新的一条覆盖，不会越积越多。"));
+
+            items.Add(("值日安排、快捷操作、权限，以及说明改成问号",
+                "新增值日生便签（可一次发布一周值日，跨到哪天自动显示哪一组）；控制面板右侧新增九宫格快捷操作，"
+              + "常用动作一按就到，按角色只显示你有权限的。\n"
+              + "★ 界面上一大段灰色说明现在收成「?」小图标，点一下才展开，界面清爽很多；鼠标悬停提示仍然都在。\n"
+              + "★ 新增教师 / 班主任 / 电教管理员 / 管理员四种角色，各能做什么由管理员在设置里配。"));
+        }
 
         // ===== 1.0.11（调课不再卡顿 + 常驻显示默认不透明）=====
         if (from < 11)

@@ -62,6 +62,36 @@ public class AppUser
     /// </summary>
     public List<string> ClassNames { get; set; } = new();
 
+    /// <summary>
+    /// 任课科目（单选、自由文本，自动去掉全角/半角空格）。
+    /// <para>★ 只对「科任老师」角色生效：将来教师机发结构化变更单时，用它限制该账号
+    /// 只能改本科目条目。班主任 / 管理员 / 电教管理员不看这一项。
+    /// <b>老账号这一项为空 = 不限科目</b>，升级不该让任何人突然少权限。
+    /// 取值不另建科目表，直接复用 <c>HomeworkItem.Subject</c> 的自由文本。</para>
+    /// </summary>
+    public string Subject { get; set; } = "";
+
+    /// <summary>界面显示用：空值标成「未填（不限）」，避免看成漏填。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string SubjectCaption => string.IsNullOrWhiteSpace(Subject) ? "未填（不限）" : Subject.Trim();
+
+    /// <summary>归一化后的科目（比较用，去掉全角/半角空白）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string NormalizedSubject => BoardIds.NormalizeSubject(Subject);
+
+    /// <summary>
+    /// 该账号能否改指定科目的作业 / 缺交条目。
+    /// <para>★ 按用户拍板：只限科任老师；非科任老师恒 true；科任老师没填科目恒 true（不限）。</para>
+    /// </summary>
+    public bool OwnsSubject(string? subject)
+    {
+        // 只限科任老师：班主任要管全班所有科目，管理员 / 电教管理员更不能因此受限
+        if (!string.Equals(Role, UserRole.SubjectTeacher, StringComparison.OrdinalIgnoreCase)) return true;
+        string mine = NormalizedSubject;
+        if (mine.Length == 0) return true;                       // 老账号空值 = 不限
+        return string.Equals(mine, BoardIds.NormalizeSubject(subject), StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>是否启用（停用后不能登录，但保留记录）。</summary>
     public bool Enabled { get; set; } = true;
 
@@ -86,9 +116,10 @@ public class AppUser
 /// <summary>
 /// 一个角色的能力集合（管理员可配的部分）。
 ///
-/// <para>★ <b>只放"可以下放"的能力</b>。发布、管理用户、控制本机显示三项刻意不在其中：</para>
+/// <para>★ <b>只放"可以下放"的能力</b>。「发布到数据源」、管理用户、控制本机显示三项刻意不在其中：</para>
 /// <list type="bullet">
-/// <item><b>发布</b>：一次点击影响 30 台教室机，且没有回滚；</item>
+/// <item><b>发布到数据源</b>（<c>CanPublish</c>）：一次点击影响 30 台教室机，且没有回滚；
+/// 与下面可配的 <see cref="PublishInfo"/>（发作业/缺交/通知变更单）不是一回事；</item>
 /// <item><b>管理用户</b>：给了谁，谁就能把自己或别人改成管理员，整套权限当场失效；</item>
 /// <item><b>控制本机显示</b>：教室机开机自动登录的是电教管理员，这项一关，
 /// 那台机器连课表都显示不了，等于报废。</item>
@@ -136,6 +167,16 @@ public class RolePolicy
     /// </summary>
     public bool ManageUpdate { get; set; }
 
+    /// <summary>
+    /// 发布信息（教师机发「作业公示 / 缺交名单 / 本班通知」变更单给教室机）。
+    /// <para>★ <b>电教管理员默认关</b>：他是教室机上的「确认应用」角色（maker-checker 的 checker），
+    /// 若同时能自己发单，等于自己发自己批，双人核对就失去意义。班主任 / 科任老师默认开，
+    /// 管理员恒开；如需让某台教室机也能发单，由管理员在「用户管理 → 角色权限」里显式开通。</para>
+    /// <para>★ 与 <see cref="UserSession.CanPublish"/>（发布到数据源、一次影响全校课表）不是一回事：
+    /// 后者仍写死只给管理员，不进这张表。</para>
+    /// </summary>
+    public bool PublishInfo { get; set; }
+
     public RolePolicy Clone() => new()
     {
         EditSchedule = EditSchedule,
@@ -145,7 +186,8 @@ public class RolePolicy
         ManageData = ManageData,
         ManagePackage = ManagePackage,
         SendSchoolNotice = SendSchoolNotice,
-        ManageUpdate = ManageUpdate
+        ManageUpdate = ManageUpdate,
+        PublishInfo = PublishInfo
     };
 
     /// <summary>管理员用的全权策略（实际判定会先判 <c>IsAdmin</c>，这里只作双保险）。</summary>
@@ -158,7 +200,8 @@ public class RolePolicy
         ManageData = true,
         ManagePackage = true,
         SendSchoolNotice = true,
-        ManageUpdate = true
+        ManageUpdate = true,
+        PublishInfo = true
     };
 
     /// <summary>
@@ -178,7 +221,8 @@ public class RolePolicy
             ManageData = false,
             ManagePackage = true,
             SendSchoolNotice = false,
-            ManageUpdate = true
+            ManageUpdate = true,
+            PublishInfo = true
         },
         // 科任老师：默认只能查看课表 + 编辑所任教班级的作业公示与缺交名单；不能改课表、不能导数据
         // 自动更新设置默认开（与「所有账号都能改本机更新来源」一致，防止教室机变成信息孤岛）
@@ -191,11 +235,13 @@ public class RolePolicy
             ManageData = false,
             ManagePackage = false,
             SendSchoolNotice = false,
-            ManageUpdate = true
+            ManageUpdate = true,
+            PublishInfo = true
         },
         // 电教管理员（学生，也是教室机开机身份）：
         // 默认开通"改本班课表 + 本班作业 + 恢复本班停用调课 + 自动更新设置"；
-        // 默认不能发全校通知（只能发本班）；不能导数据、不能清全部
+        // 默认不能发全校通知（只能发本班）、不能导数据、不能清全部；
+        // ★ 默认也不能「发布信息」（发变更单）：他负责在教室机确认应用，不能自己发自己批。
         _ => new RolePolicy
         {
             EditSchedule = true,
@@ -205,7 +251,8 @@ public class RolePolicy
             ManageData = false,
             ManagePackage = false,
             SendSchoolNotice = false,
-            ManageUpdate = true
+            ManageUpdate = true,
+            PublishInfo = false
         }
     };
 
@@ -221,6 +268,7 @@ public class RolePolicy
         if (ManagePackage) on.Add("数据包/备份恢复");
         if (SendSchoolNotice) on.Add("发全校通知");
         if (ManageUpdate) on.Add("自动更新设置");
+        if (PublishInfo) on.Add("发布信息");
         return on.Count == 0 ? "无（只能查看/控显示）" : string.Join("、", on);
     }
 }
@@ -232,7 +280,8 @@ public class UserBook
 {
     /// <summary>
     /// 1 = 首个多账号版本（无 <see cref="Policies"/>）；2 = 带角色权限配置；
-    /// 3 = 新增「发全校通知」「自动更新设置」；4 = 新增「科任老师」角色与「数据包 / 备份恢复」能力。
+    /// 3 = 新增「发全校通知」「自动更新设置」；4 = 新增「科任老师」角色与「数据包 / 备份恢复」能力；
+    /// 5 = 新增「发布信息」（发变更单）能力，班主任 / 科任老师默认开、电教管理员默认关。
     /// <para>★ 这个号决定"Policies 缺失"怎么解释，见 <see cref="PolicyFor"/>；
     /// 也决定升级时缺字段怎么补齐，见 <see cref="EnsurePolicyDefaults"/>。</para>
     /// </summary>
@@ -299,9 +348,13 @@ public class UserBook
         // 升级补齐（只补，不覆盖管理员显式设置）：
         //   2→3：ManageUpdate 是新增字段，旧策略里一定没有，统一补开（所有账号都能改本机更新来源）。
         //   3→4：新增「科任老师」角色 → 补一条默认策略；班主任补开 ManagePackage（数据包/备份恢复）。
+        //   4→5：新增「发布信息」能力。★ 老策略里没有这个字段，反序列化得到 false；
+        //         班主任 / 科任老师必须显式补成 true，否则升级后突然不能发信息（升级不该让人少权限）。
+        //         电教管理员保持 false（这正是本次需求：默认没有发布权限）。
         // 之后 Schema 已是最新，不会再进这些分支，管理员在界面上的显式关闭不会被覆盖。
         bool preV3 = Schema < 3;
         bool preV4 = Schema < 4;
+        bool preV5 = Schema < 5;
         foreach (var role in new[] { UserRole.Teacher, UserRole.SubjectTeacher, UserRole.Student })
         {
             var existing = FindPolicy(role);
@@ -310,13 +363,21 @@ public class UserBook
                 _policies[role] = RolePolicy.DefaultFor(role);
                 changed = true;
             }
-            else if (preV4)
+            else
             {
-                if (preV3 && !existing.ManageUpdate) { existing.ManageUpdate = true; changed = true; }
-                if (role == UserRole.Teacher && !existing.ManagePackage) { existing.ManagePackage = true; changed = true; }
+                if (preV4)
+                {
+                    if (preV3 && !existing.ManageUpdate) { existing.ManageUpdate = true; changed = true; }
+                    if (role == UserRole.Teacher && !existing.ManagePackage) { existing.ManagePackage = true; changed = true; }
+                }
+                if (preV5 && role != UserRole.Student && !existing.PublishInfo)
+                {
+                    existing.PublishInfo = true;
+                    changed = true;
+                }
             }
         }
-        if (Schema < 4) { Schema = 4; changed = true; }
+        if (Schema < 5) { Schema = 5; changed = true; }
         return changed;
     }
 

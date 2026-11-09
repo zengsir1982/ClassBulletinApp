@@ -87,6 +87,12 @@ public static class BackdropService
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
         _debounce.Tick += (_, _) => { _debounce?.Stop(); RefreshIfNeeded(); };
         AppEvents.ScheduleChanged += OnScheduleChangedDebounced;
+        // ★ 远程变更单应用 / 一键确认走的是「写三份 JSON + 发事件」，
+        //   绝不能在确认链里同步调 Apply()（整图渲染 + PNG + 设壁纸要 1 秒上下）。
+        //   订阅作业 / 缺交两个 Changed，统一由 1.2s 防抖重绘兜底；Apply() 内部会更新
+        //   _lastSignature，所以旧的显式 Apply 入口不会造成重复重绘。
+        AppEvents.HomeworkChanged += OnScheduleChangedDebounced;
+        AppEvents.MissingChanged += OnScheduleChangedDebounced;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         _timer.Tick += (_, _) => RefreshIfNeeded();
         _timer.Start();
@@ -132,7 +138,7 @@ public static class BackdropService
                 board.Layout = b.HomeworkLayout;
 
             if (!b.ShowSchedule && !b.ShowHomework && !b.ShowMissing
-                && !b.ShowCountdown && !b.ShowDuty && !b.ShowAnyCustomNote())
+                && !b.ShowCountdown && !b.ShowDuty && !b.ShowNotice && !b.ShowAnyCustomNote())
             {
                 Clear();
                 message = "已关闭全部内容，桌面壁纸已恢复。";
@@ -166,12 +172,19 @@ public static class BackdropService
             var notes = VisibleCustomNotes(s, b);
             var countdown = b.ShowCountdown ? Store.LoadCountdown() : null;
             var duty = b.ShowDuty ? Store.LoadDuty() : null;
+            // 事项便签只画「未撤下且未过期」的，和悬浮便签口径完全一致
+            var notice = b.ShowNotice
+                ? Store.LoadNotifications().Where(x => x.IsLive)
+                       .OrderByDescending(x => x.Pinned)
+                       .ThenBy(x => x.DueAt ?? DateTime.MaxValue)
+                       .ThenByDescending(x => x.CreatedAt).ToList()
+                : null;
 
             Directory.CreateDirectory(Store.AppDir);
             BackdropRenderer.RenderToPng(today, title, dateText, weekText,
                 b.ShowHomework ? board : null, missing, notes, b,
                 screen.Bounds.Width, screen.Bounds.Height, PrimaryDpiScale(), origin, OutputPath,
-                countdown, duty);
+                countdown, duty, notice);
 
             // 首次应用前记录系统原壁纸，便于「清除」恢复
             var cur = WallpaperHelper.GetCurrentWallpaper();
@@ -191,6 +204,7 @@ public static class BackdropService
                               b.ShowMissing ? "缺交名单" : null,
                               b.ShowCountdown ? "倒计时" : null,
                               b.ShowDuty ? "值日生名单" : null,
+                              b.ShowNotice ? "通知公告" : null,
                               notes.Count > 0 ? string.Join("、", notes.Select(n => string.IsNullOrWhiteSpace(n.Title) ? "自定义便签" : n.Title)) : null
                           }.Where(x => x != null)) + "）。";
             return true;
@@ -317,7 +331,13 @@ public static class BackdropService
                 b, width, height, PrimaryDpiScale(),
                 string.IsNullOrWhiteSpace(s.SavedWallpaper) ? null : s.SavedWallpaper, outPath,
                 b.ShowCountdown ? Store.LoadCountdown() : null,
-                b.ShowDuty ? Store.LoadDuty() : null);
+                b.ShowDuty ? Store.LoadDuty() : null,
+                b.ShowNotice
+                    ? Store.LoadNotifications().Where(x => x.IsLive)
+                           .OrderByDescending(x => x.Pinned)
+                           .ThenBy(x => x.DueAt ?? DateTime.MaxValue)
+                           .ThenByDescending(x => x.CreatedAt).ToList()
+                    : null);
             message = "已生成桌面背景预览图：" + outPath;
             return true;
         }
@@ -360,6 +380,7 @@ public static class BackdropService
               .Append(s.SelectedTeacher).Append('|').Append(BoardBuilder.ResolveDisplayDate(s).ToString("yyyyMMdd"))
               .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing)
               .Append('|').Append(b.ShowCountdown).Append('|').Append(b.ShowDuty)
+              .Append('|').Append(b.ShowNotice)
               .Append('|').Append(b.ShowAnyCustomNote());
 
             // 倒计时 / 值日生：内容或样式一改就要重绘（否则壁纸停在旧天数上）
@@ -389,6 +410,21 @@ public static class BackdropService
                   .Append(dlay?.WidthRatio).Append(dlay?.UseFixedSize).Append(dlay?.FixedWidth).Append(dlay?.FixedHeight);
             }
 
+            // 通知公告：内容 / 截止 / 置顶 / 文字格式任一变化都要重绘。
+            // ★ r72 补上：以前签名里只有 ShowNotice 这个开关，改通知文字或格式壁纸会停在旧画面。
+            if (b.ShowNotice)
+            {
+                var notice = Store.LoadNotifications().Where(x => x.IsLive)
+                    .OrderByDescending(x => x.Pinned)
+                    .ThenBy(x => x.DueAt ?? DateTime.MaxValue)
+                    .ThenByDescending(x => x.CreatedAt);
+                sb.Append("|NT");
+                foreach (var n in notice)
+                    sb.Append('#').Append(n.Id).Append(',').Append(n.Title).Append(',')
+                      .Append(n.Content).Append(',').Append(n.DueText).Append(',').Append(n.Pinned)
+                      .Append('~').Append(n.StyleSignature);
+            }
+
             if (b.ShowSchedule)
             {
                 var built = BuildToday(s);
@@ -415,7 +451,8 @@ public static class BackdropService
                 {
                     sb.Append('|').Append(board.Title).Append(board.UpdatedAt.Ticks);
                     // 文本样式（加粗 / 颜色 / 字号档位）也纳入签名，改格式能触发重绘
-                    foreach (var it in board.Items)
+                    // ★ 签名只算可见条目，墓碑不能让「相同的画面」被判定成变了而白白重绘
+                    foreach (var it in board.LiveItems)
                         sb.Append('#').Append(it.Subject).Append(',').Append(it.Content)
                           .Append('~').Append(it.Bold).Append(it.Color).Append(it.SizeLevel);
                 }
@@ -430,7 +467,7 @@ public static class BackdropService
             {
                 var mb = Store.LoadMissingBoard();
                 sb.Append('|').Append(mb.Title).Append(mb.UpdatedAt.Ticks).Append("|MT").Append(mb.Theme);
-                foreach (var m in mb.Items)
+                foreach (var m in mb.LiveItems)
                     sb.Append('@').Append(m.Subject).Append(',').Append(m.Students)
                       .Append('~').Append(m.Bold).Append(m.Color).Append(m.SizeLevel);
 

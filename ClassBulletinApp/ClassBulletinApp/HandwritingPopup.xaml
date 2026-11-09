@@ -1,9 +1,10 @@
 <Window x:Class="ClassBulletinApp.HandwritingPopup"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
         Title="手写输入" Height="520" Width="800"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
-        ShowInTaskbar="False" Topmost="True" Background="#F2F5FA">
+        ShowInTaskbar="False" Topmost="True" Background="{DynamicResource BarSurfaceBrush}">
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -16,16 +17,15 @@
         <!-- 说明 + 笔画档位（红外一体机没有压感，只能给三档手动选） -->
         <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="False">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="笔画" FontSize="14" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock Text="笔画" FontSize="14" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <Button x:Name="BtnThin" Content="细" Click="BtnThin_Click" MinHeight="40" MinWidth="52"
-                        FontSize="15" Background="White" BorderBrush="#D1D5DB"/>
+                        FontSize="15" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
                 <Button x:Name="BtnMid" Content="中" Click="BtnMid_Click" MinHeight="40" MinWidth="52"
-                        FontSize="15" Margin="8,0,0,0" Background="#EAF1FD" BorderBrush="#2D6CDF"/>
+                        FontSize="15" Margin="8,0,0,0" Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimaryBrush}"/>
                 <Button x:Name="BtnThick" Content="粗" Click="BtnThick_Click" MinHeight="40" MinWidth="52"
-                        FontSize="15" Margin="8,0,0,0" Background="White" BorderBrush="#D1D5DB"/>
+                        FontSize="15" Margin="8,0,0,0" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
             </StackPanel>
-            <TextBlock Text="用指尖或笔在白板上写字，停笔自动识别；点候选字即插入。" FontSize="14"
-                       Foreground="#6B7280" TextWrapping="Wrap" VerticalAlignment="Center" Margin="2,0,16,0"/>
+            <ctl:HelpBubble PopupTitle="手写说明" Text="用指尖或笔在白板上写字，停笔自动识别；点候选字即插入。" Margin="0,0,0,8"/>
         </DockPanel>
 
         <!-- 手写板 -->
@@ -37,7 +37,7 @@
         <Border Grid.Row="2" Margin="0,10,0,0" MinHeight="64">
             <StackPanel>
                 <TextBlock x:Name="TxtStatus" Text="在上面写一个字或一个词…" FontSize="13"
-                           Foreground="#6B7280" Margin="2,0,0,6" TextWrapping="Wrap"/>
+                           Foreground="{DynamicResource MutedBrush}" Margin="2,0,0,6" TextWrapping="Wrap"/>
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="CandidatePanel" Orientation="Horizontal"/>
                 </ScrollViewer>
@@ -46,14 +46,14 @@
 
         <!-- 结果：认不出、或没有可插入的输入框时，这里是唯一的出口（可以复制再到别处粘贴） -->
         <DockPanel Grid.Row="3" Margin="0,8,0,0">
-            <TextBlock Text="结果" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="2,0,8,0"/>
+            <TextBlock Text="结果" FontSize="13" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="2,0,8,0"/>
             <Button x:Name="BtnCopy" DockPanel.Dock="Right" Content="复制" Click="BtnCopy_Click"
                     MinHeight="42" MinWidth="76" FontSize="15" Padding="12,4" Margin="8,0,0,0"
-                    Background="White" BorderBrush="#D1D5DB"
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                     ToolTip="把结果复制到剪贴板，可以粘贴到任何程序里"/>
             <TextBox x:Name="TxtResult" MinHeight="42" FontSize="17" IsReadOnly="True" IsTabStop="False"
                      VerticalContentAlignment="Center" Padding="8,0"
-                     Background="White" BorderBrush="#D1D5DB" Foreground="#1F2A37"
+                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Foreground="{DynamicResource InkBrush}"
                      ToolTip="已经插入 / 待复制的文字"/>
         </DockPanel>
 
@@ -72,28 +72,28 @@
             <!-- 左：对白板 -->
             <Button x:Name="BtnUndo" Grid.Column="0" Content="↶ 撤销" Click="BtnUndo_Click"
                     MinHeight="46" MinWidth="96" FontSize="15" Padding="12,6"
-                    Background="White" BorderBrush="#D1D5DB" ToolTip="撤掉白板上最后一笔"/>
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" ToolTip="撤掉白板上最后一笔"/>
             <Button x:Name="BtnClear" Grid.Column="1" Content="清空白板" Click="BtnClear_Click"
                     MinHeight="46" MinWidth="104" FontSize="15" Padding="12,6" Margin="10,0,0,0"
-                    Background="White" BorderBrush="#D1D5DB"/>
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
 
             <!-- 中：对输入框（要改已有内容时用，不必再去找退格键） -->
             <Button x:Name="BtnDelText" Grid.Column="2" Content="← 删一字"
                     MinHeight="46" MinWidth="106" FontSize="15" Padding="12,6" Margin="26,0,0,0"
-                    Background="White" BorderBrush="#D1D5DB"
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                     ToolTip="删掉输入框里光标前的一个字（按住可以连续删）"/>
             <Button x:Name="BtnClearText" Grid.Column="3" Content="清空输入框" Click="BtnClearText_Click"
                     MinHeight="46" MinWidth="116" FontSize="15" Padding="12,6" Margin="10,0,0,0"
-                    Background="White" BorderBrush="#D1D5DB"
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                     ToolTip="把输入框里的文字全部删掉（点两次确认）"/>
 
             <!-- 右：收工 -->
             <Button x:Name="BtnClose" Grid.Column="5" Content="关闭" Click="BtnClose_Click"
                     MinHeight="46" MinWidth="92" FontSize="15" Padding="12,6"
-                    Background="White" BorderBrush="#D1D5DB"/>
+                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
             <Button x:Name="BtnDone" Grid.Column="6" Content="完成" Click="BtnDone_Click"
                     MinHeight="46" MinWidth="100" FontSize="15" Padding="12,6" Margin="10,0,0,0"
-                    Background="#2D6CDF" Foreground="White" BorderBrush="#2D6CDF" IsDefault="True"
+                    Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" IsDefault="True"
                     ToolTip="收起手写面板（白板上还有字时会先插入）"/>
         </Grid>
     </Grid>

@@ -1,0 +1,61 @@
+<Window x:Class="ClassBulletinApp.NoticeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="通知公告" WindowStyle="None" ResizeMode="CanResize"
+        ShowInTaskbar="False" AllowsTransparency="True" Background="Transparent"
+        Width="340" Height="320" MinWidth="230" MinHeight="150"
+        Loaded="Window_Loaded" SourceInitialized="Window_SourceInitialized"
+        LocationChanged="Window_LocationChanged" SizeChanged="Window_SizeChanged">
+    <Border x:Name="NoteBorder" CornerRadius="12" BorderThickness="1"
+            Background="#E3F2FD" BorderBrush="#BBDEFB">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" Opacity="0.35" ShadowDepth="4" Direction="300"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- 顶部条：标题 + 隐藏 -->
+            <Border x:Name="Header" Grid.Row="0" Style="{StaticResource FloatHeader}" Background="#BBDEFB">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnHide" DockPanel.Dock="Right" Content="✕" Click="BtnHide_Click"
+                            Style="{StaticResource FloatCloseButton}" Foreground="#0D47A1"
+                            ToolTip="隐藏通知公告便签（可在控制面板「便签管理」、托盘或显示设置里重新打开）"/>
+                    <TextBlock x:Name="TxtTitle" Text="通知公告" Style="{StaticResource FloatTitle}"
+                               Foreground="#0D47A1"/>
+                </DockPanel>
+            </Border>
+
+            <!-- 内容：只读展示（双击任意处弹出编辑对话框） -->
+            <ScrollViewer Grid.Row="1" Margin="12,10,8,10" VerticalScrollBarVisibility="Auto">
+                <StackPanel x:Name="ContentPanel"/>
+            </ScrollViewer>
+
+            <!-- 底部：编辑 + 置顶 + 锁定 + 位置 + 设为背景 -->
+            <Border x:Name="Footer" Grid.Row="2" Style="{StaticResource FloatFooter}">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="BtnEdit" DockPanel.Dock="Left" Content="编辑" Click="BtnEdit_Click"
+                            Style="{StaticResource FloatFooterButton}"
+                            ToolTip="打开通知编辑窗口：改内容、范围与截止日期"/>
+                    <Button x:Name="BtnTop" DockPanel.Dock="Left" Content="置顶" Click="BtnTop_Click"
+                            Style="{StaticResource FloatFooterButton}" Margin="6,0,0,0"
+                            ToolTip="切换置顶显示（置于所有窗口之上 / 普通层级）"/>
+                    <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
+                            Style="{StaticResource FloatFooterButton}" Margin="6,0,0,0"
+                            ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
+                    <Button x:Name="BtnWp" DockPanel.Dock="Right" Content="设为背景" Click="BtnWp_Click"
+                            Style="{StaticResource FloatFooterButton}" Margin="6,0,0,0"
+                            ToolTip="按「现在的位置和大小」一键设为桌面背景，并隐藏本便签"/>
+                    <Button x:Name="BtnPos" DockPanel.Dock="Right" Content="位置" Click="BtnPos_Click"
+                            Style="{StaticResource FloatFooterButton}" Margin="6,0,0,0"
+                            ToolTip="在模拟屏幕上拖动便签，微调桌面背景里它的位置与大小"/>
+                    <TextBlock x:Name="TxtHint" Text="拖动·双击编辑" FontSize="11"
+                               Foreground="#7A9AB5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

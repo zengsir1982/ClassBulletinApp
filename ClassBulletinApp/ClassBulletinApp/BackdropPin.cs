@@ -19,7 +19,7 @@ namespace ClassBulletinApp;
 public static class BackdropPin
 {
     /// <summary>要锁定的便签种类。自定义便签有多张，需额外传便签 Id。</summary>
-    public enum Kind { Schedule, Homework, Missing, Countdown, Duty, CustomNote }
+    public enum Kind { Schedule, Homework, Missing, Countdown, Duty, Notice, CustomNote }
 
     private const double MINW = 200;   // 与 BackdropEditorWindow 的最小尺寸保持一致
     private const double MINH = 160;
@@ -154,6 +154,7 @@ public static class BackdropPin
         Kind.Missing => "Missing",
         Kind.Countdown => "Countdown",
         Kind.Duty => "Duty",
+        Kind.Notice => "Notice",
         _ => "note:" + (noteId ?? "")
     };
 
@@ -171,7 +172,7 @@ public static class BackdropPin
 
             var tokens = RestoreTargets(b);
             bool anyContent = b.ShowSchedule || b.ShowHomework || b.ShowMissing
-                              || b.ShowCountdown || b.ShowDuty || b.ShowAnyCustomNote();
+                              || b.ShowCountdown || b.ShowDuty || b.ShowNotice || b.ShowAnyCustomNote();
             bool applied = BackdropService.IsApplied();
 
             if (!anyContent && !applied && tokens.Count == 0)
@@ -185,6 +186,7 @@ public static class BackdropPin
             b.ShowMissing = false;
             b.ShowCountdown = false;
             b.ShowDuty = false;
+            b.ShowNotice = false;
             if (b.CustomNotes != null)
                 foreach (var entry in b.CustomNotes.Values)
                     if (entry != null) entry.Visible = false;
@@ -233,6 +235,7 @@ public static class BackdropPin
         if (b.ShowMissing) Add("Missing");
         if (b.ShowCountdown) Add("Countdown");
         if (b.ShowDuty) Add("Duty");
+        if (b.ShowNotice) Add("Notice");
         if (b.CustomNotes != null)
             foreach (var kv in b.CustomNotes)
                 if (kv.Value?.Visible == true) Add("note:" + kv.Key);
@@ -247,6 +250,7 @@ public static class BackdropPin
         Kind.Homework => b.HomeworkLayout ??= new HomeworkWallpaperLayout { Anchor = "MiddleRight", WidthRatio = 0.4 },
         Kind.Countdown => b.CountdownLayout ??= new HomeworkWallpaperLayout { Anchor = "TopRight", UseFixedSize = true, FixedWidth = 360, FixedHeight = 240 },
         Kind.Duty => b.DutyLayout ??= new HomeworkWallpaperLayout { Anchor = "BottomLeft", UseFixedSize = true, FixedWidth = 400, FixedHeight = 340 },
+        Kind.Notice => b.NoticeLayout ??= new HomeworkWallpaperLayout { Anchor = "TopLeft", UseFixedSize = true, FixedWidth = 420, FixedHeight = 320 },
         Kind.CustomNote => b.EntryOf(noteId!).Layout,
         _ => b.MissingLayout ??= new HomeworkWallpaperLayout { Anchor = "BottomRight", UseFixedSize = true, FixedWidth = 420, FixedHeight = 360 }
     };
@@ -260,6 +264,7 @@ public static class BackdropPin
             case Kind.Homework: b.ShowHomework = on; break;
             case Kind.Countdown: b.ShowCountdown = on; break;
             case Kind.Duty: b.ShowDuty = on; break;
+            case Kind.Notice: b.ShowNotice = on; break;
             case Kind.CustomNote: b.EntryOf(noteId!).Visible = on; break;
             default: b.ShowMissing = on; break;
         }
@@ -304,6 +309,9 @@ public static class BackdropPin
                                       out left, out top, out width, out height),
             Kind.Duty => TrySaved(s.PlacementOf("duty").Left, s.PlacementOf("duty").Top,
                                       s.PlacementOf("duty").Width, s.PlacementOf("duty").Height,
+                                      out left, out top, out width, out height),
+            Kind.Notice => TrySaved(s.PlacementOf("notice").Left, s.PlacementOf("notice").Top,
+                                      s.PlacementOf("notice").Width, s.PlacementOf("notice").Height,
                                       out left, out top, out width, out height),
             _ => TrySaved(s.MsWinLeft, s.MsWinTop, s.MsWinWidth, s.MsWinHeight,
                                       out left, out top, out width, out height)

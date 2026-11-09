@@ -43,6 +43,8 @@ nul
 *令牌*
 *token*
 *.key
+# 例外：UI 设计系统资源字典只是样式定义，不是凭据（否则上面的 *token* 会把它挡在版本库外）
+!ClassBulletinApp/ClassBulletinApp/DesignTokens.xaml
 
 # ===== 一次性调试 / 抓包脚本与原始数据（研究用，体积大，不入库）=====
 _td_*.py

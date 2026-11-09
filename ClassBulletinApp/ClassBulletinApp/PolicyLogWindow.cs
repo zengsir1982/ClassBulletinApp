@@ -48,11 +48,9 @@ public class PolicyLogWindow : Window
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 4)
         });
-        head.Children.Add(new TextBlock
+        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
-            FontSize = 12.5,
-            Foreground = Brushes.DimGray,
-            TextWrapping = TextWrapping.Wrap,
+            PopupTitle = "操作说明",
             Text = "这里记录本机在「角色权限」里每次保存的改动（最新在前）。"
                  + "日志只保存在本机，不随数据包下发。"
         });
@@ -164,7 +162,8 @@ public class PolicyLogWindow : Window
             btnCopy.IsEnabled = true;
             _allText = string.Join(Environment.NewLine, rows.ConvertAll(r => $"{r.Time}\t{r.Who}\t{r.Detail}"));
         }
-    }
+    
+        GlassChrome.Prepare(this);}
 
     string _allText = "";
 

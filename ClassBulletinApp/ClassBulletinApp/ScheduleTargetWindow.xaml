@@ -12,8 +12,8 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="选择悬浮课表要显示的内容" FontSize="18" FontWeight="Bold" Foreground="#1F2A37"/>
-        <TextBlock Grid.Row="0" Text="双击列表项或点确定切换" FontSize="12" Foreground="#9CA3AF"
+        <TextBlock Grid.Row="0" Text="选择悬浮课表要显示的内容" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
+        <TextBlock Grid.Row="0" Text="双击列表项或点确定切换" FontSize="12" Foreground="{DynamicResource HintBrush}"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,14,0,10">
@@ -23,7 +23,7 @@
 
         <DockPanel Grid.Row="2" Margin="0,0,0,8">
             <TextBlock Text="查询" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-            <TextBox x:Name="TxtSearch" FontSize="14" Padding="8" Background="White" BorderBrush="#D1D5DB"
+            <TextBox x:Name="TxtSearch" FontSize="14" Padding="8" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                      TextChanged="TxtSearch_TextChanged" KeyDown="TxtSearch_KeyDown"
                      ToolTip="输入姓名或班级关键字自动筛选"/>
         </DockPanel>

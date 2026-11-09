@@ -1,0 +1,38 @@
+<UserControl x:Class="ClassBulletinApp.Controls.HelpBubble"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="34" Height="34"
+             VerticalAlignment="Center" HorizontalAlignment="Left"
+             Focusable="False" IsTabStop="False">
+    <!--
+        常显说明的收敛容器：18px 问号圆标 + 34×34 命中区，点击弹出说明。
+        ★ 全项目同一时刻只允许一个气泡打开（单开），见 HelpBubble.xaml.cs 的静态 _open。
+        ★ Tab 能聚焦到按钮、Enter / 空格打开、Esc 关闭；触屏直接点，不依赖 hover / 右键。
+    -->
+    <Grid>
+        <Button x:Name="BtnHelp" Style="{DynamicResource HelpButton}"
+                Click="BtnHelp_Click" KeyDown="BtnHelp_KeyDown"
+                ToolTip="点击查看操作说明"/>
+        <Popup x:Name="Bubble"
+               PlacementTarget="{Binding ElementName=BtnHelp}"
+               Placement="Bottom" HorizontalOffset="-10" VerticalOffset="4"
+               StaysOpen="False" AllowsTransparency="True"
+               Opened="Bubble_Opened" Closed="Bubble_Closed">
+            <Border Style="{DynamicResource HelpPopupCard}" MaxWidth="480">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,8">
+                        <Button x:Name="BtnClose" Content="×" DockPanel.Dock="Right"
+                                Width="34" Height="34" FontSize="18" Padding="0"
+                                Background="Transparent" BorderThickness="0"
+                                Click="BtnClose_Click" ToolTip="关闭说明"
+                                Foreground="{DynamicResource MutedBrush}"/>
+                        <TextBlock x:Name="TxtTitle" Style="{DynamicResource TextSection}"
+                                   Text="操作说明" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <TextBlock x:Name="TxtBody" Style="{DynamicResource TextBody}"
+                               TextWrapping="Wrap" MaxWidth="420"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

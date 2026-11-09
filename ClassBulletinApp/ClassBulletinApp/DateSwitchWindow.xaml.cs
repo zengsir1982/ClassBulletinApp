@@ -10,7 +10,8 @@ public partial class DateSwitchWindow : Window
     {
         InitializeComponent();
         Dp.SelectedDate = current.Date;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Prev_Click(object sender, RoutedEventArgs e)
         => Dp.SelectedDate = (Dp.SelectedDate ?? DateTime.Today).AddDays(-1);

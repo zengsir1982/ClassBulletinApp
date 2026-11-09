@@ -96,7 +96,27 @@ public static class FloatingHelper
     }
 
     /// <summary>
-    /// 按锚点把窗口贴到屏幕对应边/角，并设置尺寸与透明度、置顶、穿透。
+    /// 窗口的位置 / 大小是否值得存进 settings.json。
+    ///
+    /// <para>★ <b>为什么必须有这道关卡：</b>窗口还没显示时 <c>Window.Left</c> / <c>Top</c> 是 <c>NaN</c>。
+    /// 把 NaN 写进 <see cref="AppSettings"/>，整个 settings.json 的 JSON 序列化就会抛
+    /// 「.NET number values such as positive and negative infinity cannot be written as valid JSON」——
+    /// 于是<b>之后所有设置都存不进去</b>（保存被 catch 吞掉，界面照样说已保存），
+    /// 表现就是「改了窗口位置、改了偏好，下次启动全变回去」，而且日志里什么都看不到。
+    /// 这个坑在 <c>--ui-check</c> 里是构造窗口时不显示才暴露出来的。</para>
+    /// </summary>
+    public static bool IsFiniteRect(Window w)
+    {
+        try
+        {
+            return double.IsFinite(w.Left) && double.IsFinite(w.Top)
+                   && double.IsFinite(w.Width) && double.IsFinite(w.Height)
+                   && w.Width > 0 && w.Height > 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>按锚点把窗口贴到屏幕对应边/角，并设置尺寸与透明度、置顶、穿透。
     /// clickThrough / opacity 为 null 时使用布局中的默认值；置顶显示态可传入覆盖值。
     /// 布局里有自由坐标（用户拖动过）时直接用该坐标，不再按锚点贴边。
     /// </summary>

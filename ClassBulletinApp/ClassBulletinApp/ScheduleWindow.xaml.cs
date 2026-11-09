@@ -19,7 +19,7 @@ using Point = System.Windows.Point;
 
 namespace ClassBulletinApp;
 
-public partial class ScheduleWindow : Window
+public partial class ScheduleWindow : Window, IGlassSurface
 {
     private string _semesterStart = "";
 
@@ -221,45 +221,68 @@ public partial class ScheduleWindow : Window
         {
             AppEvents.QuickCheckUpdateDone -= OnQuickCheckUpdateDone;
             AppEvents.ScheduleFlash -= OnScheduleFlash;
+            AppEvents.QuickActionsChanged -= ApplyQuickActionPermissions;
             _qaWatchdog?.Stop();
             _qaWatchdog = null;
             _clockTimer?.Stop();
             _clockTimer = null;
             StopTouchScroll();          // 停掉触摸惯性计时器，别让它拽着一个已关闭的窗口
         };
-    }
+    
+        GlassChrome.Prepare(this);}
 
-    // ---------- 内置快捷：作业 / 缺交 / 便签 / 更新课表 ----------
+    // ---------- 内置快捷：作业 / 缺交 / 便签 / 倒数 / 值日 / 周课 / 发布 / 信息 / 设置 ----------
+
+    /// <summary>动作键 → 胶囊按钮（顺序无关，只用来查）。</summary>
+    private Dictionary<string, Button> QuickActionButtons() => new(StringComparer.Ordinal)
+    {
+        [QuickActionCatalog.Homework] = BtnQaHomework,
+        [QuickActionCatalog.Missing] = BtnQaMissing,
+        [QuickActionCatalog.Note] = BtnQaNote,
+        [QuickActionCatalog.Countdown] = BtnQaCountdown,
+        [QuickActionCatalog.Duty] = BtnQaDuty,
+        [QuickActionCatalog.Week] = BtnQaWeek,
+        [QuickActionCatalog.Publish] = BtnQaPublish,
+        [QuickActionCatalog.Info] = BtnQaInfo,
+        [QuickActionCatalog.Settings] = BtnQaSettings
+    };
 
     /// <summary>
-    /// 按当前账号权限决定各快捷是否显示。
+    /// 按「权限 + 节点角色的显示配置」决定每个胶囊显示不显示，并按角色顺序重排整排。
     /// <para>★ 隐藏而不是置灰：教室机登学生 / 科任老师时，一排灰按钮既占地方，
-    /// 又容易让人以为程序出了故障。全都无权限时整条收起，不留空白。</para>
+    /// 又容易让人以为程序出了故障。全都隐藏时整条收起，不留空白。</para>
+    /// <para>★ 出厂默认与手工开关都在 <see cref="QuickActionCatalog"/> 里：电教管理员默认
+    /// 作业 / 缺交 / 便签 / 倒数 / 值日 / 信息，老师与管理员默认 发布 / 便签 / 周课 / 倒数 / 设置 / 信息。</para>
     /// </summary>
     private void ApplyQuickActionPermissions()
     {
-        if (BtnQaHomework == null) return;
+        if (BtnQaHomework == null || BtnQaInfo == null || BuiltinWrap == null) return;
 
-        BtnQaHomework.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
-        BtnQaMissing.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
-        // 便签与作业 / 缺交同属「编辑板报」能力，同一权限口径
-        BtnQaNote.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
-        BtnQaCountdown.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
-        BtnQaDuty.Visibility = UserSession.CanEditBoard ? Visibility.Visible : Visibility.Collapsed;
-        // 「设置」不按编辑权限收：它只是个入口，控制面板本来就对所有角色开放
-        //（托盘右键「打开控制面板」同理）。学生看不到作业 / 便签，但想调字号颜色时仍有路可走。
-        BtnQaSettings.Visibility = Visibility.Visible;
-        // 「更新课表」已移到标题栏，按「管理更新」权限独立显隐（与底部快捷栏无关）
+        var vis = QuickActionCatalog.VisibleNow();
+        var buttons = QuickActionButtons();
+
+        // 先清空再按角色顺序加回去：WrapPanel 的 Children 顺序就是实际顺序，
+        // 这样老师看到的是「发布 / 便签 / 周课 / 倒数 / 设置 / 信息」，与口头描述一致
+        BuiltinWrap.Children.Clear();
+        foreach (var key in QuickActionCatalog.OrderFor(UserSession.Role))
+        {
+            if (!buttons.TryGetValue(key, out var b) || b == null) continue;
+            BuiltinWrap.Children.Add(b);
+
+            bool show = vis.Contains(key);
+            b.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            var e = QuickActionCatalog.Find(key);
+            if (e != null)
+                b.ToolTip = show ? e.Tip : e.Tip + "\n（已在「管理 → 应用快捷方式 → 内置快捷」里隐藏）";
+        }
+
+        // 「更新课表」在标题栏，按「管理更新」权限独立显隐（与底部快捷栏无关）
         BtnQaUpdate.Visibility = UserSession.CanManageUpdate ? Visibility.Visible : Visibility.Collapsed;
 
-        // 底部快捷栏（作业 / 缺交 / 便签）全无权限时整条收起
-        bool any = BtnQaHomework.Visibility == Visibility.Visible
-                || BtnQaMissing.Visibility == Visibility.Visible
-                || BtnQaNote.Visibility == Visibility.Visible
-                || BtnQaCountdown.Visibility == Visibility.Visible
-                || BtnQaDuty.Visibility == Visibility.Visible
-                || BtnQaSettings.Visibility == Visibility.Visible;
-        BuiltinWrap.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
+        BuiltinWrap.Visibility = vis.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        _qaAppliedFont = -1;         // 新加的胶囊也要吃到当前字号档（否则会被「同档不重排」挡掉）
+        ApplyBuiltinQuickActionSize();
     }
 
     private void BtnQaHomework_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenHomework();
@@ -273,6 +296,12 @@ public partial class ScheduleWindow : Window
     private void BtnQaDuty_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenDuty();
 
     private void BtnQaSettings_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenSettings();
+
+    private void BtnQaWeek_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenWeek();
+
+    private void BtnQaPublish_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenPublish();
+
+    private void BtnQaInfo_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenInfoLedger();
 
     private void BtnQaUpdate_Click(object sender, RoutedEventArgs e)
     {
@@ -495,6 +524,7 @@ public partial class ScheduleWindow : Window
         LoadQaFailureState();       // 上次更新失败的话，状态栏继续显示红字提示（按钮不受影响）
 
         AppEvents.ScheduleChanged += Refresh;
+        AppEvents.QuickActionsChanged += ApplyQuickActionPermissions;
         AppEvents.LayoutChanged += OnLayoutChanged;
         AppEvents.BackdropChanged += UpdateBackdropButton;
         Refresh();
@@ -755,6 +785,9 @@ public partial class ScheduleWindow : Window
         QuickActionStyle.Apply(BtnQaNote, fs);
         QuickActionStyle.Apply(BtnQaCountdown, fs);
         QuickActionStyle.Apply(BtnQaDuty, fs);
+        QuickActionStyle.Apply(BtnQaWeek, fs);
+        QuickActionStyle.Apply(BtnQaPublish, fs);
+        QuickActionStyle.Apply(BtnQaInfo, fs);
         QuickActionStyle.Apply(BtnQaSettings, fs);
     }
 
@@ -1023,7 +1056,12 @@ public partial class ScheduleWindow : Window
         _hider = (l.AutoHide || l.AutoHideDuringClass)
             ? new AutoHider(this, l, () => l.AutoHide || (l.AutoHideDuringClass && IsClassTimeNow()))
             : null;
+        ApplyGlass();
     }
+
+    /// <summary>IGlassSurface：只改根 Border 底色，不动 Window.Opacity / DragLayer / 触屏结构。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(this.Content as System.Windows.Controls.Border, settings);
 
     private void OnLayoutChanged(PanelLayout? schedule, PanelLayout? notification)
     {
@@ -1881,8 +1919,12 @@ public partial class ScheduleWindow : Window
 
             // 抓手手势链（纯内存演练，不写数据）：按下 → 0 秒就浮起；3px 不算拖；过 10px 起拖。
             // 这一段专盯"抓手到底有没有跳过 0.5 秒"——只验证到"能动"不够，必须没有等待。
+            // ★ 课表被用户锁定时抓手本来就拖不动（ArmAt 第一行就早退），那是正确行为不是回归；
+            //   诊断用的是真实数据副本，会把锁定状态一起带过来，所以这里临时解锁演练、结束后还原。
+            bool lockedWas = _locked;
             try
             {
+                _locked = false;
                 ClearGhost();
                 _armBorder = null;
                 _dragCandidate = grip.DataContext as PeriodRow;
@@ -1892,6 +1934,8 @@ public partial class ScheduleWindow : Window
                 var gp = FromDragLayer(new System.Windows.Point(gtl.X + 20, gtl.Y + grip.ActualHeight / 2));
                 _dragStart = gp;
                 _touchStartPt = gp;
+                var candidateWas = _dragCandidate;
+                var armBorderWas = _armBorder;
 
                 ArmAt(gp);                                     // 按下那一刻
                 bool armedNow = _touchHoldArmed && _ghost != null;
@@ -1901,9 +1945,15 @@ public partial class ScheduleWindow : Window
                 bool draggingNow = _dragging;
                 sb.AppendLine($"grip 手势 按下即浮起={armedNow} 3px不拖={stillNotDragging} 30px起拖={draggingNow} " +
                               $"{(armedNow && stillNotDragging && draggingNow ? "ok" : "★ 手势链断了")}");
+                // 手势链没起来时，把 ArmAt 的四个早退条件逐个报出来 —— 否则只能看到 False，
+                // 分不清是「抓手指针没拿到行」还是「课表被锁定 / 教师机只读」这类环境问题。
+                if (!armedNow)
+                    sb.AppendLine($"  grip 早退诊断 candidate={(candidateWas != null ? "PeriodRow#" + candidateWas.Period : "null")} "
+                                  + $"teacher={_isTeacherMode} clickThrough={_clickThrough} locked={_locked} "
+                                  + $"armBorder={(armBorderWas != null ? armBorderWas.ActualWidth.ToString("F0") + "x" + armBorderWas.ActualHeight.ToString("F0") : "null")}");
             }
             catch (Exception ex) { sb.AppendLine("EX grip " + ex.Message); }
-            finally { EndDrag(); }
+            finally { _locked = lockedWas; EndDrag(); }
         }
 
         // 撤销靠"整份覆盖表的 JSON 往返"，这里确认它能可靠复原（DateOnly / 可空字段都不能丢）

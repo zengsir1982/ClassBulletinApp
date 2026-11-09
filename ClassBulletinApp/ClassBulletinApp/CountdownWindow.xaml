@@ -19,14 +19,13 @@
             </Grid.RowDefinitions>
 
             <!-- 顶部条：标题 + 隐藏 -->
-            <Border x:Name="Header" Grid.Row="0" CornerRadius="11,11,0,0" Padding="12,8" Background="#FFE082">
+            <Border x:Name="Header" Grid.Row="0" Style="{StaticResource FloatHeader}" Background="#FFE082">
                 <DockPanel LastChildFill="True">
                     <Button x:Name="BtnHide" DockPanel.Dock="Right" Content="✕" Click="BtnHide_Click"
-                            Padding="6,2" FontSize="12" Margin="8,0,0,0"
-                            Background="#33FFFFFF" Foreground="#5D4037" BorderBrush="#55FFFFFF"
+                            Style="{StaticResource FloatCloseButton}" Foreground="#5D4037"
                             ToolTip="隐藏倒计时（可在控制面板或托盘重新打开）"/>
-                    <TextBlock x:Name="TxtTitle" Text="倒计时" FontSize="17" FontWeight="Bold"
-                               Foreground="#5D4037" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="TxtTitle" Text="倒计时" Style="{StaticResource FloatTitle}"
+                               Foreground="#5D4037"/>
                 </DockPanel>
             </Border>
 
@@ -40,23 +39,22 @@
 
             <!-- 底部：编辑 + 置顶 + 锁定 + 位置 + 设为背景 -->
             <!-- 用 WrapPanel 而不是 DockPanel：卡片按内容收窄后可能很窄，DockPanel 会把按钮挤出窗口，这里自动折行 -->
-            <Border Grid.Row="2" Padding="10,6" BorderThickness="0,1,0,0"
-                    BorderBrush="#22000000" Background="#12000000">
+            <Border x:Name="Footer" Grid.Row="2" Style="{StaticResource FloatFooter}">
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="BtnEdit" Content="编辑" Click="BtnEdit_Click"
-                            Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                            Style="{StaticResource FloatFooterButton}" Margin="0,0,6,0"
                             ToolTip="编辑倒计时事件 / 主题 / 字体颜色"/>
                     <Button x:Name="BtnTop" Content="置顶" Click="BtnTop_Click"
-                            Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                            Style="{StaticResource FloatFooterButton}" Margin="0,0,6,0"
                             ToolTip="切换置顶显示（置于所有窗口之上 / 普通层级）"/>
                     <Button x:Name="BtnLock" Content="🔓" Click="BtnLock_Click"
-                            Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                            Style="{StaticResource FloatFooterButton}" Margin="0,0,6,0"
                             ToolTip="锁定后不能移动 / 缩放 / 编辑，防止误操作"/>
                     <Button x:Name="BtnPos" Content="位置" Click="BtnPos_Click"
-                            Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                            Style="{StaticResource FloatFooterButton}" Margin="0,0,6,0"
                             ToolTip="在模拟屏幕上拖动便签，微调桌面背景里它的位置与大小"/>
                     <Button x:Name="BtnWp" Content="设为背景" Click="BtnWp_Click"
-                            Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                            Style="{StaticResource FloatFooterButton}" Margin="0,0,6,0"
                             ToolTip="按「现在的位置和大小」一键设为桌面背景，并隐藏本便签"/>
                     <TextBlock x:Name="TxtHint" Text="拖动·双击编辑" FontSize="11"
                                Foreground="#6B5B33" VerticalAlignment="Center"

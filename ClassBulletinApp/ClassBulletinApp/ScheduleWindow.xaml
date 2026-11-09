@@ -45,7 +45,7 @@
 
         <!-- 普通课程行 -->
         <DataTemplate x:Key="LessonRowTpl">
-            <Border Background="{Binding CardBg}" BorderBrush="#E3E8EF" BorderThickness="1"
+            <Border Background="{Binding CardBg}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
                     CornerRadius="10" MinHeight="{DynamicResource LessonRowMinHeight}"
                     Padding="{DynamicResource LessonCardPadding}"
                     Margin="{DynamicResource LessonCardMargin}" Cursor="Hand">
@@ -83,7 +83,7 @@
                         <StackPanel>
                             <TextBlock Text="{Binding PeriodText}" FontSize="{DynamicResource LessonPeriodSize}" FontWeight="Bold"
                                        Foreground="{DynamicResource PrimaryBrush}"/>
-                            <TextBlock Text="{Binding TimeRange}" FontSize="11" Foreground="#9CA3AF" Margin="0,3,0,0"/>
+                            <TextBlock Text="{Binding TimeRange}" FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="0,3,0,0"/>
                         </StackPanel>
                     </Grid>
                     <StackPanel Grid.Column="1">
@@ -109,10 +109,10 @@
                                                        TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                        VerticalAlignment="Center">
                                                 <Run Text="{Binding DisplaySubject, Mode=OneWay}"/>
-                                                <Run Text="{Binding WeekTag}" FontSize="{DynamicResource LessonWeekTagSize}" Foreground="#9CA3AF" FontWeight="Normal"/>
+                                                <Run Text="{Binding WeekTag}" FontSize="{DynamicResource LessonWeekTagSize}" Foreground="{DynamicResource HintBrush}" FontWeight="Normal"/>
                                             </TextBlock>
                                         </DockPanel>
-                                        <TextBlock FontSize="{DynamicResource LessonTeacherSize}" Foreground="#4B5563" Tag="TeacherTag" Cursor="Hand"
+                                        <TextBlock FontSize="{DynamicResource LessonTeacherSize}" Foreground="{DynamicResource BodyBrush}" Tag="TeacherTag" Cursor="Hand"
                                                    TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                                                    ToolTip="双击可切换到该教师 / 班级的课表">
                                             <Run Text="{Binding TeacherPrefix}" FontWeight="Bold"/>
@@ -133,9 +133,9 @@
             <Border Background="{Binding CardBg}" CornerRadius="8" Padding="9,4" Margin="0,0,0,6">
                 <DockPanel LastChildFill="False">
                     <TextBlock DockPanel.Dock="Left" Text="{Binding PeriodText}" FontSize="13"
-                               Foreground="#6B7280" VerticalAlignment="Center"/>
+                               Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
                     <TextBlock DockPanel.Dock="Right" Text="{Binding TimeRange}" FontSize="11"
-                               Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                               Foreground="{DynamicResource HintBrush}" VerticalAlignment="Center"/>
                 </DockPanel>
             </Border>
         </DataTemplate>
@@ -152,7 +152,7 @@
             </Grid.RowDefinitions>
 
             <!-- 头部：班级（双击换班级）/ 日期（双击换日期）/ 单双周·星期；空白处按住可拖动整个窗口 -->
-            <Border x:Name="HeaderBar" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" CornerRadius="14,14,0,0" Padding="14,9"
+            <Border x:Name="HeaderBar" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" Style="{StaticResource FloatScheduleHeader}"
                     ToolTip="按住空白处可拖动窗口；拖动窗口边沿可改变大小">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -191,12 +191,10 @@
                     <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼 -->
                     <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Right">
                         <Button x:Name="BtnHide" Content="自动隐藏" Click="BtnHide_Click"
-                                VerticalAlignment="Top" Padding="8,3" FontSize="12" Margin="0,0,0,4"
-                                Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                                VerticalAlignment="Top" Margin="0,0,0,4" Style="{StaticResource FloatScheduleButton}"
                                 ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
                         <Button x:Name="BtnQaUpdate" Click="BtnQaUpdate_Click"
-                                VerticalAlignment="Top" Padding="8,3" FontSize="12"
-                                Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                                VerticalAlignment="Top" Style="{StaticResource FloatScheduleButton}"
                                 ToolTip="立即从数据源检查并应用最新的课表 / 调代课">
                             <TextBlock x:Name="TxtQaUpdate" Text="更新课表"/>
                         </Button>
@@ -241,7 +239,7 @@
 
             <!-- 状态栏：课表更新时间 + 更新失败红字，拼成一条字幕；文字比宽度长时自动匀速滚过，
                  放得下就静态显示（短句滚动反而难读）。右侧「背景：已设/未设」固定不动，方便一眼看到 -->
-            <Border Grid.Row="2" Background="#F7F9FC" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
                     Padding="10,4" ClipToBounds="True">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -267,14 +265,14 @@
             </Border>
 
             <!-- 底部应用快捷栏：常用软件 / 文件夹入口，点击直达；图标模式 + 大小可在「布局设置 → 课表」或右下「管理」里调 -->
-            <Border Grid.Row="3" Background="#F5F7FA" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <Border Grid.Row="3" Background="{DynamicResource BarSurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
                     Padding="8,6">
                 <StackPanel>
                     <!-- 内置快捷：作业 / 缺交 / 便签。三个都是「图标 + 两个字」，宽度天然一致、一眼能认。
                          按账号权限显示，没权限的整条隐藏（更新课表已移至标题栏） -->
                     <WrapPanel x:Name="BuiltinWrap" Orientation="Horizontal">
                         <Button x:Name="BtnQaHomework" Style="{StaticResource QuickActionBtn}" Click="BtnQaHomework_Click"
-                                Background="#EAF2FD" BorderBrush="#9EC1F0"
+                                Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}"
                                 ToolTip="打开「作业公示」便签，可以直接编辑各科作业内容">
                             <TextBlock Text="📋 作业"/>
                         </Button>
@@ -303,10 +301,27 @@
                                 ToolTip="打开控制面板的「显示设置」页（字号、颜色、悬浮窗、手写球等都在这里）">
                             <TextBlock Text="⚙ 设置"/>
                         </Button>
+                        <!-- 「周课 / 发布 / 信息」是新加的三个直达入口：显隐与顺序都由 QuickActionCatalog 按角色决定，
+                             这里只管摆出来；XAML 顺序不影响实际顺序（运行时会按角色重排）。 -->
+                        <Button x:Name="BtnQaWeek" Style="{StaticResource QuickActionBtn}" Click="BtnQaWeek_Click"
+                                Background="#E8F0FE" BorderBrush="#A8C0E8"
+                                ToolTip="打开控制面板的「周课程表」页（整周课表，可拖动课程卡调课）">
+                            <TextBlock Text="🗓 周课"/>
+                        </Button>
+                        <Button x:Name="BtnQaPublish" Style="{StaticResource QuickActionBtn}" Click="BtnQaPublish_Click"
+                                Background="#EAF7F0" BorderBrush="#9FD3B4"
+                                ToolTip="新建班级内容变更单：把作业 / 缺交 / 通知发到教室机（目标班级仍以「信息管理」页勾选为准）">
+                            <TextBlock Text="📤 发布"/>
+                        </Button>
+                        <Button x:Name="BtnQaInfo" Style="{StaticResource QuickActionBtn}" Click="BtnQaInfo_Click"
+                                Background="#F0F4FF" BorderBrush="#B8C6EC"
+                                ToolTip="打开「信息管理」的消息台账 / 回执窗口（教室里是收件箱，老师这边是发送箱）">
+                            <TextBlock Text="📨 信息"/>
+                        </Button>
                     </WrapPanel>
 
                     <TextBlock x:Name="TxtQlEmpty" Text="点击下方「＋」添加常用软件 / 文件夹"
-                               FontSize="11" Foreground="#9CA3AF" Margin="2,0,0,4"
+                               FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="2,0,0,4"
                                Visibility="Collapsed"/>
                     <WrapPanel x:Name="QlWrap" Orientation="Horizontal"/>
                     <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -315,7 +330,7 @@
                         <Button x:Name="BtnAddQl" Content="＋ 程序" Click="BtnAddQl_Click" Padding="6,2" FontSize="11" Margin="6,0,0,0"
                                 Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
                         <Button x:Name="BtnQlManage" Content="管理" Click="BtnQlManage_Click" Padding="6,2" FontSize="11" Margin="6,0,0,0"
-                                Background="White" BorderBrush="#D1D5DB"
+                                Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                                 ToolTip="管理快捷方式：增删、仅显示图标、调整图标大小"/>
                     </WrapPanel>
                 </StackPanel>
@@ -324,12 +339,12 @@
             <!-- 最下方：置顶（最左，与便签同风格同功能，切换始终置顶）/ 锁定 + 位置 / 桌面背景（右侧）。
                  注意：标题栏「自动隐藏 / 常驻显示」管的是「是否始终显示（不靠边隐藏）」，本处「置顶」管的是「是否始终在最上层」，
                  两者语义不同，故各保留一个按钮，不冲突。 -->
-            <Border Grid.Row="4" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="#E3E8EF" BorderThickness="0,1,0,0"
+            <Border Grid.Row="4" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0"
                     CornerRadius="0,0,12,12" Padding="10,7">
                 <DockPanel LastChildFill="False">
                     <Button x:Name="BtnTop" DockPanel.Dock="Left" Content="置顶" Click="BtnTop_Click"
                             Padding="8,3" FontSize="11" Margin="6,0,0,0"
-                            Background="White" BorderBrush="#D1D5DB" Foreground="Black"
+                            Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Foreground="Black"
                             ToolTip="切换置顶（始终显示在所有窗口最上层）/ 普通层级"/>
                     <Button x:Name="BtnLock" DockPanel.Dock="Left" Content="🔓" Click="BtnLock_Click"
                             Padding="10,4" FontSize="12" Margin="6,0,0,0" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
@@ -355,7 +370,7 @@
                     <Button x:Name="BtnActionUndo" DockPanel.Dock="Right" Content="撤销" Click="BtnActionUndo_Click"
                             Visibility="Collapsed" Padding="10,2" FontSize="12" Margin="8,0,0,0"
                             Background="White" BorderBrush="#378ADD" Foreground="#1E5FA8"/>
-                    <TextBlock x:Name="TxtAction" FontSize="12" Foreground="#1F2A37"
+                    <TextBlock x:Name="TxtAction" FontSize="12" Foreground="{DynamicResource InkBrush}"
                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                 </DockPanel>
             </Border>

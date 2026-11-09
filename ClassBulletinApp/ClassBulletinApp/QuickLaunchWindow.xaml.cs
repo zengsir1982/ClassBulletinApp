@@ -29,6 +29,10 @@ public partial class QuickLaunchWindow : Window
     /// <summary>初始化期间滑块 / 勾选框会触发事件，此标志避免把初始值当成用户改动。</summary>
     private bool _builtinReady;
 
+    /// <summary>内置快捷「显示哪几个」的草稿：点「确定」才写盘，取消则原样保留。</summary>
+    private readonly System.Collections.Generic.Dictionary<string, bool> _builtinVisible =
+        new(StringComparer.Ordinal);
+
     public QuickLaunchWindow()
     {
         InitializeComponent();
@@ -44,8 +48,65 @@ public partial class QuickLaunchWindow : Window
         TxtIconSize.Text = ((int)_size) + " px";
 
         InitBuiltinSize();
+        InitBuiltinToggles();
         RenderList();
         RenderPreview();
+        RenderBuiltinPreview();
+    
+        GlassChrome.Prepare(this);}
+
+    // ---------- 内置快捷（九个胶囊）的显示开关 ----------
+
+    /// <summary>
+    /// 九个入口的勾选框：勾上 = 悬浮课表底部显示。
+    /// <para>★ 没有权限的入口（例如电教管理员的「发布」）直接禁用并给原因：
+    /// 让它可勾但实际不显示，用户会以为设置没保存。</para>
+    /// <para>★ 出厂默认按角色走（见 QuickActionCatalog）：电教管理员是作业 / 缺交 / 便签 / 倒数 / 值日 / 信息，
+    /// 老师与管理员是发布 / 便签 / 周课 / 倒数 / 设置 / 信息。</para>
+    /// </summary>
+    private void InitBuiltinToggles()
+    {
+        if (BuiltinToggleWrap == null) return;
+        BuiltinToggleWrap.Children.Clear();
+        _builtinVisible.Clear();
+
+        var current = QuickActionCatalog.VisibleMap();
+        foreach (var key in QuickActionCatalog.OrderFor(QuickActionCatalog.RoleKey()))
+        {
+            var e = QuickActionCatalog.Find(key);
+            if (e == null) continue;
+
+            bool on = current.TryGetValue(key, out bool v) && v;
+            bool allowed = QuickActionCatalog.IsAllowed(key);
+            _builtinVisible[key] = on;
+
+            // ★ 项目同时引用了 WPF 与 WinForms，CheckBox 两个命名空间都有，必须全限定
+            var cb = new System.Windows.Controls.CheckBox
+            {
+                Content = e.Text,
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 16, 4),
+                IsChecked = on,
+                IsEnabled = allowed,
+                Tag = key,
+                ToolTip = allowed ? e.Tip : QuickActionCatalog.DenyReason(key)
+            };
+            cb.Checked += (_, _) => SetBuiltinVisible(key, true);
+            cb.Unchecked += (_, _) => SetBuiltinVisible(key, false);
+            BuiltinToggleWrap.Children.Add(cb);
+        }
+
+        if (BuiltinToggleWrap.Children.Count == 0)
+            BuiltinToggleWrap.Children.Add(new TextBlock
+            {
+                Text = "（当前账号没有可显示的入口）", FontSize = 12,
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x9C, 0xA3, 0xAF))
+            });
+    }
+
+    private void SetBuiltinVisible(string key, bool on)
+    {
+        _builtinVisible[key] = on;
         RenderBuiltinPreview();
     }
 
@@ -128,8 +189,9 @@ public partial class QuickLaunchWindow : Window
     }
 
     /// <summary>
-    /// 预览六个内置快捷胶囊（与悬浮课表底部同一套样式 + 同一套大小换算）。
+    /// 预览内置快捷胶囊（与悬浮课表底部同一套样式 + 同一套大小换算）。
     /// 「自动」档按悬浮课表当前宽度换算，所以这里能直接看出窄窗下会不会挤成两行。
+    /// <para>只画「勾上了、且有权限」的那几个 —— 预览显示的必须就是悬浮课表真实的样子。</para>
     /// </summary>
     private void RenderBuiltinPreview()
     {
@@ -156,18 +218,27 @@ public partial class QuickLaunchWindow : Window
             BuiltinPreview.Children.Add(b);
         }
 
-        Add("📋 作业", "#EAF2FD", "#9EC1F0");
-        Add("📝 缺交", "#FFF4E5", "#F0C48A");
-        Add("📌 便签", "#F2EDFD", "#BFAFE8");
-        Add("⏳ 倒数", "#FFF8E1", "#E8CE8A");
-        Add("🧹 值日", "#E8F5E9", "#A5CFA8");
-        Add("⚙ 设置", "#EEF1F5", "#B9C2CE");
+        foreach (var key in QuickActionCatalog.OrderFor(QuickActionCatalog.RoleKey()))
+        {
+            if (!_builtinVisible.TryGetValue(key, out bool on) || !on) continue;
+            if (!QuickActionCatalog.IsAllowed(key)) continue;
+            var e = QuickActionCatalog.Find(key);
+            if (e != null) Add(e.Text, e.Bg, e.Border);
+        }
+
+        if (BuiltinPreview.Children.Count == 0)
+            BuiltinPreview.Children.Add(new TextBlock
+            {
+                Text = "（全部隐藏：悬浮课表底部不会显示内置快捷）",
+                FontSize = 12,
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x9C, 0xA3, 0xAF))
+            });
 
         if (TxtBuiltinSize != null) TxtBuiltinSize.Text = $"字号 {fs:0.#}";
         if (TxtBuiltinHint != null)
             TxtBuiltinHint.Text = _builtinSize > 0
                 ? $"固定 {fs:0.#} 号（滑块 9~22；改完点「确定」生效）"
-                : $"自动：按悬浮课表宽度 {Math.Round(ownerWidth)} 换算为 {fs:0.#} 号（窗口窄了会自动收小，六个不挤成两行）";
+                : $"自动：按悬浮课表宽度 {Math.Round(ownerWidth)} 换算为 {fs:0.#} 号（窗口窄了会自动收小，几个不挤成两行）";
     }
 
     private static WpfBrush HexBrush(string hex)
@@ -359,7 +430,11 @@ public partial class QuickLaunchWindow : Window
             s.QlIconOnly = _iconOnly;
             s.QlIconSize = _size;
             s.QaBuiltinFontSize = _builtinSize;   // 0 = 自动（随悬浮课表宽度）
+            QuickActionCatalog.WriteInto(s, _builtinVisible);   // 按当前角色保存九个入口的显隐
             Store.SaveSettings(s);
+
+            // 悬浮课表立刻重排，不必重启
+            AppEvents.RaiseQuickActionsChanged();
             DialogResult = true;
         }
         catch { DialogResult = false; }

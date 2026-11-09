@@ -17,11 +17,11 @@
                         BorderBrush="#E6C25A" BorderThickness="1">
                     <TextBlock x:Name="TxtTag" Text="课表有变化" FontSize="22" FontWeight="Bold" Foreground="#8A6100"/>
                 </Border>
-                <TextBlock x:Name="TxtTitle" FontSize="54" FontWeight="Bold" Foreground="#1F2A37"
+                <TextBlock x:Name="TxtTitle" FontSize="54" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"
                            TextAlignment="Center" TextWrapping="Wrap" Margin="0,26,0,0"/>
-                <TextBlock x:Name="TxtDetail" FontSize="24" Foreground="#4B5563"
+                <TextBlock x:Name="TxtDetail" FontSize="24" Foreground="{DynamicResource BodyBrush}"
                            TextAlignment="Center" TextWrapping="Wrap" Margin="0,16,0,0"/>
-                <TextBlock x:Name="TxtHint" Text="点击任意位置关闭" FontSize="15" Foreground="#9CA3AF"
+                <TextBlock x:Name="TxtHint" Text="点击任意位置关闭" FontSize="15" Foreground="{DynamicResource HintBrush}"
                            TextAlignment="Center" Margin="0,26,0,0"/>
             </StackPanel>
         </Border>

@@ -42,6 +42,16 @@ public class PanelLayout
     /// <summary>是否鼠标穿透（点击落到底层窗口，纯展示）。与 AutoHide 互斥。</summary>
     public bool ClickThrough { get; set; } = false;
 
+    /// <summary>
+    /// 鼠标移到面板上时自动把它变透明（默认开，仅通知条使用），鼠标离开恢复到
+    /// <see cref="OverlayOpacity"/> / <see cref="Opacity"/>。
+    /// <para>★ 判定必须靠全局光标轮询（GetCursorPos），不能靠 MouseEnter：
+    /// 常驻显示默认是「鼠标穿透」，窗口本身收不到任何鼠标消息，MouseEnter 永远不会触发。</para>
+    /// <para>★ 为什么需要它：常驻显示的通知条始终压在屏幕最上层，鼠标移过去时把它让开，
+    /// 才能看清 / 操作底下的内容；离开又恢复，不必手动开关。</para>
+    /// </summary>
+    public bool HoverFade { get; set; }
+
     /// <summary>是否自动靠边隐藏（鼠标靠近屏幕边缘时滑出，离开后缩回）。与 ClickThrough 互斥。</summary>
     public bool AutoHide { get; set; } = false;
 

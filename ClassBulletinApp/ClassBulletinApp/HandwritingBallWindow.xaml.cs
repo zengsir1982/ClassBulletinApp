@@ -60,7 +60,8 @@ public partial class HandwritingBallWindow : Window
     {
         InitializeComponent();
         Loaded += (_, _) => RestorePosition();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -183,6 +184,7 @@ public partial class HandwritingBallWindow : Window
     {
         try
         {
+            if (!FloatingHelper.IsFiniteRect(this)) return;   // NaN 坐标写进设置会让整个 JSON 序列化失败
             var s = Store.LoadSettings();
             s.HandBallLeft = Left;
             s.HandBallTop = Top;

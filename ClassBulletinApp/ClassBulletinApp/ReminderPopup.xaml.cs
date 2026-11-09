@@ -13,7 +13,7 @@ namespace ClassBulletinApp;
 /// <para>位置与大小可在「提醒设置」里按所见即所得拖动调整，结果存 <see cref="ReminderSettings"/>，
 /// 每次显示都按存档还原（<see cref="ReminderSettings.PopupScale"/> 同时决定宽度与字号）。</para>
 /// </summary>
-public partial class ReminderPopup : Window
+public partial class ReminderPopup : Window, IGlassSurface
 {
     /// <summary>缩放 1 时的窗口宽度。</summary>
     private const double BaseWidth = 430;
@@ -41,7 +41,8 @@ public partial class ReminderPopup : Window
     private double _gripStartWidth;
     private double _gripStartX;
 
-    public ReminderPopup() : this(false) { }
+    public ReminderPopup() : this(false) { 
+        GlassChrome.Prepare(this);}
 
     /// <param name="interactive">
     /// true = 用于「调整位置与大小」：可拖动、可拖右边框、按钮可点。
@@ -55,7 +56,8 @@ public partial class ReminderPopup : Window
         IsHitTestVisible = interactive;
         MinWidth = BaseWidth * MinScale;
         MaxWidth = BaseWidth * MaxScale;
-    }
+    
+        GlassChrome.Prepare(this);}
 
     // ---------- 对外接口 ----------
 
@@ -150,9 +152,14 @@ public partial class ReminderPopup : Window
             Card.BorderBrush = _style.BorderBrush;
             TxtTitle.Foreground = _style.TextBrush();
             TxtDetail.Foreground = _style.TextBrush(0.82);
+            ApplyGlass();
         }
         catch { }
     }
+
+    /// <summary>IGlassSurface：CardBrush 原有的 PopupOpacity alpha 会被完整保留。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(Card, settings);
 
     private void ApplyScale(double scale)
     {

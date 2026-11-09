@@ -20,7 +20,7 @@ namespace ClassBulletinApp;
 /// 底部「桌面背景」一键投射，旁边「位置」直接进入桌面便签定位设置。
 /// 拖动与缩放交由系统原生处理（WM_NCHITTEST），不拦截任何交互。
 /// </summary>
-public partial class MissingWindow : Window
+public partial class MissingWindow : Window, IGlassSurface
 {
     private DispatcherTimer? _posTimer;
     private string _themeKey = "pink";
@@ -46,7 +46,8 @@ public partial class MissingWindow : Window
         InitializeComponent();
         _posTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _posTimer.Tick += (_, _) => { _posTimer.Stop(); SavePlacement(); };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -66,6 +67,7 @@ public partial class MissingWindow : Window
 
         AppEvents.MissingChanged += OnMissingChanged;
         AppEvents.BackdropChanged += UpdateBackdropButton;
+        AppEvents.NoteLockChanged += OnNoteLockChanged;
 
         // 存档坐标已失效时，把重新居中后的位置立刻写回，避免每次启动都重算
         if (_recentered) SavePlacement();
@@ -181,6 +183,8 @@ public partial class MissingWindow : Window
     private void SavePlacement()
     {
         if (_loading) return;
+        // 未显示的窗口 Left/Top 是 NaN：写进设置会让整个 settings.json 序列化失败
+        if (!FloatingHelper.IsFiniteRect(this)) return;
         try
         {
             var s = Store.LoadSettings();
@@ -235,7 +239,12 @@ public partial class MissingWindow : Window
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0xAD, 0x14, 0x57));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0xAD, 0x14, 0x57));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x8E, 0x5A, 0x66));
+        GlassBrush.Apply(NoteBorder);
     }
+
+    /// <summary>IGlassSurface：设置变更时由 GlassBrush.RefreshAll 统一刷新底色。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(NoteBorder, settings);
 
     private void RebuildContent(MissingBoard board)
     {
@@ -246,7 +255,7 @@ public partial class MissingWindow : Window
 
         ContentPanel.Children.Clear();
 
-        var items = (board.Items ?? new()).Where(m => !string.IsNullOrWhiteSpace(m.Students)).ToList();
+        var items = board.LiveItems.Where(m => !string.IsNullOrWhiteSpace(m.Students)).ToList();
         if (items.Count == 0)
         {
             ContentPanel.Children.Add(new TextBlock
@@ -302,11 +311,14 @@ public partial class MissingWindow : Window
 
             var saved = dlg.BuildBoard();
             Store.SaveMissingBoard(saved);
+            if (Store.LastWriteError is string err)
+            {
+                System.Windows.MessageBox.Show("缺交名单没有保存：" + err, "保存失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
-            var st = Store.LoadSettings();
-            if (st.Backdrop?.ShowMissing == true)
-                BackdropService.Apply(silent: true, out _);
-
+            // ★ 同作业公示：壁纸交给 MissingChanged 的 1.2s 防抖订阅
             AppEvents.RaiseMissingChanged();
             AppEvents.RaiseBackdropChanged();
         }
@@ -397,6 +409,13 @@ public partial class MissingWindow : Window
             TxtHint.Text = locked ? "已锁定：不能移动 / 缩放 / 编辑" : "拖动摆放 · 拉边沿改大小 · 双击编辑";
     }
 
+    // 编辑窗里改了「锁定便签」：重读设置并刷新锁头图标，不等重启
+    private void OnNoteLockChanged()
+    {
+        _locked = Store.LoadSettings().MsWinLocked;
+        UpdateLockButton();
+    }
+
     private void BtnLock_Click(object sender, RoutedEventArgs e)
     {
         _locked = !_locked;
@@ -415,6 +434,7 @@ public partial class MissingWindow : Window
         SavePlacement();
         AppEvents.MissingChanged -= OnMissingChanged;
         AppEvents.BackdropChanged -= UpdateBackdropButton;
+        AppEvents.NoteLockChanged -= OnNoteLockChanged;
         _posTimer?.Stop();
         base.OnClosed(e);
     }

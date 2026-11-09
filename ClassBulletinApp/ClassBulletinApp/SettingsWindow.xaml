@@ -4,7 +4,7 @@
         Title="设置" Height="360" Width="470"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <StackPanel Margin="24">
-        <TextBlock Text="启动选项" FontSize="20" FontWeight="Bold" Foreground="#1F2A37" Margin="0,0,0,16"/>
+        <TextBlock Text="启动选项" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,16"/>
 
         <CheckBox x:Name="ChkFullscreen" Content="启动时直接进入全屏展示" FontSize="15" Margin="0,0,0,12"/>
         <CheckBox x:Name="ChkLocked" Content="启动即进入防误触锁定（按 Ctrl+L 解锁）" FontSize="15" Margin="0,0,0,24"/>
@@ -14,6 +14,6 @@
             <Button x:Name="BtnSave" Content="保存" Padding="16,8" FontSize="14" Click="BtnSave_Click" Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}"/>
         </StackPanel>
 
-        <TextBlock x:Name="TxtVersion" HorizontalAlignment="Left" FontSize="12" Foreground="#9CA3AF" Margin="0,16,0,0"/>
+        <TextBlock x:Name="TxtVersion" HorizontalAlignment="Left" FontSize="12" Foreground="{DynamicResource HintBrush}" Margin="0,16,0,0"/>
     </StackPanel>
 </Window>

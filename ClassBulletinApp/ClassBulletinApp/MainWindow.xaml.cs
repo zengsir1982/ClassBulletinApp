@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -18,9 +19,18 @@ public partial class MainWindow : Window
     /// <summary>诊断用：打开时把「提醒设置」页滚到最底部（<c>--shot mainremindend</c>）。</summary>
     internal bool ReminderScrollEnd;
 
+    /// <summary>诊断用：打开时展开「信息管理 → ③ 同步设置」（<c>--shot maininfoopen</c>）。</summary>
+    internal bool InfoSettingsExpanded;
+
+    /// <summary>诊断用：打开便签管理页后滚到底（<c>--shot mainnotes</c>），否则「其他便签」那几张卡在折叠区外。</summary>
+    internal bool NotesScrollEnd;
+
     private bool _isFull;
     private bool _locked;
     private bool _exiting;
+
+    /// <summary>P1 新导航：诊断 / 托盘是否显式指定过起始页。没指定才默认落到「今日」。</summary>
+    private bool _initialTabSet;
 
     private ScheduleWindow? _schWin;
     private NotificationWindow? _notifWin;
@@ -28,7 +38,8 @@ public partial class MainWindow : Window
     private MissingWindow? _msWin;
     private CountdownWindow? _cdWin;
     private DutyWindow? _dutyWin;
-    private bool _schOn, _notOn, _hwOn, _msOn, _cdOn, _dutyOn;
+    private NoticeWindow? _noticeWin;
+    private bool _schOn, _notOn, _hwOn, _msOn, _cdOn, _dutyOn, _noticeOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
     // 教师个人课表下拉（支持输入姓名查询）
@@ -47,14 +58,18 @@ public partial class MainWindow : Window
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
 
-    /// <summary>打开时默认选中的标签页下标（0=周课程表,1=数据管理,2=显示设置,3=提醒设置,4=通知公告,5=作业公示,6=用户中心）。
-    /// 与 LayoutWindow 一样必须走属性 setter：对象初始化器的赋值发生在构造函数之后。</summary>
+    /// <summary>打开时默认选中的标签页下标（0=周课程表,1=数据管理,2=显示设置,3=提醒设置,4=通知公告,
+    /// 5=便签管理,6=信息管理,7=用户中心,8=关于,9=今日首页）。
+    /// 与 LayoutWindow 一样必须走属性 setter：对象初始化器的赋值发生在构造函数之后。
+    /// 0~8 的顺序一个都不能动：悬浮窗快捷入口、托盘命令、截图目标都按这些下标跳转。</summary>
     public int InitialTabIndex
     {
         set
         {
+            _initialTabSet = true;
             if (MainTabs != null && MainTabs.Items.Count > 0)
                 MainTabs.SelectedIndex = Math.Clamp(value, 0, MainTabs.Items.Count - 1);
+            ApplyNavGroup(GroupOfTab(value), false);
         }
     }
 
@@ -79,6 +94,9 @@ public partial class MainWindow : Window
         AppEvents.QuickOpenCountdown += OnQuickOpenCountdown;
         AppEvents.QuickOpenDuty += OnQuickOpenDuty;
         AppEvents.QuickOpenSettings += OnQuickOpenSettings;
+        AppEvents.QuickOpenWeek += OnQuickOpenWeek;
+        AppEvents.QuickOpenPublish += OnQuickOpenPublish;
+        AppEvents.QuickOpenInfoLedger += OnQuickOpenInfoLedger;
         AppEvents.QuickCheckUpdate += OnQuickCheckUpdate;
 
         // 球上右键「隐藏」时，这里的勾选要跟着取消（球是常驻窗口，两边状态必须一致）
@@ -90,7 +108,8 @@ public partial class MainWindow : Window
         // 嵌套的说明框同理。窗口的 PreviewTouchDown（隧道最外层，比 ScrollViewer 的类处理更早）
         // 里先看落点，命中滑块或「自己能滚的嵌套框」时把外层 ScrollViewer 的接管临时关掉。
         // 处理函数挂在 XAML 的 PreviewTouchDown 上，不在代码里 new 委托（省掉类型名依赖）。
-    }
+    
+        GlassChrome.Prepare(this);}
 
     /// <summary>
     /// 触摸落点保护：页面滚动开起来之后，滑块与嵌套滚动框仍然要能被手指直接操作。
@@ -282,7 +301,8 @@ public partial class MainWindow : Window
         }
         try
         {
-            bool empty = Store.LoadDuty().Items.Count == 0;
+            // 用 LiveCount：只有墓碑（全删过）也算空，否则会显示一张什么都没有的便签
+            bool empty = Store.LoadDuty().LiveCount == 0;
             ShowDutyWin();
             if (empty) OpenDutyEditor();
             TxtStatus.Text = "值日生名单已显示（双击便签可编辑）。";
@@ -300,6 +320,62 @@ public partial class MainWindow : Window
         ShowMainWindow();
         if (MainTabs != null) MainTabs.SelectedIndex = 2;   // 0 周课程表 / 1 数据管理 / 2 显示设置
         TxtStatus.Text = "已打开「显示设置」：字号、颜色、悬浮窗、手写悬浮球都在这一页。";
+    }
+
+    /// <summary>悬浮课表「周课」快捷入口：打开控制面板并切到「周课程表」页。</summary>
+    private void OnQuickOpenWeek()
+    {
+        ShowMainWindow();
+        if (MainTabs != null) MainTabs.SelectedIndex = 0;   // 0 周课程表
+        TxtStatus.Text = "已打开「周课程表」：拖动课程卡可交换两节课，双击卡片可编辑。";
+    }
+
+    /// <summary>
+    /// 悬浮课表「信息」快捷入口：直接打开消息台账 / 回执窗口，不绕控制面板。
+    /// <para>非模态（Show 而不是 ShowDialog）：它是常驻的查看窗，不该把其它窗口一起禁用。</para>
+    /// </summary>
+    private void OnQuickOpenInfoLedger()
+    {
+        try
+        {
+            new BoardSyncWindow().Show();
+            TxtStatus.Text = UserSession.IsStudent
+                ? "已打开消息台账：这里看「收件箱」，有教师机发来的变更单时逐条选「增加 / 替换 / 忽略」。"
+                : "已打开消息台账：这里看「发送箱」，逐条核对教室机回执；改错了还能撤回还原。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "打不开消息台账：" + ex.Message; }
+    }
+
+    /// <summary>
+    /// 悬浮课表「发布」快捷入口：直接弹「新建班级内容变更单」。
+    /// <para>目标班级仍以「信息管理」页勾选的为准；一个都没勾过时退到当前显示班级 /
+    /// 唯一的任教班级 —— 绝不擅自把信息发到名单外的班级。</para>
+    /// </summary>
+    private void OnQuickOpenPublish()
+    {
+        if (!UserSession.CanPublishInfo) { TxtStatus.Text = UserSession.DenyPublishInfo; return; }
+
+        var s = Store.LoadSettings();
+        if (!s.BoardSyncEnabled)
+        {
+            TxtStatus.Text = "同步还没启用：请到「信息管理 → ③ 同步设置」勾选「启用同步」并保存后再发布。";
+            return;
+        }
+
+        var mine = TeachingClasses();
+        var picked = mine.Where(c => _pickedInfoClasses.Contains(c)).ToList();
+        if (picked.Count == 0)
+        {
+            string own = (s.SelectedClass ?? "").Trim();
+            if (own.Length > 0 && mine.Contains(own, StringComparer.Ordinal)) picked.Add(own);
+            else if (mine.Count == 1) picked.Add(mine[0]);
+        }
+        if (picked.Count == 0)
+        {
+            TxtStatus.Text = "还没有任教班级：请到「信息管理」页从下拉里增加班级并勾选后再发布。";
+            return;
+        }
+        PublishFor(picked, null);
     }
 
     private async void OnQuickCheckUpdate()
@@ -423,6 +499,14 @@ public partial class MainWindow : Window
         if (ReminderScrollEnd)
             Dispatcher.BeginInvoke(new Action(() => { try { ReminderScroll?.ScrollToEnd(); } catch { } }));
 
+        // 诊断用：截图时展开「信息管理 → ③ 同步设置」（否则新增开关在折叠区里看不到）
+        if (InfoSettingsExpanded)
+            Dispatcher.BeginInvoke(new Action(() => { try { ExpInfoSettings.IsExpanded = true; } catch { } }));
+
+        // 诊断用：便签管理页滚到底，才拍得到「其他便签」那几张卡（含事项列表）
+        if (NotesScrollEnd)
+            Dispatcher.BeginInvoke(new Action(() => { try { NotesScroll?.ScrollToEnd(); } catch { } }));
+
         // 上下课提醒后台服务
         try { ReminderService.Start(); }
         catch (Exception ex) { TxtStatus.Text += " [提醒服务启动失败：" + ex.Message + "]"; }
@@ -455,6 +539,8 @@ public partial class MainWindow : Window
             if (settings.AutoShowNotification) ShowNotificationWin();
             if (settings.AutoShowHomework) ShowHomeworkWin();
             if (settings.AutoShowMissing) ShowMissingWin();
+            // 事项便签默认显示：它才是通知的完整清单，跑马灯只滚最新两条
+            if (settings.AutoShowNotice) ShowNoticeWin();
             // 自定义便签：每张各自记住 Visible 开关，启动即恢复显示中的便签
             foreach (var cn in settings.CustomNotes)
                 if (cn.Visible) ShowCustomNote(cn.Id);
@@ -474,6 +560,7 @@ public partial class MainWindow : Window
 
         UpdateToggleLabels();
         ApplyPermissions();
+        InitInfoTab();   // 班级下拉要在 ClassNames 填充完后才有内容
 
         try
         {
@@ -488,6 +575,9 @@ public partial class MainWindow : Window
         // 空闲预热：把"第一次调课为什么要等几秒"摊到启动后的空闲时间上。
         // 首次拖动要现读全校课表 / 覆盖表 + 现 JIT 建表与刷新路径，冷启动那一下能明显卡住；
         // 这些 read 有签名缓存，预热一次之后拖动就只走内存。
+        // P1 新导航：默认落到「今日」；诊断 / 托盘显式指定 InitialTabIndex 时不覆盖
+        InitNavShell();
+
         Dispatcher.BeginInvoke(new Action(WarmUpForFirstDrag),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
@@ -760,6 +850,56 @@ public partial class MainWindow : Window
         UpdateToggleLabels();
     }
 
+    // ---------- 事项列表便签（通知 / 公告的便签形态） ----------
+    private void ShowNoticeWin()
+    {
+        if (_noticeWin == null)
+        {
+            _noticeWin = new NoticeWindow();
+            _noticeWin.Closed += (_, _) => { _noticeWin = null; _noticeOn = false; UpdateToggleLabels(); };
+            // ✕ 是 Hide 不是 Close，不会触发 Closed：不同步这里，按钮文案会一直停在「显示事项便签」
+            _noticeWin.IsVisibleChanged += (_, _) =>
+            {
+                bool vis = _noticeWin?.IsVisible == true;
+                if (_noticeOn != vis) { _noticeOn = vis; UpdateToggleLabels(); }
+            };
+        }
+        _noticeWin.Show();
+        FloatingHelper.ClampToScreen(_noticeWin);
+        FloatingHelper.BringToFront(_noticeWin);
+        SetNoteVisible(NoticeWindow.PlacementKey, true);
+        _noticeOn = true;
+        UpdateToggleLabels();
+    }
+
+    private void HideNoticeWin()
+    {
+        _noticeWin?.Hide();
+        SetNoteVisible(NoticeWindow.PlacementKey, false);
+        _noticeOn = false;
+        UpdateToggleLabels();
+    }
+
+    private void BtnToggleNotice_Click(object sender, RoutedEventArgs e)
+    {
+        if (_noticeOn) HideNoticeWin();
+        else ShowNoticeWin();
+    }
+
+    private void BtnEditNotice_Click(object sender, RoutedEventArgs e) => OpenNotificationEditor();
+
+    /// <summary>打开通知编辑窗口（便签管理页与事项便签共用同一入口）。</summary>
+    private void OpenNotificationEditor()
+    {
+        try
+        {
+            var dlg = new NotificationEditWindow { Owner = this };
+            dlg.ShowDialog();
+            AppEvents.RaiseNotificationChanged();
+        }
+        catch { }
+    }
+
     /// <summary>记住这张便签"下次启动要不要自己浮出来"。</summary>
     private static void SetNoteVisible(string key, bool visible)
     {
@@ -900,6 +1040,7 @@ public partial class MainWindow : Window
         if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
         if (BtnToggleCd != null) BtnToggleCd.Content = _cdOn ? "隐藏倒计时便签" : "显示倒计时便签";
         if (BtnToggleDuty != null) BtnToggleDuty.Content = _dutyOn ? "隐藏值日便签" : "显示值日便签";
+        if (BtnToggleNotice != null) BtnToggleNotice.Content = _noticeOn ? "隐藏通知公告便签" : "显示通知公告便签";
         UpdateModeIndicator();
     }
 
@@ -985,6 +1126,10 @@ public partial class MainWindow : Window
         // 会让用户以为是程序坏了，写清楚省一轮排查。
         if (TxtRoleLine != null)
             TxtRoleLine.Text = $"当前身份：{UserSession.Caption}　｜　可用权限：{UserSession.PolicySummary}";
+
+        // 「信息管理」页的发布按钮（含三类快发）也按同一套权限刷新：
+        // 电教管理员默认没有发布权限，切换账号后必须立刻变灰，不能等重启。
+        ApplyInfoPermissions();
     }
 
     /// <summary>
@@ -1113,32 +1258,10 @@ public partial class MainWindow : Window
         _remindReady = false;
         ChkRemindEnabled.IsChecked = r.Enabled;
 
-        // 上课
-        var cs = r.ClassStart;
-        ChkCsOn.IsChecked = cs.Enabled;
-        TxtCsLead.Text = Math.Max(0, cs.LeadSeconds).ToString();
-        TxtCsTitle.Text = cs.Title;
-        TxtCsDetail.Text = cs.Detail;
-        TxtCsVoice.Text = cs.VoiceText;
-        TxtCsDanmaku.Text = cs.Danmaku;
-
-        // 下课
-        var ce = r.ClassEnd;
-        ChkCeOn.IsChecked = ce.Enabled;
-        TxtCeLead.Text = Math.Max(0, ce.LeadSeconds).ToString();
-        TxtCeTitle.Text = ce.Title;
-        TxtCeDetail.Text = ce.Detail;
-        TxtCeVoice.Text = ce.VoiceText;
-        TxtCeDanmaku.Text = ce.Danmaku;
-
-        // 放学
-        var ae = r.AfterSchool;
-        ChkAsOn.IsChecked = ae.Enabled;
-        TxtAsLead.Text = Math.Max(0, ae.LeadSeconds).ToString();
-        TxtAsTitle.Text = ae.Title;
-        TxtAsDetail.Text = ae.Detail;
-        TxtAsVoice.Text = ae.VoiceText;
-        TxtAsDanmaku.Text = ae.Danmaku;
+        // P4：上课 / 下课 / 放学三组完全同构 —— 一套读写 + 三次调用，只编辑差异
+        LoadReminderProfile(r.ClassStart, ChkCsOn, TxtCsLead, TxtCsTitle, TxtCsDetail, TxtCsVoice, TxtCsDanmaku);
+        LoadReminderProfile(r.ClassEnd, ChkCeOn, TxtCeLead, TxtCeTitle, TxtCeDetail, TxtCeVoice, TxtCeDanmaku);
+        LoadReminderProfile(r.AfterSchool, ChkAsOn, TxtAsLead, TxtAsTitle, TxtAsDetail, TxtAsVoice, TxtAsDanmaku);
 
         TxtRemindSeconds.Text = Math.Clamp(r.DisplaySeconds, 3, 60).ToString();
         ChkRemindSound.IsChecked = r.PlaySound;
@@ -1167,6 +1290,34 @@ public partial class MainWindow : Window
         ReloadPopupStyleUi(r);
 
         _remindReady = true;
+    }
+
+    /// <summary>P4：三组提醒字段同构，收敛成一套读写 + 三次调用。
+    /// 控件名、事件、就绪标志、解析规则、默认值全部不变，纯等价重构（不动持久化模型，不需要新 Rev）。</summary>
+    private static void LoadReminderProfile(ScheduleCore.Models.ReminderProfile p,
+        System.Windows.Controls.CheckBox on, System.Windows.Controls.TextBox lead,
+        System.Windows.Controls.TextBox title, System.Windows.Controls.TextBox detail,
+        System.Windows.Controls.TextBox voice, System.Windows.Controls.TextBox danmaku)
+    {
+        on.IsChecked = p.Enabled;
+        lead.Text = Math.Max(0, p.LeadSeconds).ToString();
+        title.Text = p.Title;
+        detail.Text = p.Detail;
+        voice.Text = p.VoiceText;
+        danmaku.Text = p.Danmaku;
+    }
+
+    private static void SaveReminderProfile(ScheduleCore.Models.ReminderProfile p,
+        System.Windows.Controls.CheckBox on, System.Windows.Controls.TextBox lead,
+        System.Windows.Controls.TextBox title, System.Windows.Controls.TextBox detail,
+        System.Windows.Controls.TextBox voice, System.Windows.Controls.TextBox danmaku)
+    {
+        p.Enabled = on.IsChecked == true;
+        p.LeadSeconds = ParseNonNeg(lead.Text);
+        p.Title = title.Text ?? "";
+        p.Detail = detail.Text ?? "";
+        p.VoiceText = voice.Text ?? "";
+        p.Danmaku = danmaku.Text ?? "";
     }
 
     // ---------- 提醒提示外观（小窗 + 全屏共用） ----------
@@ -1406,26 +1557,9 @@ public partial class MainWindow : Window
             var r = s.Reminder;
             r.Enabled = ChkRemindEnabled.IsChecked == true;
 
-            r.ClassStart.Enabled = ChkCsOn.IsChecked == true;
-            r.ClassStart.LeadSeconds = ParseNonNeg(TxtCsLead.Text);
-            r.ClassStart.Title = TxtCsTitle.Text ?? "";
-            r.ClassStart.Detail = TxtCsDetail.Text ?? "";
-            r.ClassStart.VoiceText = TxtCsVoice.Text ?? "";
-            r.ClassStart.Danmaku = TxtCsDanmaku.Text ?? "";
-
-            r.ClassEnd.Enabled = ChkCeOn.IsChecked == true;
-            r.ClassEnd.LeadSeconds = ParseNonNeg(TxtCeLead.Text);
-            r.ClassEnd.Title = TxtCeTitle.Text ?? "";
-            r.ClassEnd.Detail = TxtCeDetail.Text ?? "";
-            r.ClassEnd.VoiceText = TxtCeVoice.Text ?? "";
-            r.ClassEnd.Danmaku = TxtCeDanmaku.Text ?? "";
-
-            r.AfterSchool.Enabled = ChkAsOn.IsChecked == true;
-            r.AfterSchool.LeadSeconds = ParseNonNeg(TxtAsLead.Text);
-            r.AfterSchool.Title = TxtAsTitle.Text ?? "";
-            r.AfterSchool.Detail = TxtAsDetail.Text ?? "";
-            r.AfterSchool.VoiceText = TxtAsVoice.Text ?? "";
-            r.AfterSchool.Danmaku = TxtAsDanmaku.Text ?? "";
+            SaveReminderProfile(r.ClassStart, ChkCsOn, TxtCsLead, TxtCsTitle, TxtCsDetail, TxtCsVoice, TxtCsDanmaku);
+            SaveReminderProfile(r.ClassEnd, ChkCeOn, TxtCeLead, TxtCeTitle, TxtCeDetail, TxtCeVoice, TxtCeDanmaku);
+            SaveReminderProfile(r.AfterSchool, ChkAsOn, TxtAsLead, TxtAsTitle, TxtAsDetail, TxtAsVoice, TxtAsDanmaku);
 
             r.DisplaySeconds = ParseSeconds(TxtRemindSeconds.Text);
             r.PlaySound = ChkRemindSound.IsChecked == true;
@@ -1559,13 +1693,18 @@ public partial class MainWindow : Window
 
             var saved = dlg.BuildBoard();
             Store.SaveMissingBoard(saved);
-            if (Store.LoadSettings().Backdrop?.ShowMissing == true)
-                BackdropService.Apply(silent: true, out _);
+            string? writeErr = Store.LastWriteError;
+            if (writeErr != null)
+            {
+                TxtStatus.Text = "⚠ 缺交名单没有保存：" + writeErr + "（改动只在内存里，请检查账号与磁盘权限后重试）";
+                return;
+            }
 
+            // ★ 同作业公示：壁纸由 MissingChanged 的 1.2s 防抖订阅负责，不在确认链里同步渲染
             ReloadMissing();
             AppEvents.RaiseMissingChanged();
             AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "缺交作业名单已更新（共 " + saved.Items.Count + " 条记录）";
+            TxtStatus.Text = "缺交作业名单已更新（共 " + saved.LiveCount + " 条记录）";
         }
         catch (Exception ex)
         {
@@ -1906,7 +2045,7 @@ public partial class MainWindow : Window
         switch (cmd)
         {
             case TrayCommands.Panel: ShowMainWindow(); break;
-            case TrayCommands.UserCenter: ShowMainWindow(); MainTabs.SelectedIndex = 6; break;
+            case TrayCommands.UserCenter: ShowMainWindow(); MainTabs.SelectedIndex = 7; break;
             case TrayCommands.ToggleSchedule: BtnToggleSch_Click(this, new RoutedEventArgs()); break;
             case TrayCommands.ToggleNotice: BtnToggleNot_Click(this, new RoutedEventArgs()); break;
             case TrayCommands.ToggleHomework: BtnToggleHw_Click(this, new RoutedEventArgs()); break;
@@ -2260,6 +2399,110 @@ public partial class MainWindow : Window
     {
         if (!ReferenceEquals(e.OriginalSource, MainTabs)) return;
         if (TabAbout != null && ReferenceEquals(MainTabs.SelectedItem, TabAbout)) RefreshAboutTab();
+        SyncNavFromTab(MainTabs.SelectedIndex);
+    }
+
+    // ---------------- P1 新导航（侧栏 5 组 + 二级分段条） ----------------
+    // 设计要点：TabControl 的 9 个 TabItem 顺序、索引、x:Name 全部不变，
+    // HeadlessTabs 样式只隐藏页头；「今日」追加在末尾 index 9。
+    // 因此 SelectedIndex = 0/2/7/8、托盘命令、--shot main* 截图目标零回归。
+
+    private static int GroupOfTab(int index) => index switch
+    {
+        9 => 0,        // 今日
+        0 => 1,        // 课程表
+        4 or 5 => 2,   // 内容：通知公告 / 便签管理
+        6 => 3,        // 消息：信息管理（同步设置 + 发布入口）
+        _ => 4,        // 设置：1 数据 / 2 显示 / 3 提醒 / 7 用户 / 8 关于
+    };
+
+    private void SyncNavFromTab(int index)
+    {
+        try { ApplyNavGroup(GroupOfTab(index), false); }
+        catch { /* 导航外观失败不能影响内容加载 */ }
+    }
+
+    private void InitNavShell()
+    {
+        try
+        {
+            RefreshTodayPage();
+            if (!_initialTabSet && MainTabs != null && MainTabs.Items.Count > 9)
+                MainTabs.SelectedIndex = 9;
+            ApplyNavGroup(GroupOfTab(MainTabs?.SelectedIndex ?? 0), false);
+        }
+        catch { }
+    }
+
+    private void RefreshTodayPage()
+    {
+        if (TxtTodaySubtitle == null) return;
+        string[] weeks = { "日", "一", "二", "三", "四", "五", "六" };
+        var now = DateTime.Now;
+        string cls = (CbClass?.SelectedItem as string) ?? "";
+        TxtTodaySubtitle.Text = $"{now:yyyy 年 M 月 d 日} 周{weeks[(int)now.DayOfWeek]}"
+            + (string.IsNullOrWhiteSpace(cls) ? "" : " · " + cls)
+            + " · 课表与便签按当前显示日期刷新";
+    }
+
+    /// <summary>切换一级导航组：更新高亮与二级分段条，可选切到该组默认页。</summary>
+    private void ApplyNavGroup(int group, bool selectDefaultTab)
+    {
+        group = Math.Clamp(group, 0, 4);
+        var buttons = new[] { NavBtnToday, NavBtnWeek, NavBtnContent, NavBtnMessage, NavBtnSetting };
+        var subs = new[] { SubNavToday, SubNavWeek, SubNavContent, SubNavMessage, SubNavSetting };
+        var activeBg = TryFindResource("PrimaryLightBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.LightBlue;
+        var activeFg = TryFindResource("PrimaryDarkBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.DarkBlue;
+        var normalFg = TryFindResource("InkBrush") as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Black;
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            if (buttons[i] == null) continue;
+            bool on = i == group;
+            buttons[i]!.Background = on ? activeBg : System.Windows.Media.Brushes.Transparent;
+            buttons[i]!.Foreground = on ? activeFg : normalFg;
+            buttons[i]!.FontWeight = on ? FontWeights.Medium : FontWeights.Normal;
+            if (subs[i] != null) subs[i]!.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (selectDefaultTab && MainTabs != null)
+        {
+            int[] def = { 9, 0, 4, 6, 2 };
+            MainTabs.SelectedIndex = Math.Clamp(def[group], 0, MainTabs.Items.Count - 1);
+        }
+    }
+
+    private void NavGroup_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not string tag) return;
+        int group = tag switch
+        {
+            "today" => 0, "week" => 1, "content" => 2, "message" => 3, "setting" => 4, _ => 0
+        };
+        ApplyNavGroup(group, true);
+        if (group == 0) RefreshTodayPage();
+    }
+
+    private void NavSub_Click(object sender, RoutedEventArgs e) => RunNavAction(sender);
+    private void NavTodayAction_Click(object sender, RoutedEventArgs e) => RunNavAction(sender);
+
+    /// <summary>二级分段条与今日页快捷动作共用：数字 = 切 Tab，字符串 = 复用已有事件处理器。</summary>
+    private void RunNavAction(object sender)
+    {
+        if (sender is not Button b || b.Tag is not string tag) return;
+        if (int.TryParse(tag, out int idx))
+        {
+            if (MainTabs != null) MainTabs.SelectedIndex = Math.Clamp(idx, 0, MainTabs.Items.Count - 1);
+            return;
+        }
+        var args = new RoutedEventArgs();
+        switch (tag)
+        {
+            case "week": ApplyNavGroup(1, true); break;
+            case "publish": OnQuickOpenPublish(); break;
+            case "ledger": OnQuickOpenInfoLedger(); break;
+            case "pull": BtnInfoPull_Click(this, args); break;
+            case "layout": BtnLayout_Click(this, args); break;
+            case "backdrop": BtnWpSettings_Click(this, args); break;
+        }
     }
 
     /// <summary>把运行信息填进「关于」页（只读，不涉及权限）。</summary>
@@ -3960,6 +4203,12 @@ public partial class MainWindow : Window
         return opt;
     }
 
+    // r75：通知条格式条的状态（字号磅值 + 文字颜色）。
+    // 原来靠两个 ComboBox 的 SelectedItem 记状态，现在字号是 A± 步进、颜色是色板弹层，得自己记账。
+    private int _notifSize = 28;
+    private string _notifTextHex = "";
+    private List<NotifColorOption> _notifTextOptions = new();
+
     /// <summary>把设置里的字体 / 字号 / 字色 / 背景色同步到控件与预览条（不触发保存）。</summary>
     private void ReloadNotifStyle()
     {
@@ -3975,20 +4224,14 @@ public partial class MainWindow : Window
             CbNotifFont.ItemsSource = fonts;
             CbNotifFont.SelectedIndex = fi;
 
-            // 字号：老数据存的可能是 25 这种"不在档位表里"的值，补进去而不是抹成最近的档
-            var sizes = NotifSizes.ToList();
-            string want = ((int)Math.Round(nl.FontSize <= 0 ? 28 : nl.FontSize)).ToString();
-            if (!sizes.Contains(want))
-            {
-                sizes.Add(want);
-                sizes.Sort((a, b) => int.Parse(a).CompareTo(int.Parse(b)));
-            }
-            CbNotifSize.ItemsSource = sizes;
-            CbNotifSize.SelectedItem = want;
+            // 字号：老数据可能存着 25 这种「不在档位表里」的值 —— 照原值显示，A± 时才吸附到最近档
+            _notifSize = Math.Clamp((int)Math.Round(nl.FontSize <= 0 ? 28 : nl.FontSize), 12, 96);
+            UpdateNotifSizeUi();
 
-            var texts = NotifTextColorOptions();
-            CbNotifText.ItemsSource = texts;
-            CbNotifText.SelectedItem = EnsureNotifColor(texts, string.IsNullOrWhiteSpace(nl.TextColor) ? "#FFFFFF" : nl.TextColor);
+            // 文字颜色：空 = 跟随通知条底色的默认白字
+            _notifTextOptions = NotifTextColorOptions();
+            _notifTextHex = string.IsNullOrWhiteSpace(nl.TextColor) ? "" : nl.TextColor!.Trim();
+            BuildNotifSwatches();
 
             var bars = NotifBarColorOptions();
             CbNotifBg.ItemsSource = bars;
@@ -4001,6 +4244,120 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>字号那一格 + 右侧摘要 + 色条颜色（三个地方读的是同一份状态）。</summary>
+    private void UpdateNotifSizeUi()
+    {
+        TxtNotifSize.Text = _notifSize + " 号";
+        NotifColorBar.Fill = NotifTextBrush();
+        TxtNotifStyleMeta.Text = "字号 " + _notifSize
+                                 + (string.IsNullOrEmpty(_notifTextHex) ? " · 默认白字" : " · " + _notifTextHex!.ToUpperInvariant());
+    }
+
+    private System.Windows.Media.Brush NotifTextBrush()
+        => string.IsNullOrEmpty(_notifTextHex)
+            ? System.Windows.Media.Brushes.White
+            : ThemeHelper.Brush(_notifTextHex!, System.Windows.Media.Colors.White);
+
+    /// <summary>按档位表顺序步进（12,14,16…96），不是 ±1 磅 —— ±1 会把「18→19」这种半档写成歪值。</summary>
+    private void StepNotifSize(int dir)
+    {
+        var arr = NotifSizes.Select(int.Parse).ToArray();
+        int idx = Array.FindIndex(arr, v => v == _notifSize);
+        if (idx < 0)
+        {
+            idx = 0;
+            while (idx < arr.Length - 1 && arr[idx] < _notifSize) idx++;
+        }
+        idx = Math.Clamp(idx + dir, 0, arr.Length - 1);
+        if (arr[idx] == _notifSize) return;
+        _notifSize = arr[idx];
+        UpdateNotifSizeUi();
+        SaveNotifStyle();
+    }
+
+    private void BtnNotifSizeDown_Click(object sender, RoutedEventArgs e) => StepNotifSize(-1);
+    private void BtnNotifSizeUp_Click(object sender, RoutedEventArgs e) => StepNotifSize(1);
+
+    /// <summary>重建文字颜色色板（与格式条同一个色格样式；自定义色会被补齐到末尾，不会丢）。</summary>
+    private void BuildNotifSwatches()
+    {
+        if (_notifTextOptions.Count == 0) _notifTextOptions = NotifTextColorOptions();
+        var list = _notifTextOptions;
+        var cur = EnsureNotifColor(list, string.IsNullOrEmpty(_notifTextHex) ? "#FFFFFF" : _notifTextHex);
+        NotifSwatchGrid.Children.Clear();
+        foreach (var opt in list)
+        {
+            var sw = new System.Windows.Controls.Border
+            {
+                Style = (System.Windows.Style)FindResource("BarSwatchStyle"),
+                Background = opt.Swatch,
+                ToolTip = opt.Name,
+                Tag = opt
+            };
+            if (string.Equals(opt.Hex ?? "", cur.Hex ?? "", StringComparison.OrdinalIgnoreCase))
+            {
+                sw.BorderBrush = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF));
+                sw.BorderThickness = new Thickness(2);
+            }
+            var picked = opt;
+            sw.MouseLeftButtonUp += (_, _) =>
+            {
+                _notifTextHex = picked.Hex ?? "";
+                NotifColorPopup.IsOpen = false;
+                BuildNotifSwatches();
+                SaveNotifStyle();
+            };
+            NotifSwatchGrid.Children.Add(sw);
+        }
+        NotifColorBar.Fill = NotifTextBrush();
+        TxtNotifStyleMeta.Text = "字号 " + _notifSize
+                                 + (string.IsNullOrEmpty(_notifTextHex) ? " · 默认白字" : " · " + _notifTextHex!.ToUpperInvariant());
+    }
+
+    private void BtnNotifColor_Click(object sender, RoutedEventArgs e)
+    {
+        BuildNotifSwatches();
+        NotifColorPopup.IsOpen = true;
+    }
+
+    private void BtnNotifMoreColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (!EditorStyleOptions.TryPickColor(string.IsNullOrEmpty(_notifTextHex) ? "#FFFFFF" : _notifTextHex, out string hex))
+        {
+            TxtStatus.Text = "没有取到颜色，保持原样。";
+            return;
+        }
+        _notifTextHex = hex;
+        NotifColorPopup.IsOpen = false;
+        BuildNotifSwatches();
+        SaveNotifStyle();
+        TxtStatus.Text = "通知条字色已设为自定义颜色 " + hex.ToUpperInvariant() + "。";
+    }
+
+    /// <summary>恢复默认：微软雅黑 / 28 号 / 白字 / 跟随主题的深蓝底。</summary>
+    private void BtnNotifReset_Click(object sender, RoutedEventArgs e)
+    {
+        _notifStyleReady = false;
+        try
+        {
+            _notifSize = 28;
+            _notifTextHex = "";
+            if (CbNotifFont.ItemsSource is List<string> fs)
+            {
+                int i = fs.IndexOf(NotifFonts[0]);
+                CbNotifFont.SelectedIndex = i >= 0 ? i : 0;
+            }
+            if (CbNotifBg.ItemsSource is List<NotifColorOption> bars)
+                CbNotifBg.SelectedItem = EnsureNotifColor(bars, "");
+        }
+        finally { _notifStyleReady = true; }
+        UpdateNotifSizeUi();
+        BuildNotifSwatches();
+        SaveNotifStyle();
+        TxtStatus.Text = "通知条外观已恢复默认。";
+    }
+
     /// <summary>预览条与顶部通知字幕条用同一套字体 / 字号 / 颜色，改完立刻能看到效果。</summary>
     private void ApplyNotifPreview()
     {
@@ -4008,9 +4365,8 @@ public partial class MainWindow : Window
         {
             var font = CbNotifFont.SelectedItem as string ?? NotifFonts[0];
             NotifPreviewText.FontFamily = new System.Windows.Media.FontFamily(font);
-            NotifPreviewText.FontSize = ParseNotifSize(CbNotifSize.SelectedItem as string);
-            NotifPreviewText.Foreground = (CbNotifText.SelectedItem as NotifColorOption)?.Swatch
-                                          ?? System.Windows.Media.Brushes.White;
+            NotifPreviewText.FontSize = Math.Clamp(_notifSize, 12, 120);
+            NotifPreviewText.Foreground = NotifTextBrush();
 
             var bg = CbNotifBg.SelectedItem as NotifColorOption;
             if (bg == null || string.IsNullOrEmpty(bg.Hex))
@@ -4034,7 +4390,7 @@ public partial class MainWindow : Window
         SaveNotifStyle();
     }
 
-    /// <summary>把当前下拉里的字体 / 字号 / 字色 / 背景写进设置，并让顶部字幕条立即按新外观重排。</summary>
+    /// <summary>把当前格式条 / 下拉里的字体、字号、字色、背景写进设置，并让顶部字幕条立即按新外观重排。</summary>
     private void SaveNotifStyle()
     {
         try
@@ -4042,8 +4398,8 @@ public partial class MainWindow : Window
             var s = Store.LoadSettings();
             s.NotificationLayout ??= new PanelLayout();
             s.NotificationLayout.FontFamily = CbNotifFont.SelectedItem as string ?? "";
-            s.NotificationLayout.FontSize = ParseNotifSize(CbNotifSize.SelectedItem as string);
-            s.NotificationLayout.TextColor = (CbNotifText.SelectedItem as NotifColorOption)?.Hex ?? "";
+            s.NotificationLayout.FontSize = _notifSize;
+            s.NotificationLayout.TextColor = _notifTextHex;
             s.NotificationLayout.BarColor = (CbNotifBg.SelectedItem as NotifColorOption)?.Hex ?? "";
             Store.SaveSettings(s);
 
@@ -4057,42 +4413,30 @@ public partial class MainWindow : Window
         }
     }
 
-    private void BtnNotifTextPick_Click(object sender, RoutedEventArgs e) => PickNotifColor(bar: false);
-
-    private void BtnNotifBgPick_Click(object sender, RoutedEventArgs e) => PickNotifColor(bar: true);
-
-    /// <summary>
-    /// 用系统取色器给字色 / 背景色取任意颜色：取到的色补进下拉（下次打开还在），并立即生效。
-    /// 取消取色时保持原样 —— 不要把手滑的"取消"当成选了黑色。
-    /// </summary>
-    private void PickNotifColor(bool bar)
+    private void BtnNotifBgPick_Click(object sender, RoutedEventArgs e)
     {
-        var cb = bar ? CbNotifBg : CbNotifText;
-        if (cb == null) return;
-
-        var cur = cb.SelectedItem as NotifColorOption;
+        var cur = CbNotifBg.SelectedItem as NotifColorOption;
         if (!EditorStyleOptions.TryPickColor(cur?.Hex, out string hex))
         {
             TxtStatus.Text = "没有取到颜色，保持原样。";
             return;
         }
 
-        var list = cb.ItemsSource as List<NotifColorOption>
-                   ?? (bar ? NotifBarColorOptions() : NotifTextColorOptions());
+        var list = CbNotifBg.ItemsSource as List<NotifColorOption> ?? NotifBarColorOptions();
         var opt = EnsureNotifColor(list, hex);
 
         // 换数据源会先触发一次"没有选中项"的 SelectionChanged，用标志挡住，避免把设置写成空值
         _notifStyleReady = false;
         try
         {
-            cb.ItemsSource = null;
-            cb.ItemsSource = list;
-            cb.SelectedItem = opt;
+            CbNotifBg.ItemsSource = null;
+            CbNotifBg.ItemsSource = list;
+            CbNotifBg.SelectedItem = opt;
         }
         finally { _notifStyleReady = true; }
 
         SaveNotifStyle();
-        TxtStatus.Text = $"通知条{(bar ? "背景" : "字色")}已设为自定义颜色 {hex.ToUpperInvariant()}。";
+        TxtStatus.Text = "通知条背景已设为自定义颜色 " + hex.ToUpperInvariant() + "。";
     }
 
     private void BtnAddNotice_Click(object sender, RoutedEventArgs e)
@@ -4157,8 +4501,16 @@ public partial class MainWindow : Window
             var item = Notifications.FirstOrDefault(n => n.Id == id);
             if (item != null)
             {
+                // 打墓碑而不是移除：物理删除会让晚到的旧变更单把它重新加回来
+                var all = Store.LoadNotificationsAll();
+                var target = all.FirstOrDefault(x => x.Id == item.Id);
+                if (target != null)
+                {
+                    target.Deleted = true;
+                    target.DeletedAt = DateTime.Now;
+                    Store.SaveNotifications(all);
+                }
                 Notifications.Remove(item);
-                SaveNotes();
                 AppEvents.RaiseNotificationChanged();
             }
         }
@@ -4189,7 +4541,31 @@ public partial class MainWindow : Window
         foreach (var n in list) Notifications.Add(n);
     }
 
-    private void SaveNotes() => Store.SaveNotifications(Notifications.ToList());
+    private void SaveNotes()
+    {
+        // ★ 不能直接 SaveNotifications(Notifications)：这个集合只装「未撤下」的项，
+        //   直接保存会把墓碑整批冲掉，等于又退回物理删除（晚到的旧指令会复活已撤下的通知）。
+        //   这里按 Id 把界面上的改动 patch 回全量列表，墓碑原样保留。
+        var all = Store.LoadNotificationsAll();
+        var byId = new Dictionary<string, Notification>();
+        foreach (var x in all) byId[x.Id] = x;
+        foreach (var n in Notifications)
+        {
+            if (byId.TryGetValue(n.Id, out var target))
+            {
+                target.Title = n.Title;
+                target.Content = n.Content;
+                target.Pinned = n.Pinned;
+                target.Scope = n.Scope;
+                target.DueAt = n.DueAt;
+                // r72：文字格式跟着 patch，别让主页的置顶 / 编辑把编辑窗设好的样式冲掉
+                target.TitleStyle = n.TitleStyle?.Clone();
+                target.ContentStyle = n.ContentStyle?.Clone();
+            }
+            else all.Add(n);
+        }
+        Store.SaveNotifications(all);
+    }
 
     // ---------- 作业公示 ----------
     private static readonly string[] HwAnchors =
@@ -4212,6 +4588,336 @@ public partial class MainWindow : Window
         UpdateHwWpButton();
     }
 
+    // ==================== 信息管理页 ====================
+    // 发布作业 / 缺交 / 通知的入口、任教班级、同步设置都集中在这一个标签页；
+    // 消息台账（BoardSyncWindow）只负责查看与裁决，不再堆设置输入框。
+
+    /// <summary>本次发布信息的目标班级（勾选状态只存内存，避免下次启动悄悄发到多个班）。</summary>
+    private readonly HashSet<string> _pickedInfoClasses = new(StringComparer.Ordinal);
+    private bool _teachingGuard;
+
+    private void InitInfoTab()
+    {
+        try
+        {
+            CbTeachingClass.ItemsSource = ClassNames;   // 与顶栏班级下拉共用同一份课表班级
+            LoadInfoSettings();
+        }
+        catch (Exception ex)
+        {
+            TxtInfoStatus.Text = "信息管理页初始化失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>本机自己的任教班级列表（老版本「额外订阅班级」字段，逗号 / 顿号 / 分号分隔）。</summary>
+    private static List<string> TeachingClasses()
+    {
+        string raw = Store.LoadSettings().BoardSyncExtraClasses ?? "";
+        var list = new List<string>();
+        foreach (var p in raw.Split(new[] { ',', '，', '、', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string c = p.Trim();
+            if (c.Length > 0 && !list.Contains(c, StringComparer.Ordinal)) list.Add(c);
+        }
+        return list;
+    }
+
+    private static void SaveTeachingClasses(IEnumerable<string> list)
+    {
+        var s = Store.LoadSettings();
+        s.BoardSyncExtraClasses = string.Join("、", list);
+        Store.SaveSettings(s);
+    }
+
+    /// <summary>回显同步设置 + 重建任教班级 chips + 刷新发布权限。</summary>
+    private void LoadInfoSettings()
+    {
+        var s = Store.LoadSettings();
+        ChkInfoSyncEnabled.IsChecked = s.BoardSyncEnabled;
+        ChkInfoIsClassroom.IsChecked = s.BoardSyncIsClassroom;
+        ChkInfoPopup.IsChecked = s.BoardSyncPopupDuringBreak;
+        ChkInfoFullScreen.IsChecked = s.BoardSyncFullScreenReminder;
+        ChkInfoVoice.IsChecked = s.BoardSyncVoiceReminder;
+        ChkInfoAutoApply.IsChecked = s.BoardSyncAutoApply;
+        TxtInfoRoot.Text = s.BoardSyncRoot ?? "";
+        TxtInfoPoll.Text = Math.Max(15, s.BoardSyncPollSeconds).ToString();
+        TxtInfoKeepDays.Text = Math.Max(0, s.BoardSyncLedgerKeepDays).ToString();
+
+        var list = TeachingClasses();
+        foreach (var dead in _pickedInfoClasses.Where(x => !list.Contains(x, StringComparer.Ordinal)).ToList())
+            _pickedInfoClasses.Remove(dead);
+        // 首次进入：优先勾上本机当前显示班级；只有一个任教班时直接勾上，
+        // 省掉「点了发布才提示先勾选」这一步；多班时不自动全勾，避免一次误发到多个班。
+        if (_pickedInfoClasses.Count == 0)
+        {
+            string own = (s.SelectedClass ?? "").Trim();
+            if (own.Length > 0 && list.Contains(own, StringComparer.Ordinal)) _pickedInfoClasses.Add(own);
+            else if (list.Count == 1) _pickedInfoClasses.Add(list[0]);
+        }
+        RebuildTeachingClassChips();
+        TxtTeachingClassHint.Text = ClassNames.Count == 0 ? "（未导入课表，暂无可选班级）" : "选中即加入列表";
+        ApplyInfoPermissions();
+    }
+
+    /// <summary>任教班级 → 一排可勾选、可移除的小标签。</summary>
+    private void RebuildTeachingClassChips()
+    {
+        TeachingClassChips.Children.Clear();
+        var list = TeachingClasses();
+        foreach (var c in list)
+        {
+            string cls = c;
+            var chip = new Border
+            {
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEE, 0xF4, 0xFD)),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC7, 0xDC, 0xF7)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(10, 4, 6, 4), Margin = new Thickness(0, 0, 8, 8)
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var cb = new System.Windows.Controls.CheckBox
+            {
+                Content = cls, FontSize = 14, VerticalAlignment = VerticalAlignment.Center,
+                IsChecked = _pickedInfoClasses.Contains(cls),
+                ToolTip = "勾上 = 本次发布信息的目标班级（可单选、多选）"
+            };
+            cb.Checked += (_, _) => _pickedInfoClasses.Add(cls);
+            cb.Unchecked += (_, _) => _pickedInfoClasses.Remove(cls);
+            var rm = new Button
+            {
+                Content = "×", Tag = cls, FontSize = 13, Padding = new Thickness(6, 0, 6, 0),
+                Margin = new Thickness(8, 0, 0, 0),
+                Background = System.Windows.Media.Brushes.Transparent,
+                BorderBrush = null, ToolTip = "从任教班级列表里移除"
+            };
+            rm.Click += RemoveTeachingClass_Click;
+            row.Children.Add(cb);
+            row.Children.Add(rm);
+            chip.Child = row;
+            TeachingClassChips.Children.Add(chip);
+        }
+        TxtTeachingClassEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>下拉选中一个班立即加入任教班级列表（不用再点「添加」）。</summary>
+    private void CbTeachingClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_teachingGuard) return;
+        if (CbTeachingClass.SelectedItem is not string cls || string.IsNullOrWhiteSpace(cls)) return;
+        _teachingGuard = true;
+        try
+        {
+            var list = TeachingClasses();
+            if (!list.Contains(cls, StringComparer.Ordinal))
+            {
+                list.Add(cls);
+                SaveTeachingClasses(list);
+                _pickedInfoClasses.Add(cls);   // 新加的班默认勾上，省一次点击
+                RebuildTeachingClassChips();
+                TxtInfoStatus.Text = "已增加任教班级「" + cls + "」，并勾为发布目标。";
+            }
+            CbTeachingClass.SelectedIndex = -1;
+        }
+        finally { _teachingGuard = false; }
+    }
+
+    private void RemoveTeachingClass_Click(object sender, RoutedEventArgs e)
+    {
+        string cls = (sender as Button)?.Tag as string ?? "";
+        if (cls.Length == 0) return;
+        var list = TeachingClasses();
+        list.RemoveAll(c => string.Equals(c, cls, StringComparison.Ordinal));
+        SaveTeachingClasses(list);
+        _pickedInfoClasses.Remove(cls);
+        RebuildTeachingClassChips();
+        TxtInfoStatus.Text = "已从任教班级移除「" + cls + "」。";
+    }
+
+    /// <summary>发布权限只问 UserSession；电教管理员默认发不了，按钮直接禁灰并说明原因。</summary>
+    private void ApplyInfoPermissions()
+    {
+        bool can = UserSession.CanPublishInfo;
+        foreach (var b in new[] { BtnInfoPublish, BtnInfoPublishHw, BtnInfoPublishMs, BtnInfoPublishNotice })
+        {
+            if (b == null) continue;
+            b.IsEnabled = can;
+            b.ToolTip = can ? "把信息发给勾选的任教班级" : UserSession.DenyPublishInfo;
+        }
+
+        var s = Store.LoadSettings();
+        bool configured = !(s.UpdateSourceKind ?? "Off").Equals("Off", StringComparison.OrdinalIgnoreCase)
+                          || !string.IsNullOrWhiteSpace(s.BoardSyncRoot);
+        if (!can)
+        {
+            TxtInfoHint.Text = "🔒 " + UserSession.DenyPublishInfo;
+            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xB0, 0x6A, 0x20));
+        }
+        else if (!s.BoardSyncEnabled)
+        {
+            TxtInfoHint.Text = "提示：同步还没启用。展开下面「③ 同步设置」勾选「启用同步」并保存后才能发布信息。";
+            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80));
+        }
+        else if (!configured)
+        {
+            TxtInfoHint.Text = "⚠ 还没配置数据源：请在「同步设置」里填摆渡根目录，或到「数据管理 → 自动更新设置」配置共享目录 / FTP。";
+            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B));
+        }
+        else
+        {
+            TxtInfoHint.Text = "已就绪：勾选任教班级 → 点「发布信息」→ 教室机电教管理员确认后应用；回执可在「消息台账 / 回执」里核对。";
+            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x66, 0x3C));
+        }
+    }
+
+    private void BtnInfoPublish_Click(object sender, RoutedEventArgs e) => OpenInfoPublish(null);
+
+    private void BtnInfoPublishType_Click(object sender, RoutedEventArgs e)
+    {
+        string tag = (sender as Button)?.Tag as string ?? "";
+        string entity = tag switch
+        {
+            "ms" => BoardSyncConsts.EntityMissing,
+            "duty" => BoardSyncConsts.EntityDuty,
+            "notice" => BoardSyncConsts.EntityNotice,
+            _ => BoardSyncConsts.EntityHomework
+        };
+        OpenInfoPublish(entity);
+    }
+
+    /// <summary>先选班级、再弹信息发布页面；多班时每个班各发一条。</summary>
+    private void OpenInfoPublish(string? entity)
+    {
+        if (!UserSession.CanPublishInfo) { TxtInfoStatus.Text = UserSession.DenyPublishInfo; return; }
+
+        var picked = TeachingClasses().Where(c => _pickedInfoClasses.Contains(c)).ToList();
+        if (picked.Count == 0)
+        {
+            TxtInfoStatus.Text = "请先在「我的任教班级」里勾选要发布的班级（可单选、多选）。";
+            return;
+        }
+        if (!Store.LoadSettings().BoardSyncEnabled)
+        {
+            TxtInfoStatus.Text = "同步还没启用：请展开「③ 同步设置」勾选「启用同步」并保存后重试。";
+            return;
+        }
+        PublishFor(picked, entity);
+    }
+
+    /// <summary>
+    /// 弹「新建班级内容变更单」并逐条发出，结果写状态栏。
+    /// <para>信息管理页与悬浮课表「📤 发布」快捷按钮共用这一条链，避免两处发送逻辑各写一遍。</para>
+    /// </summary>
+    private void PublishFor(List<string> picked, string? entity)
+    {
+        try
+        {
+            var w = new BoardSendWindow(picked, entity);
+            // 主窗口最小化到托盘时不要挂 Owner：CenterOwner 会把弹窗排到屏幕外 / 被别的窗口盖住
+            if (IsVisible) w.Owner = this;
+            else w.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+            if (w.ShowDialog() != true || w.Results.Count == 0) return;
+
+            int ok = 0;
+            var errs = new List<string>();
+            foreach (var o in w.Results)
+            {
+                var r = BoardSyncService.Send(o);
+                if (r.Ok) ok++;
+                else errs.Add(r.Message);
+            }
+            string msg = ok > 0
+                ? $"✔ 已发布 {ok} 条信息，等待教室机确认。"
+                  + (errs.Count > 0 ? "失败 " + errs.Count + " 条：" + string.Join("；", errs) : "")
+                : "❌ " + string.Join("；", errs);
+            TxtStatus.Text = msg;
+            if (TxtInfoStatus != null) TxtInfoStatus.Text = msg;
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "发布失败：" + ex.Message;
+            if (TxtInfoStatus != null) TxtInfoStatus.Text = "发布失败：" + ex.Message;
+        }
+    }
+
+    private async void BtnInfoPull_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            BtnInfoPull.IsEnabled = false;
+            TxtInfoStatus.Text = "正在检查共享目录…（界面不卡，检查完自动更新）";
+            // 列目录 + 读文件是网络 I/O：放后台，绝不让界面跟着等共享盘
+            var (report, err) = await Task.Run(() =>
+            {
+                var r = BoardSyncService.Pull(BoardSyncService.SubscribedClasses());
+                return (r.Report, BoardSyncService.LastError);
+            });
+            TxtInfoStatus.Text = report + (err == null ? "" : "；" + err);
+        }
+        catch (Exception ex) { TxtInfoStatus.Text = "检查失败：" + ex.Message; }
+        finally { BtnInfoPull.IsEnabled = true; }
+    }
+
+    private async void BtnInfoSnapshot_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string cls = CurrentDisplayClass();
+            BtnInfoSnapshot.IsEnabled = false;
+            TxtInfoStatus.Text = "正在读取教室机内容…";
+            var (snap, msg) = await Task.Run(() => BoardSyncService.LoadRemoteSnapshot(cls));
+            TxtInfoStatus.Text = msg;
+            if (snap == null) return;
+            new BoardSnapshotViewWindow(snap) { Owner = this }.ShowDialog();
+        }
+        catch (Exception ex) { TxtInfoStatus.Text = "读取教室机内容失败：" + ex.Message; }
+        finally { BtnInfoSnapshot.IsEnabled = true; }
+    }
+
+    /// <summary>消息台账 / 回执：非模态，不禁用其它顶层窗。</summary>
+    private void BtnInfoLedger_Click(object sender, RoutedEventArgs e)
+    {
+        try { new BoardSyncWindow { Owner = this }.Show(); }
+        catch (Exception ex) { TxtInfoStatus.Text = "打不开消息台账：" + ex.Message; }
+    }
+
+    private async void BtnInfoSaveSettings_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.BoardSyncEnabled = ChkInfoSyncEnabled.IsChecked == true;
+            s.BoardSyncIsClassroom = ChkInfoIsClassroom.IsChecked == true;
+            s.BoardSyncPopupDuringBreak = ChkInfoPopup.IsChecked == true;
+            s.BoardSyncFullScreenReminder = ChkInfoFullScreen.IsChecked == true;
+            s.BoardSyncVoiceReminder = ChkInfoVoice.IsChecked == true;
+            s.BoardSyncAutoApply = ChkInfoAutoApply.IsChecked == true;
+            s.BoardSyncRoot = (TxtInfoRoot.Text ?? "").Trim();
+            s.BoardSyncPollSeconds = int.TryParse((TxtInfoPoll.Text ?? "").Trim(), out var n)
+                ? Math.Max(15, Math.Min(600, n)) : 60;
+            TxtInfoPoll.Text = s.BoardSyncPollSeconds.ToString();
+
+            // 台账保留天数：0 = 全部显示；上限一年，避免手滑填成 99999
+            s.BoardSyncLedgerKeepDays = int.TryParse((TxtInfoKeepDays.Text ?? "").Trim(), out var keepDays)
+                ? Math.Clamp(keepDays, 0, 365) : 7;
+            TxtInfoKeepDays.Text = s.BoardSyncLedgerKeepDays.ToString();
+            Store.SaveSettings(s);
+            BoardSyncNotifier.RefreshInterval();
+
+            // 发布快照 / 连通性测试都要碰共享盘：后台做，按钮置灰防连点，界面照旧能操作
+            BtnInfoSaveSettings.IsEnabled = false;
+            TxtInfoStatus.Text = "设置已保存，正在检查数据源…";
+            bool classroom = s.BoardSyncIsClassroom && s.BoardSyncEnabled;
+            var (ok, msg) = await Task.Run(() => classroom
+                ? BoardSyncService.PublishSnapshot(force: true)
+                : BoardSyncService.Test());
+            TxtInfoStatus.Text = ok ? "设置已保存。" + msg : "设置已保存，但" + msg;
+            ApplyInfoPermissions();
+        }
+        catch (Exception ex) { TxtInfoStatus.Text = "保存设置失败：" + ex.Message; }
+        finally { BtnInfoSaveSettings.IsEnabled = true; }
+    }
+
     /// <summary>「＋ 添加 / 编辑作业公示」：内容、文字格式、主题风格都在弹窗里完成。</summary>
     private void BtnEditHw_Click(object sender, RoutedEventArgs e)
     {
@@ -4225,20 +4931,27 @@ public partial class MainWindow : Window
         try
         {
             var cur = Store.LoadHomework() ?? new HomeworkBoard();
-            if (cur.Items.Count == 0) cur.Items.Add(new HomeworkItem());   // 首次打开先给一行空行，填完直接确定
+            // ★ 只数可见条目：全是墓碑时仍应给一行空行，别把「已删光」误判成「有内容」
+            if (cur.LiveCount == 0) cur.Items.Add(new HomeworkItem());   // 首次打开先给一行空行，填完直接确定
 
             var dlg = new HomeworkEditWindow(cur);
             if (dlg.ShowDialog() != true) return;
 
             var saved = dlg.BuildBoard();
             Store.SaveHomework(saved);
-            if (Store.LoadSettings().Backdrop?.ShowHomework == true)
-                BackdropService.Apply(silent: true, out _);
+            string? writeErr = Store.LastWriteError;
+            if (writeErr != null)
+            {
+                TxtStatus.Text = "⚠ 作业公示没有保存：" + writeErr + "（改动只在内存里，请检查账号与磁盘权限后重试）";
+                return;
+            }
 
+            // ★ 不在保存链里同步重绘壁纸：BackdropService 已订阅 HomeworkChanged 走 1.2s 防抖，
+            //   否则每次点确定都要等整图渲染 + PNG 编码 + 设壁纸（一体机上约 1~2 秒）。
             ReloadHomework();
             AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
-            TxtStatus.Text = "作业公示已保存（共 " + saved.Items.Count + " 科）";
+            TxtStatus.Text = "作业公示已保存（共 " + saved.LiveCount + " 科）";
         }
         catch (Exception ex)
         {

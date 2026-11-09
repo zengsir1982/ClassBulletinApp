@@ -3,52 +3,118 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              VerticalAlignment="Center">
     <!--
-        统一的「字号 + 颜色 + 加粗 + 调色 + 预览」一行控件。
-        作业 / 缺交 / 自定义便签 / 倒计时 / 值日生的样式设置全部用它，
-        免得每个窗口各写一套下拉，设置区越堆越长、排版还不一致。
+        字体工具条（r69：焦点跟随形态）。全窗只有一条，宿主通过 FocusStyleBinder
+        把「当前聚焦的输入框 / 被点选的预览块」映射到对应的 TextStyle。
+        形态：[B] | [字号  A⁺ A⁻] | [A▾ 色板] | [橡皮]  +  右侧「正在设置：xxx」
+
+        ★ 四条设计约束（都踩过坑，别改回去）：
+          1. 字号不给自由磅值输入。7 个档位是写进 settings.json / board.json 的「下标」，
+             而且顺序被打乱过（Sizes = {19,16,23,27,14,32,38}）。给数字框等于让老师输 21，
+             最后被吸附回 19，反而更困惑。只有「下拉选档 + A± 按显示顺序步进」。
+          2. 色板用 Popup（点外面就关），不用 ContextMenu —— 一体机没有右键语境，
+             ContextMenu 在触屏上的关闭行为不稳。
+          3. 按钮 26~30px 起，不是 Office 的 20×20。教室大屏用指尖点，命中区比像素完美更重要。
+          4. 工具条里的按钮一律 Focusable=False：点 B / A⁺ / 色板时不能把输入框的焦点抢走，
+             否则「焦点跟随」会立刻置灰、按钮自己也点不动了。
     -->
+    <!-- r75：工具条外观（底板 / 按钮 / 色格）已上移到 DesignTokens.xaml，全项目共用一份 -->
+
+    <Grid>
     <StackPanel x:Name="Root" Orientation="Horizontal" VerticalAlignment="Center">
-        <TextBlock x:Name="Lbl" Text="" FontSize="13" Foreground="#4B5563"
-                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <!-- 工具条本体：一个浅底圆角底板把六个控件收成一组 -->
+        <Border x:Name="Bar" Style="{DynamicResource BarSurfaceStyle}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <ToggleButton x:Name="TglBold" Content="B" Style="{DynamicResource BarToggleStyle}"
+                              ToolTip="加粗（Ctrl+B）"
+                              Checked="Bold_Toggled" Unchecked="Bold_Toggled"/>
 
-        <CheckBox x:Name="ChkBold" Content="加粗" FontSize="13" Foreground="#374151"
-                  VerticalAlignment="Center" Margin="0,0,10,0"
-                  ToolTip="勾选后这段文字加粗显示"
-                  Checked="Bold_Changed" Unchecked="Bold_Changed"/>
+                <Rectangle Width="1" Height="16" Fill="{DynamicResource LineBrush}" Margin="3,0" VerticalAlignment="Center"/>
 
-        <ComboBox x:Name="CbSize" Width="84" FontSize="13" VerticalAlignment="Center"
-                  DisplayMemberPath="Name"
-                  SelectedValuePath="Level"
-                  ToolTip="字号档位（标准 / 小 / 大 / 特大 / 更小 / 超大 / 巨大）"
-                  SelectionChanged="Size_Changed"/>
+                <ComboBox x:Name="CbSize" Style="{DynamicResource BarComboStyle}"
+                          SelectedValuePath="Level" SelectionChanged="Size_Changed">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Size, StringFormat={}{0:0}}" FontSize="12"
+                                           Width="18" Foreground="#374151" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding Name}" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <!-- A⁺ / A⁻ 紧跟字号右侧（办公软件的口径：数字在左、步进在右） -->
+                <Button x:Name="BtnSizeUp" Content="A⁺" Width="28" Style="{DynamicResource BarButtonStyle}"
+                        ToolTip="字号调大一档" Click="BtnSizeUp_Click"/>
+                <Button x:Name="BtnSizeDown" Content="A⁻" Width="28" Style="{DynamicResource BarButtonStyle}"
+                        ToolTip="字号调小一档" Click="BtnSizeDown_Click"/>
 
-        <ComboBox x:Name="CbColor" Width="112" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"
-                  SelectedValuePath="Value"
-                  ToolTip="文字颜色；「跟随主题」表示用便签主题自带的配色"
-                  SelectionChanged="Color_Changed">
-            <ComboBox.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                        <Border Width="12" Height="12" CornerRadius="2" Margin="0,0,6,0"
-                                BorderBrush="#33000000" BorderThickness="1"
-                                Background="{Binding Swatch}"/>
-                        <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </DataTemplate>
-            </ComboBox.ItemTemplate>
-        </ComboBox>
+                <Rectangle Width="1" Height="16" Fill="{DynamicResource LineBrush}" Margin="3,0" VerticalAlignment="Center"/>
 
-        <Button x:Name="BtnPick" Content="调色…" Padding="8,2" FontSize="12" Margin="6,0,0,0"
-                Background="White" BorderBrush="#D1D5DB" Foreground="#374151"
-                ToolTip="从系统调色板里选任意颜色（选过的颜色会留在下拉里）"
-                Click="BtnPick_Click"/>
+                <!-- 色板：字母 A + 下方当前色条，点开是预设色格 + 「更多颜色…」 -->
+                <Button x:Name="BtnColor" Width="36" Style="{DynamicResource BarButtonStyle}"
+                        ToolTip="文字颜色" Click="BtnColor_Click">
+                    <Grid Width="32" Height="24">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="A" Grid.Row="0" Grid.Column="0" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="#374151" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Margin="0,0,0,1"/>
+                        <TextBlock Text="▾" Grid.Row="0" Grid.Column="1" FontSize="7" Foreground="{DynamicResource MutedBrush}"
+                                   VerticalAlignment="Bottom" Margin="1,0,0,3"/>
+                        <Rectangle x:Name="ColorBar" Grid.Row="1" Grid.ColumnSpan="2" Height="3"
+                                   RadiusX="1.5" RadiusY="1.5" Fill="#333B47" Margin="2,0,2,1"/>
+                    </Grid>
+                </Button>
 
-        <!-- 实时预览：字号 / 颜色 / 粗细都跟着变，所见即所得 -->
-        <Border x:Name="PreviewBox" Margin="12,0,0,0" Padding="8,3" CornerRadius="6"
-                Background="#F3F4F6" BorderBrush="#E5E7EB" BorderThickness="1"
-                VerticalAlignment="Center">
-            <TextBlock x:Name="TxtPreview" Text="预览" FontSize="17" Foreground="#333B47"
-                       TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+                <!-- 清除格式：橡皮图标（上半浅灰、下半深灰，斜 42°），比 Aa 更符合办公软件习惯 -->
+                <Button x:Name="BtnClear" Width="30" Style="{DynamicResource BarButtonStyle}"
+                        Foreground="{DynamicResource MutedBrush}" ToolTip="清除格式：恢复「特大字号 · 不加粗 · 默认墨色」"
+                        Click="BtnClear_Click">
+                    <Grid Width="18" Height="18">
+                        <Path Data="M2,12 L8,6 A2,2 0 0 1 10.8,6 L13,8.2 A2,2 0 0 1 13,11 L8,16 H4 Z"
+                              Fill="{DynamicResource HintBrush}" Stroke="{DynamicResource MutedBrush}" StrokeThickness="0.9" Stretch="None"/>
+                        <Path Data="M5,15.4 L11.4,9" Stroke="#E8EDF3" StrokeThickness="1.5" Stretch="None"/>
+                    </Grid>
+                </Button>
+            </StackPanel>
         </Border>
+
+        <!-- 右侧状态：正在设置哪个字段 + 一行小灰字摘要（准确磅值只能从这里读）。
+             焦点丢失时整条变灰，文案换成「未选中字段」。 -->
+        <StackPanel x:Name="PreviewBox" Orientation="Horizontal" VerticalAlignment="Center"
+                    Margin="10,0,0,0">
+            <TextBlock x:Name="TxtTarget" Text="未选中字段" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="150"/>
+            <TextBlock x:Name="TxtPreviewMeta" FontSize="11" Foreground="{DynamicResource HintBrush}"
+                       Margin="8,0,0,1" VerticalAlignment="Bottom" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
     </StackPanel>
+
+    <!-- 色板弹层。放 StackPanel 外面：Popup 虽然不占布局，但留在里面会多算一个子项 -->
+    <Popup x:Name="ColorPopup" Placement="Bottom"
+           StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" HorizontalOffset="-96">
+        <Border Background="White" BorderBrush="#DDE3EC" BorderThickness="1" CornerRadius="8"
+                Padding="8" Margin="4">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="12" ShadowDepth="1" Opacity="0.18" Color="#000000"/>
+            </Border.Effect>
+            <StackPanel>
+                <TextBlock Text="文字颜色" FontSize="11" Foreground="{DynamicResource HintBrush}" Margin="2,0,0,6"/>
+                <UniformGrid x:Name="SwatchGrid" Columns="6"/>
+                <Button x:Name="BtnMoreColor" Content="更多颜色…" Height="26" Margin="0,6,0,0"
+                        Style="{DynamicResource BarButtonStyle}" Padding="10,0"
+                        HorizontalAlignment="Left" Foreground="{DynamicResource PrimaryBrush}"
+                        ToolTip="从系统调色板里选任意颜色（选过的颜色会留在色板里）"
+                        Click="BtnPick_Click"/>
+            </StackPanel>
+        </Border>
+    </Popup>
+    </Grid>
 </UserControl>

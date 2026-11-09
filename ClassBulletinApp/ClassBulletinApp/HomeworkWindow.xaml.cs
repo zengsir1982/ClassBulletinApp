@@ -19,7 +19,7 @@ namespace ClassBulletinApp;
 /// 双击便签弹出编辑对话框修改内容 / 格式 / 主题；底部可一键投射到桌面背景并调整位置。
 /// 拖动与边缘缩放交由系统原生处理（WM_NCHITTEST），不拦截任何交互。
 /// </summary>
-public partial class HomeworkWindow : Window
+public partial class HomeworkWindow : Window, IGlassSurface
 {
     private DispatcherTimer? _posTimer;
     private string _themeKey = "classic";
@@ -45,7 +45,8 @@ public partial class HomeworkWindow : Window
         InitializeComponent();
         _posTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _posTimer.Tick += (_, _) => { _posTimer.Stop(); SavePlacement(); };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
@@ -65,6 +66,7 @@ public partial class HomeworkWindow : Window
 
         AppEvents.HomeworkChanged += OnHomeworkChanged;
         AppEvents.BackdropChanged += UpdateBackdropButton;
+        AppEvents.NoteLockChanged += OnNoteLockChanged;
 
         // 存档坐标已失效时，把重新居中后的位置立刻写回，避免每次启动都重算
         if (_recentered) SavePlacement();
@@ -177,6 +179,8 @@ public partial class HomeworkWindow : Window
     private void SavePlacement()
     {
         if (_loading) return;
+        // 未显示的窗口 Left/Top 是 NaN：写进设置会让整个 settings.json 序列化失败
+        if (!FloatingHelper.IsFiniteRect(this)) return;
         try
         {
             var s = Store.LoadSettings();
@@ -231,7 +235,12 @@ public partial class HomeworkWindow : Window
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x5D, 0x40, 0x37));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x5D, 0x40, 0x37));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x6B, 0x5B, 0x33));
+        GlassBrush.Apply(NoteBorder);
     }
+
+    /// <summary>IGlassSurface：设置变更时由 GlassBrush.RefreshAll 统一刷新底色。</summary>
+    public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
+        => GlassBrush.Apply(NoteBorder, settings);
 
     private void RebuildContent(HomeworkBoard board)
     {
@@ -242,7 +251,8 @@ public partial class HomeworkWindow : Window
 
         ContentPanel.Children.Clear();
 
-        var items = board.Items ?? new();
+        // ★ 只显示未软删除的条目（Deleted=true 是同步墓碑，不是用户可见内容）
+        var items = board.LiveItems.ToList();
         if (items.Count == 0)
         {
             ContentPanel.Children.Add(new TextBlock
@@ -302,11 +312,15 @@ public partial class HomeworkWindow : Window
 
             var saved = dlg.BuildBoard();
             Store.SaveHomework(saved);
+            if (Store.LastWriteError is string err)
+            {
+                System.Windows.MessageBox.Show("作业公示没有保存：" + err, "保存失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
 
-            var st = Store.LoadSettings();
-            if (st.Backdrop?.ShowHomework == true)
-                BackdropService.Apply(silent: true, out _);
-
+            // ★ 壁纸由 BackdropService 订阅 HomeworkChanged 走 1.2s 防抖重绘，
+            //   这里不再同步 Apply()，避免点确定后卡住一两秒。
             AppEvents.RaiseHomeworkChanged();
             AppEvents.RaiseBackdropChanged();
         }
@@ -395,6 +409,13 @@ public partial class HomeworkWindow : Window
             TxtHint.Text = locked ? "已锁定：不能移动 / 缩放 / 编辑" : "拖动摆放 · 拉边沿改大小 · 双击编辑";
     }
 
+    // 编辑窗里改了「锁定便签」：重读设置并刷新锁头图标，不等重启
+    private void OnNoteLockChanged()
+    {
+        _locked = Store.LoadSettings().HwWinLocked;
+        UpdateLockButton();
+    }
+
     private void BtnLock_Click(object sender, RoutedEventArgs e)
     {
         _locked = !_locked;
@@ -413,6 +434,7 @@ public partial class HomeworkWindow : Window
         SavePlacement();
         AppEvents.HomeworkChanged -= OnHomeworkChanged;
         AppEvents.BackdropChanged -= UpdateBackdropButton;
+        AppEvents.NoteLockChanged -= OnNoteLockChanged;
         _posTimer?.Stop();
         base.OnClosed(e);
     }

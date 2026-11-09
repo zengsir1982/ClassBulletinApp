@@ -21,7 +21,7 @@
             </ContextMenu>
         </Grid.ContextMenu>
 
-        <Ellipse x:Name="BallFill" Fill="#2D6CDF" Stroke="#FFFFFF" StrokeThickness="2.5"/>
+        <Ellipse x:Name="BallFill" Fill="{DynamicResource PrimaryBrush}" Stroke="#FFFFFF" StrokeThickness="2.5"/>
 
         <!-- 用文字而不是图标：教室里不需要猜"这个符号是干什么的" -->
         <TextBlock Text="手写" FontSize="17" FontWeight="Bold" Foreground="#FFFFFF"

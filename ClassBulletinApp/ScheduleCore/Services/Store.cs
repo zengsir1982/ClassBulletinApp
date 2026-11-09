@@ -23,6 +23,10 @@ public static class Store
     public static void SetAppDir(string? dir)
     {
         _appDirOverride = string.IsNullOrWhiteSpace(dir) ? null : dir;
+        // 换目录必须让读缓存立即失效：否则 TTL 内会拿上一个目录的 settings / schedule
+        // （--board-check、--sync-check 用多个副本模拟两台机器时曾踩到这个坑）。
+        _settingsCacheValid = false;
+        _scheduleCacheValid = false;
     }
 
     static string SchedulePath => Path.Combine(AppDir, "schedule.json");
@@ -50,11 +54,27 @@ public static class Store
         {
             bool wasOff = !_enablePersistence;
             _enablePersistence = value;
-            if (value && wasOff && _deferredSettings != null)
+            if (value && wasOff)
             {
-                var d = _deferredSettings;
-                _deferredSettings = null;
-                SaveSettings(d);   // 此刻开关已为 true，会真正写盘
+                if (_deferredSettings != null)
+                {
+                    var d = _deferredSettings;
+                    _deferredSettings = null;
+                    SaveSettings(d);   // 此刻开关已为 true，会真正写盘
+                }
+                // ★ 登录成功这一瞬间必须让设置缓存失效：启动早期（登录界面构造 / 游客模式）
+                //   EnablePersistence 还是 false，那些「要写作业 / 缺交文件」的升级会被跳过。
+                //   若此刻不给它们一次重试机会，升级代次会停在旧值 —— 正是
+                //   「作业公示标题改了特大、缺交名单标题还是标准」那个坑。
+                _settingsCacheValid = false;
+
+                // 立刻补做一次（不等下一次 LoadSettings）：这一步就是「登录后标题自动变特大」的落点
+                try
+                {
+                    var st = LoadSettings();
+                    if (UpgradeBoardFontDefaults(st)) SaveSettings(st);
+                }
+                catch { /* 升级失败绝不能挡住登录 */ }
             }
         }
     }
@@ -94,6 +114,137 @@ public static class Store
         var text = File.ReadAllText(path);
         if (string.IsNullOrWhiteSpace(text)) return null;
         return JsonSerializer.Deserialize<T>(text, Opt);
+    }
+
+    /// <summary>
+    /// 最近一次 Save* 的写盘结果。null = 成功。
+    /// <para>★ 静默失败是历史坑（游客登录 / 磁盘只读 / 被占用时 Save 直接 return，
+    /// 界面却弹「已保存」）。调用方保存后应检查这里并给出明确提示。</para>
+    /// </summary>
+    public static string? LastWriteError { get; private set; }
+
+    /// <summary>
+    /// 原子写 JSON：先写 .tmp，再 Move 覆盖，最后回读校验。
+    /// <para>整文件 File.WriteAllText 一旦中途失败会留下半截 JSON，
+    /// 下次启动反序列化直接抛异常；tmp→move 保证读者看到的永远是完整文件。</para>
+    /// </summary>
+    /// <summary>
+    /// 原子写 JSON：tmp → 同目录 Move（覆盖）→ 回读校验。
+    /// 二期班级内容同步的本机台账也复用这一份，保证「写盘失败绝不报已保存」。
+    /// </summary>
+    public static bool WriteJsonAtomic<T>(string path, T value)
+    {
+        // 诊断 / 截图模式（--ui-check、--shot）必须彻底静默，绝不改数据副本以外的内容
+        if (SuppressWrites) { LastWriteError = "诊断模式禁止写盘"; return false; }
+        try
+        {
+            Ensure();
+            string text = JsonSerializer.Serialize(value, Opt);
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text);
+            File.Move(tmp, path, true);
+
+            // 写后回读：内容不一致一律当失败，不能让界面以为保存成功
+            string back = File.ReadAllText(path);
+            if (!string.Equals(back, text, StringComparison.Ordinal))
+            {
+                LastWriteError = "写盘后回读校验不一致：" + Path.GetFileName(path);
+                return false;
+            }
+            LastWriteError = null;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LastWriteError = "写盘失败（" + Path.GetFileName(path) + "）：" + ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 内存补齐作业条目的稳定 Id（确定性、幂等、不写盘）。
+    /// <para>★ 两端拿到同一份老数据时，因算法只依赖内容，各自补出的 Id 必然一致 ——
+    /// 这是「不需要先跑一趟基线」的关键。磁盘上的老文件保持原样，
+    /// 直到用户保存或显式调用 <see cref="MigrateBoardIdsToDisk"/> 才写回。</para>
+    /// <para>★ <b>绝对不要拿本机 SelectedClass 当 ClassKey</b>：办公室机与教室机当前显示的班级
+    /// 可能不同，会把同一条老数据算出两个 Id，合并后变成重复行。老数据一律保持空 ClassKey
+    /// （语义＝「本机老数据，未分片」）；按班分片由同步层的变更单显式赋值。</para>
+    /// </summary>
+    static bool EnsureIdsInMemory(HomeworkBoard? board)
+    {
+        if (board == null) return false;
+        var items = board.Items ??= new();
+        var legacy = board.Missing ??= new();
+        if (board.SchemaRev >= 1 && !items.Any(x => string.IsNullOrEmpty(x.Id))
+            && !legacy.Any(x => string.IsNullOrEmpty(x.Id))) return false;   // 快路径，不再读设置
+
+        bool changed = BoardIds.Ensure(items, "hw", board.ClassKey,
+            x => x.Subject, x => x.Content, (x, id) => x.Id = id);
+        // 旧版缺交数组（兼容字段）也要补 Id，否则将来迁移时会重复
+        if (BoardIds.Ensure(legacy, "ms", board.ClassKey,
+                x => x.Subject, x => x.Students, (x, id) => x.Id = id)) changed = true;
+        if (board.SchemaRev < 1) { board.SchemaRev = 1; changed = true; }
+        return changed;
+    }
+
+    /// <summary>内存补齐缺交条目的稳定 Id（同上，不写盘）。</summary>
+    static bool EnsureIdsInMemory(MissingBoard? board)
+    {
+        if (board == null) return false;
+        var items = board.Items ??= new();
+        if (board.SchemaRev >= 1 && !items.Any(x => string.IsNullOrEmpty(x.Id))) return false;
+
+        bool changed = BoardIds.Ensure(items, "ms", board.ClassKey,
+            x => x.Subject, x => x.Students, (x, id) => x.Id = id);
+        if (board.SchemaRev < 1) { board.SchemaRev = 1; changed = true; }
+        return changed;
+    }
+
+    /// <summary>
+    /// 内存补齐值日条目的稳定 Id（同上，不写盘）。
+    /// <para>★ 值日的「科目」位用星期、「内容」位用「值日内容 + 分隔符 + 名单」：
+    /// 只写值日内容的话，「周一 扫地」和「周二 扫地」会算出同一个 Id。</para>
+    /// </summary>
+    static bool EnsureIdsInMemory(DutyBoard? board)
+    {
+        if (board == null) return false;
+        var items = board.Items ??= new();
+        if (board.SchemaRev >= 1 && !items.Any(x => string.IsNullOrEmpty(x.Id))) return false;
+
+        bool changed = BoardIds.Ensure(items, "duty", board.ClassKey,
+            x => x.Day, x => (x.Duty ?? "") + "\u001F" + (x.Names ?? ""), (x, id) => x.Id = id);
+        if (board.SchemaRev < 1) { board.SchemaRev = 1; changed = true; }
+        return changed;
+    }
+
+    /// <summary>
+    /// 显式把带稳定 Id 的作业 / 缺交数据写回磁盘（迁移前自动备份、只做一次）。
+    /// 供诊断 --board-check 与升级流程调用；正常启动不主动改用户文件。
+    /// </summary>
+    public static string MigrateBoardIdsToDisk()
+    {
+        if (!EnablePersistence) return "FAIL 游客模式不写盘，无法迁移";
+        if (SuppressWrites) return "FAIL 诊断模式禁止写盘，无法迁移";
+        try
+        {
+            var s = LoadSettings();
+            if (s.BoardMigrationRev >= 1) return "OK 已迁移过（BoardMigrationRev=1），幂等跳过";
+
+            string backup = BackupNow("作业/缺交稳定 Id 迁移前自动存档");
+            var hw = ReadJsonOrNull<HomeworkBoard>(HomeworkPath) ?? new HomeworkBoard();
+            var mb = ReadJsonOrNull<MissingBoard>(MissingPath) ?? new MissingBoard();
+            EnsureIdsInMemory(hw);
+            EnsureIdsInMemory(mb);
+
+            if (!WriteJsonAtomic(HomeworkPath, hw)) return "FAIL " + LastWriteError;
+            if (!WriteJsonAtomic(MissingPath, mb)) return "FAIL " + LastWriteError;
+
+            s.BoardMigrationRev = 1;
+            SaveSettings(s);
+            return $"OK 已备份到 {(string.IsNullOrEmpty(backup) ? "(无文件)" : backup)}，" +
+                   $"作业 {hw.Items.Count} 条 / 缺交 {mb.Items.Count} 条已带 Id";
+        }
+        catch (Exception ex) { return "FAIL " + ex.Message; }
     }
 
     public static void SaveSchedule(ScheduleFile sf)
@@ -150,19 +301,24 @@ public static class Store
 
     public static void SaveHomework(HomeworkBoard board)
     {
-        if (!EnablePersistence) return;
-        Ensure();
-        File.WriteAllText(HomeworkPath, JsonSerializer.Serialize(board, Opt));
+        if (!EnablePersistence) { LastWriteError = "游客模式：改动没有保存"; return; }
+        EnsureIdsInMemory(board);   // 保存时兜底：绝不让无 Id 的新条目落盘
+        WriteJsonAtomic(HomeworkPath, board);
     }
 
+    /// <summary>读作业公示。老数据无 Id 时在内存补齐（确定性），不改磁盘文件。</summary>
     public static HomeworkBoard? LoadHomework()
-        => ReadJsonOrNull<HomeworkBoard>(HomeworkPath);
+    {
+        var board = ReadJsonOrNull<HomeworkBoard>(HomeworkPath);
+        EnsureIdsInMemory(board);
+        return board;
+    }
 
     public static void SaveMissingBoard(MissingBoard board)
     {
-        if (!EnablePersistence) return;
-        Ensure();
-        File.WriteAllText(MissingPath, JsonSerializer.Serialize(board, Opt));
+        if (!EnablePersistence) { LastWriteError = "游客模式：改动没有保存"; return; }
+        EnsureIdsInMemory(board);
+        WriteJsonAtomic(MissingPath, board);
     }
 
     public static void SaveCountdown(CountdownBoard board)
@@ -176,16 +332,26 @@ public static class Store
     public static CountdownBoard LoadCountdown()
         => ReadJsonOrNull<CountdownBoard>(CountdownPath) ?? new CountdownBoard();
 
+    /// <summary>
+    /// 保存值日生名单。
+    /// <para>★ 与作业 / 缺交完全一致：补齐稳定 Id → 原子写（tmp→Move→回读校验）→ 失败写 LastWriteError。
+    /// 老实现是裸 <c>File.WriteAllText</c>：写失败不留痕、界面照样说「已保存」，
+    /// 而值日现在要参与变更单同步（远端按 Id 指条目），一个没写进去的 Id 就会让「替换」失败。</para>
+    /// </summary>
     public static void SaveDuty(DutyBoard board)
     {
-        if (!EnablePersistence) return;
-        Ensure();
-        File.WriteAllText(DutyPath, JsonSerializer.Serialize(board, Opt));
+        if (!EnablePersistence) { LastWriteError = "游客模式：改动没有保存"; return; }
+        EnsureIdsInMemory(board);
+        WriteJsonAtomic(DutyPath, board);
     }
 
-    /// <summary>读取值日生名单（没有文件时返回一个空白板）。</summary>
+    /// <summary>读取值日生名单（没有文件时返回一个空白板）。老数据无 Id 时在内存补齐（确定性），不改磁盘文件。</summary>
     public static DutyBoard LoadDuty()
-        => ReadJsonOrNull<DutyBoard>(DutyPath) ?? new DutyBoard();
+    {
+        var board = ReadJsonOrNull<DutyBoard>(DutyPath) ?? new DutyBoard();
+        EnsureIdsInMemory(board);
+        return board;
+    }
 
     /// <summary>
     /// 读取「缺交作业名单」独立便签数据。首次调用（还没有 missing.json）时，
@@ -198,10 +364,12 @@ public static class Store
             try
             {
                 var loaded = JsonSerializer.Deserialize<MissingBoard>(File.ReadAllText(MissingPath), Opt);
-                if (loaded != null) return loaded;
+                if (loaded != null) { EnsureIdsInMemory(loaded); return loaded; }
             }
             catch { }
-            return new MissingBoard();
+            var blank = new MissingBoard();
+            EnsureIdsInMemory(blank);
+            return blank;
         }
 
         var board = new MissingBoard();
@@ -210,25 +378,36 @@ public static class Store
             var hw = LoadHomework();
             if (hw?.Missing is { Count: > 0 })
             {
-                board.Items = hw.Missing;
+                board.Items = hw.Missing;   // LoadHomework 已给旧数组补好确定性 Id
                 board.UpdatedAt = hw.UpdatedAt;
                 hw.Missing = new();
-                File.WriteAllText(HomeworkPath, JsonSerializer.Serialize(hw, Opt));
+                if (EnablePersistence) WriteJsonAtomic(HomeworkPath, hw);
             }
         }
         catch { }
+        EnsureIdsInMemory(board);
         SaveMissingBoard(board);
         return board;
     }
 
     public static void SaveNotifications(List<Notification> list)
     {
-        if (!EnablePersistence) return;
-        Ensure();
-        File.WriteAllText(NotificationsPath, JsonSerializer.Serialize(list, Opt));
+        if (!EnablePersistence) { LastWriteError = "游客模式：改动没有保存"; return; }
+        WriteJsonAtomic(NotificationsPath, list);
     }
 
+    /// <summary>
+    /// 业务上仍然存在的通知（<b>已过滤墓碑</b>）。过期项<b>不过滤</b> —— 过期只在便签 / 跑马灯
+    /// 这类显示层用 <see cref="Notification.IsLive"/> 判断，编辑窗要能看到并恢复它们。
+    /// <para>★ 要写回的场景（编辑窗、消息链落地）必须用 <see cref="LoadNotificationsAll"/>，
+    /// 否则拿过滤后的列表保存会把墓碑整批丢掉，等于又变成物理删除。</para>
+    /// </summary>
     public static List<Notification> LoadNotifications()
+        => (ReadJsonOrNull<List<Notification>>(NotificationsPath) ?? new())
+           .Where(x => !x.Deleted).ToList();
+
+    /// <summary>全量读取，<b>含墓碑</b>。只给写回方与诊断用。</summary>
+    public static List<Notification> LoadNotificationsAll()
         => ReadJsonOrNull<List<Notification>>(NotificationsPath) ?? new();
 
     public static void SaveSettings(AppSettings s)
@@ -273,6 +452,18 @@ public static class Store
             if (UpgradeChangeReminderDefaults(s)) SaveSettings(s);
             // 「常驻显示透明度」改默认为不透明：老配置里存着 0.55，只改模型默认值对老机器无效。
             if (UpgradeOverlayOpacityDefaults(s)) SaveSettings(s);
+            // 通知条默认「置顶常驻 + 鼠标穿透 + 悬停变透明」：老配置里 ClickThrough/HoverFade 都是 false。
+            if (UpgradeNotificationOverlayDefaults(s)) SaveSettings(s);
+            // 「作业公示 / 缺交名单」默认字号改为特大：老数据里存着标准档(0)，只改模型默认值对老机器无效。
+            if (UpgradeBoardFontDefaults(s)) SaveSettings(s);
+            // 「全局玻璃底色」：出厂默认关闭，只把越界的通透度规范回合法区间。
+            if (UpgradeGlassDefaults(s)) SaveSettings(s);
+            // r74：悬浮窗与普通窗口通透度拆成两个字段，老配置先把老值复制过来，观感不变。
+            if (UpgradeGlassSplit(s)) SaveSettings(s);
+            // 通知条「开机默认显示 + 上课时间自动隐藏」：老配置里 AutoShowNotification /
+            // AutoHideDuringClass 都明明白白存着 false，只改模型默认值对已装机器一个字节都不生效。
+            // ★ 必须排在 UpgradeNotificationOverlayDefaults 之后：那个方法会把上课自动隐藏压回 false。
+            if (UpgradeNotificationShowDefaults(s)) SaveSettings(s);
             _settingsCache = s;
             _settingsCacheStamp = StampOf(path);
             _settingsCacheAt = DateTime.UtcNow;
@@ -307,6 +498,195 @@ public static class Store
             if (l.OverlayOpacity <= 0 || System.Math.Abs(l.OverlayOpacity - 0.55) < 0.001)
                 l.OverlayOpacity = 1.0;
         }
+        return true;
+    }
+
+    /// <summary>
+    /// 「通知条」默认行为一次性升级：<b>置顶常驻 + 鼠标穿透 + 鼠标移上去变透明</b>。
+    ///
+    /// <para><b>为什么老机器必须显式改：</b>settings.json 里明明白白存着
+    /// <c>"ClickThrough": false</c> / <c>"HoverFade": false</c>，只改模型默认值对已装机器
+    /// 一个字节都不生效（与「常驻显示透明度 0.55」是同一个坑）。</para>
+    ///
+    /// <para><b>为什么敢强制覆盖：</b>通知条是纯展示面板，穿透 + 常驻最前正是它唯一的合理形态；
+    /// 而这三个开关在旧版里<b>没有一个是默认开的</b>，所以「已有人手动调过」的概率极低 ——
+    /// 真调过的人也可以在「布局设置 → 通知悬浮窗」里改回去，代次只跑一次不会反复打回。</para>
+    /// </summary>
+    public static bool UpgradeNotificationOverlayDefaults(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.NotificationOverlayRev >= 1) return false;
+        s.NotificationOverlayRev = 1;
+
+        var l = s.NotificationLayout ??= new PanelLayout();
+        l.TopMost = true;        // 常驻最前，全班随时看得见
+        l.ClickThrough = true;   // 纯展示：点击落到底层，课件照常点
+        l.HoverFade = true;      // 鼠标移过去自动让开
+        // 穿透与自动靠边隐藏互斥：升级后必须把自动隐藏关掉，否则穿透立刻被 ApplyCurrentLayout 判为失效
+        l.AutoHide = false;
+        l.AutoHideDuringClass = false;
+        return true;
+    }
+
+    /// <summary>
+    /// 通知条「开机默认显示 + 上课时间自动隐藏」一次性升级。
+    ///
+    /// <para><b>为什么必须显式改：</b>老 settings.json 里存着 <c>"AutoShowNotification": false</c>
+    /// 与 <c>"AutoHideDuringClass": false</c>，只改 <see cref="AppSettings"/> 字段初始值对已装机器无效
+    /// （与「常驻显示透明度 0.55」是同一个坑）。</para>
+    ///
+    /// <para><b>为什么不与「穿透」互斥：</b>「上课时间自动隐藏」只是上课期间把条子滑到屏幕边沿，
+    /// 「鼠标穿透」只决定鼠标点击落到底层窗口 —— 两者互不干涉，可以同时成立。
+    /// 真正与穿透互斥的是「自动靠边隐藏」（隐藏后要留一条可点的细边，穿透态点不到），
+    /// 所以这里只把 <c>AutoHide</c> 压掉。</para>
+    ///
+    /// <para><b>代次：</b>只跑一次，用户之后手动关掉「上课隐藏」或「开机显示」不会被打回。
+    /// 启动早期 <see cref="EnablePersistence"/> 还是 false、诊断模式 <see cref="SuppressWrites"/> 为真时
+    /// 直接返回且不记 Rev，避免「假装升级完成、以后永远不重试」。</para>
+    /// </summary>
+    public static bool UpgradeNotificationShowDefaults(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.NotificationShowDefaultsRev >= 1) return false;
+        if (!EnablePersistence) return false;
+        if (SuppressWrites) return false;
+        s.NotificationShowDefaultsRev = 1;
+
+        s.AutoShowNotification = true;
+        var l = s.NotificationLayout ??= new PanelLayout();
+        l.TopMost = true;
+        l.ClickThrough = true;
+        l.HoverFade = true;
+        l.AutoHide = false;             // 唯一与穿透互斥的一项
+        l.AutoHideDuringClass = true;   // 上课期间自动缩到边沿，下课恢复
+        return true;
+    }
+
+    /// <summary>
+    /// 「全局玻璃底色」默认值升级：出厂关闭，只需把非法 / 越界的通透度规范回 0~65。
+    /// <para>★ 跟 <see cref="UpgradeBoardFontDefaults"/> 同一个教训：本方法由
+    /// <see cref="LoadSettings"/> 调用，启动早期 <see cref="EnablePersistence"/> 还是 false，
+    /// 诊断 / 截图模式又设了 <see cref="SuppressWrites"/> —— 那时写盘会静默失败，
+    /// 但 Rev 若照记就成了「假装升级完成、以后永远不重试」。所以两种情况下直接返回、绝不记 Rev。</para>
+    /// <para>★ 默认值靠 <see cref="AppSettings"/> 的字段初始化（而不是只靠这次升级）保证：
+    /// 即使 SuppressWrites=true 的诊断模式读不到落盘结果，玻璃默认仍是「关闭 / 45%」，
+    /// 不会让 --shot 截图意外变成半透明。</para>
+    /// </summary>
+    public static bool UpgradeGlassDefaults(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.GlassDefaultsRev >= 1) return false;
+        if (!EnablePersistence) return false;
+        if (SuppressWrites) return false;
+        s.GlassDefaultsRev = 1;
+        if (!double.IsFinite(s.GlassOpacity) || s.GlassOpacity < 0 || s.GlassOpacity > 65)
+            s.GlassOpacity = 45;
+        return true;
+    }
+
+    /// <summary>
+    /// r74「悬浮窗 / 普通窗口通透度拆分」一次性迁移：把老的单一 <c>GlassOpacity</c> 复制给
+    /// 新字段 <c>GlassChromeOpacity</c>。
+    /// <para>★ 为什么必须迁移而不是只靠字段默认值：老用户可能把通透度调到 60，只改默认值会让
+    /// 主窗突然回到 45 —— 屏幕上一眼就能看出变化。复制一次，升级前后观感完全一致；
+    /// 之后两组各调各的，代次保证不会在下一次启动被打回。</para>
+    /// <para>★ 与 <see cref="UpgradeGlassDefaults"/> 同一套守则：本方法由
+    /// <see cref="LoadSettings"/> 在启动早期调用，那时 <see cref="EnablePersistence"/> 还是 false，
+    /// 诊断 / 截图模式又设了 <see cref="SuppressWrites"/> —— 写盘会静默失败，
+    /// 所以两种情况直接返回、绝不记 Rev（否则成了「假装升级完成、以后永远不重试」）。</para>
+    /// </summary>
+    public static bool UpgradeGlassSplit(AppSettings s)
+    {
+        if (s == null) return false;
+        if (s.GlassSplitRev >= 1) return false;
+        if (!EnablePersistence) return false;
+        if (SuppressWrites) return false;
+        MigrateGlassSplit(s);
+        return true;
+    }
+
+    /// <summary>
+    /// <see cref="UpgradeGlassSplit"/> 的纯逻辑部分（<b>没有写盘守卫</b>，诊断可以单独断言）。
+    /// <para>代次 ≥ 1 直接返回，保证用户之后两组各调各的值不会在下次启动被打回。</para>
+    /// </summary>
+    public static void MigrateGlassSplit(AppSettings s)
+    {
+        if (s == null || s.GlassSplitRev >= 1) return;
+        s.GlassSplitRev = 1;
+        // 老值可能是非法数（历史脏数据）—— 规范后再复制，绝不把 NaN 写成通透度
+        s.GlassChromeOpacity = double.IsFinite(s.GlassOpacity) ? Math.Clamp(s.GlassOpacity, 0, 65) : 45;
+    }
+
+    /// <summary>
+    /// 「作业公示 / 缺交名单」默认字号一次性升级到「特大」（教室后排也看得清）。
+    /// <para>★ 只把<b>仍是标准档(0)</b>的标题 / 科目 / 内容 / 名单改成特大档(3)；
+    /// 用户已经明确选过别的档位一律保留。代次 <see cref="AppSettings.BoardFontDefaultsRev"/> 保证只跑一次：
+    /// 升级后再手动调回「标准」，下次启动不会被打回。</para>
+    /// <para>★ 不能只改模型默认值：老 homework.json / missing.json 里明明白白存着
+    /// "SizeLevel": 0，反序列化会把构造函数的默认特大覆盖回标准 —— 这正是"改了默认却看不出变化"的老坑。</para>
+    /// <para>★ <b>代次 2 修的是什么：</b>本方法由 <see cref="LoadSettings"/> 调用，而启动早期
+    /// （登录界面构造 / 游客模式）<see cref="EnablePersistence"/> 还是 false —— 那时
+    /// <c>SaveHomework</c> / <c>SaveMissingBoard</c> 只是静默返回，文件一个字节都没改，
+    /// 但这里照样把 Rev 记成 1。结果：Rev 说自己做完了，磁盘上标题还是标准档，永远不再重试。
+    /// 所以现在①没开写盘就直接返回、绝不记 Rev；②Rev 提到 2，把这批机器补做一次。</para>
+    /// </summary>
+    public static bool UpgradeBoardFontDefaults(AppSettings s)
+    {
+        if (s == null || s.BoardFontDefaultsRev >= 2) return false;
+
+        // 写不了盘就别动代次：宁可下次启动再试，也不能让 Rev 撒谎
+        if (!EnablePersistence) return false;
+        if (SuppressWrites) return false;
+
+        static bool Bump(TextStyle? st)
+        {
+            if (st == null || st.SizeLevel != 0) return false;
+            st.SizeLevel = HwTextStyle.ExtraLargeLevel;
+            return true;
+        }
+
+        try
+        {
+            var hw = ReadJsonOrNull<HomeworkBoard>(HomeworkPath);
+            if (hw != null)
+            {
+                // 代次 2 起：标题也要升（老机器上条目早就是特大了，只有标题还卡在标准档）
+                bool changed = Bump(hw.TitleStyle);
+                if (s.BoardFontDefaultsRev < 1)
+                {
+                    foreach (var it in hw.Items ?? new())
+                    {
+                        if (it == null) continue;
+                        changed |= Bump(it.ContentStyle);
+                        changed |= Bump(it.SubjectStyle);
+                    }
+                }
+                if (changed) SaveHomework(hw);
+            }
+
+            var ms = ReadJsonOrNull<MissingBoard>(MissingPath);
+            if (ms != null)
+            {
+                bool changed = Bump(ms.TitleStyle);
+                if (s.BoardFontDefaultsRev < 1)
+                {
+                    foreach (var it in ms.Items ?? new())
+                    {
+                        if (it == null) continue;
+                        changed |= Bump(it.ContentStyle);
+                        changed |= Bump(it.SubjectStyle);
+                    }
+                }
+                if (changed) SaveMissingBoard(ms);
+            }
+        }
+        catch
+        {
+            // 升级失败不能挡住启动，也不能把 Rev 记成已完成：下次启动再试一次。
+            return false;
+        }
+
+        s.BoardFontDefaultsRev = 2;
         return true;
     }
 

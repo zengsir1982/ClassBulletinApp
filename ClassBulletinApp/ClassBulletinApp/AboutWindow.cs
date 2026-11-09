@@ -64,8 +64,8 @@ public class AboutWindow : Window
 
         var badge = new Border
         {
-            Background = HexBrush("#EAF1FD"),
-            BorderBrush = HexBrush("#9DBDF0"),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12, 4, 12, 4),
@@ -75,7 +75,7 @@ public class AboutWindow : Window
                 Text = "v" + ver,
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
-                Foreground = HexBrush("#1E4FA8")
+                Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8"))
             }
         };
         Grid.SetColumn(badge, 1);
@@ -148,8 +148,8 @@ public class AboutWindow : Window
             Content = "复制版本信息",
             Padding = new Thickness(16, 8, 16, 8),
             FontSize = 13.5,
-            Background = HexBrush("#EAF1FD"),
-            BorderBrush = HexBrush("#9DBDF0"),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
             Margin = new Thickness(0, 0, 8, 0),
             ToolTip = "把版本、身份、数据目录等一起复制到剪贴板，反馈问题时直接粘贴"
         };
@@ -169,8 +169,8 @@ public class AboutWindow : Window
             Content = "打开数据目录",
             Padding = new Thickness(16, 8, 16, 8),
             FontSize = 13.5,
-            Background = HexBrush("#EAF1FD"),
-            BorderBrush = HexBrush("#9DBDF0"),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
             Margin = new Thickness(0, 0, 8, 0),
             ToolTip = "备份 / 排查时在这个文件夹里找 settings、schedule、users.json"
         };
@@ -186,9 +186,9 @@ public class AboutWindow : Window
             Content = "关闭",
             Padding = new Thickness(22, 8, 22, 8),
             FontSize = 13.5,
-            Background = HexBrush("#2D6CDF"),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
             Foreground = Brushes.White,
-            BorderBrush = HexBrush("#2D6CDF"),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
             IsDefault = true
         };
         btnClose.Click += (_, _) => Close();
@@ -206,7 +206,8 @@ public class AboutWindow : Window
         });
 
         Content = new Border { Padding = new Thickness(26, 22, 26, 20), Child = root };
-    }
+    
+        GlassChrome.Prepare(this);}
 
     // ---------- 小工具 ----------
 
@@ -255,7 +256,7 @@ public class AboutWindow : Window
             Text = name,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = HexBrush("#2D6CDF"),
+            Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
             VerticalAlignment = VerticalAlignment.Top
         });
 

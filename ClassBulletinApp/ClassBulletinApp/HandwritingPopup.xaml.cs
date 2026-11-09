@@ -92,7 +92,8 @@ public partial class HandwritingPopup : Window
         if (_commit == null)
             TxtStatus.Text = "先写一个字，识别后点候选字会进入下面的「结果」框，可以复制后粘贴到别处。" +
                              "（如果先点一下要改的输入框再开手写，就能直接插入、删改）";
-    }
+    
+                             GlassChrome.Prepare(this);}
 
     // ---------- 删除按钮 ----------
 

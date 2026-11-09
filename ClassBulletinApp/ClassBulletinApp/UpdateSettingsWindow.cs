@@ -46,7 +46,7 @@ public class UpdateSettingsWindow : Window
     AppSettings _s = new();
 
     /// <summary>非管理员打开时的权限提示（默认折叠，按身份显示）。</summary>
-    Border _roleNote = new();
+    ClassBulletinApp.Controls.HelpBubble _roleNote = new();
 
     /// <summary>打开窗口时的策略值。判断"是不是刚改成覆盖"用它，而不是用已经会被改写的 _s。</summary>
     bool _openedOverwrite;
@@ -73,31 +73,20 @@ public class UpdateSettingsWindow : Window
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 4)
         });
-        head.Children.Add(new TextBlock
+        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "操作说明",
             Text = "程序会定时读取数据源里的 manifest.json，发现整包摘要变化才下载 data.cbpack，"
                  + "校验通过后自动应用。连不上就继续用本地数据，不会影响正常使用。",
-            FontSize = 12,
-            Foreground = System.Windows.Media.Brushes.Gray,
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         });
 
         // 非管理员（但有自动更新设置权限）打开时的提示：能改本机数据源，但不能动"发布机"身份
-        _roleNote.Background = HexBrush("#EAF2FD");
-        _roleNote.BorderBrush = HexBrush("#9EC1F0");
-        _roleNote.BorderThickness = new Thickness(1);
-        _roleNote.CornerRadius = new CornerRadius(6);
-        _roleNote.Padding = new Thickness(10, 7, 10, 7);
-        _roleNote.Margin = new Thickness(0, 0, 0, 12);
-        _roleNote.Child = new TextBlock
-        {
-            FontSize = 12,
-            TextWrapping = TextWrapping.Wrap,
-            Text = "当前身份不是管理员：可以修改本机的共享文件夹 / FTP / 检查频率等更新来源，"
+        _roleNote.PopupTitle = "权限说明";
+        _roleNote.Text = "当前身份不是管理员：可以修改本机的共享文件夹 / FTP / 检查频率等更新来源，"
                  + "但「发布机」身份及其专属项（源目录、自动发布、同步策略）为只读，只有管理员能开关。"
-                 + "这样既能防止改了共享文件夹就收不到更新，又不会让教室机误变成发布机往数据源写数据。"
-        };
+                 + "这样既能防止改了共享文件夹就收不到更新，又不会让教室机误变成发布机往数据源写数据。";
+        _roleNote.Margin = new Thickness(0, 0, 0, 12);
         _roleNote.Visibility = Visibility.Collapsed;
         head.Children.Add(_roleNote);
 
@@ -108,10 +97,10 @@ public class UpdateSettingsWindow : Window
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
         // 向导入口放在最左：它的作用就是"把这张表里跟共享/FTP 有关的几行一次填对"，
         // 用户遇到「发布源目录不存在」时第一反应应该是点它，而不是在这里逐格猜。
-        var btnWizard = MakeButton("共享访问向导…", "#EAF1FD", "#9DBDF0");
+        var btnWizard = MakeButton("共享访问向导…", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0"));
         btnWizard.ToolTip = "三步走：① 办公电脑开共享并建只读账号　② 本机保存访问凭据并实测　③ 配置 FTP 数据通道。\n"
                           + "做完会自动回填下面的「发布源目录」，并把数据源设为 FTP。";
-        var btnTest = MakeButton("测试连接", "#EAF2FD", "#9EC1F0");
+        var btnTest = MakeButton("测试连接", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"));
         var btnSave = MakeButton("保存", "#E8F6EE", "#7FC99A");
         var btnClose = MakeButton("取消", "#F3F4F6", "#D1D5DB");
         btnWizard.Click += (_, _) =>
@@ -255,15 +244,13 @@ public class UpdateSettingsWindow : Window
         var policyPanel = _policyPanel;
         policyPanel.Children.Add(_rbKeep);
         policyPanel.Children.Add(_rbOverwrite);
-        policyPanel.Children.Add(new TextBlock
+        policyPanel.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
+            PopupTitle = "注意事项",
             Text = "选「覆盖」后，各教室机老师自己拖的调课会在下一次同步时被停用"
                  + "（不删除，可在「数据管理 → 恢复被主机停用的本机调课」里复活）。"
                  + "长期改课（basePatch）任何时候都不受影响。\n"
                  + "只在勾了「发布机」的机器上可改；教室机以数据包里的设置为准。",
-            FontSize = 11.5,
-            Foreground = System.Windows.Media.Brushes.Gray,
-            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(20, 6, 0, 0)
         });
         AddRow("同步策略", policyPanel, _policyLabel);
@@ -286,7 +273,8 @@ public class UpdateSettingsWindow : Window
 
         Content = root;
         Load();
-    }
+    
+        GlassChrome.Prepare(this);}
 
     static Button MakeButton(string text, string bg, string border)
     {

@@ -84,6 +84,21 @@ public static class AppEvents
     /// <summary>悬浮课表底部「设置」快捷按钮被点击（打开控制面板并切到「显示设置」页）。</summary>
     public static event Action? QuickOpenSettings;
 
+    /// <summary>悬浮课表底部「周课」快捷按钮被点击（打开控制面板并切到「周课程表」页）。</summary>
+    public static event Action? QuickOpenWeek;
+
+    /// <summary>悬浮课表底部「发布」快捷按钮被点击（直接弹出「新建班级内容变更单」窗口）。</summary>
+    public static event Action? QuickOpenPublish;
+
+    /// <summary>悬浮课表底部「信息」快捷按钮被点击（直接打开消息台账 / 回执窗口）。</summary>
+    public static event Action? QuickOpenInfoLedger;
+
+    /// <summary>
+    /// 内置快捷的显示配置变了（「管理 → 应用快捷方式 → 内置快捷」里勾选）。
+    /// <para>悬浮课表据此立即重排，不必重启；本事件与课表数据无关，绝不触发刷新 / 重绘壁纸。</para>
+    /// </summary>
+    public static event Action? QuickActionsChanged;
+
     /// <summary>悬浮课表底部「更新课表」快捷按钮被点击（检查并应用数据源更新）。</summary>
     public static event Action? QuickCheckUpdate;
 
@@ -98,6 +113,12 @@ public static class AppEvents
     /// 手写悬浮球的显示状态变了（勾选框 / 球上的右键「隐藏」两边要同步）。
     /// <para>球是常驻窗口，用户在球上右键隐藏后，控制面板里的勾选不能还亮着。</para>
     /// </summary>
+    /// <summary>
+    /// 某个便签的「锁定」被编辑窗改了。悬浮窗据此重读设置并刷新锁头图标 / 提示文字，
+    /// 免得「勾了锁定却要重启才生效」。
+    /// </summary>
+    public static event Action? NoteLockChanged;
+
     public static event Action? HandwritingBallChanged;
 
     /// <summary>
@@ -120,15 +141,35 @@ public static class AppEvents
             }
         }
     }
+    /// <summary>
+    /// 与 <see cref="RaiseScheduleChanged"/> 同样的「逐订阅者异常隔离」。
+    /// <para>★ 同步链里一次变更会连着触发通知 / 作业 / 缺交 / 壁纸四个事件，
+    /// 任何一个订阅者抛异常都不能把后面的窗口（尤其是桌面背景重绘）挡掉 ——
+    /// 否则就是「数据明明写盘了，界面和壁纸却都不动」。</para>
+    /// </summary>
+    static void RaiseIsolated(Action? handlers, string name)
+    {
+        if (handlers == null) return;
+        foreach (var d in handlers.GetInvocationList())
+        {
+            try { d.DynamicInvoke(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ClassBulletinApp] {name} FAIL {d.Method.DeclaringType?.Name}.{d.Method.Name}: {ex}");
+            }
+        }
+    }
+
     public static void RaiseLayoutChanged(PanelLayout? schedule = null, PanelLayout? notification = null)
         => LayoutChanged?.Invoke(schedule, notification);
-    public static void RaiseNotificationChanged() => NotificationChanged?.Invoke();
-    public static void RaiseHomeworkChanged() => HomeworkChanged?.Invoke();
-    public static void RaiseMissingChanged() => MissingChanged?.Invoke();
+    public static void RaiseNotificationChanged() => RaiseIsolated(NotificationChanged, nameof(NotificationChanged));
+    public static void RaiseHomeworkChanged() => RaiseIsolated(HomeworkChanged, nameof(HomeworkChanged));
+    public static void RaiseMissingChanged() => RaiseIsolated(MissingChanged, nameof(MissingChanged));
     public static void RaiseCustomNoteChanged(string? id = null) => CustomNoteChanged?.Invoke(id);
     public static void RaiseCountdownChanged() => CountdownChanged?.Invoke();
     public static void RaiseDutyChanged() => DutyChanged?.Invoke();
-    public static void RaiseBackdropChanged() => BackdropChanged?.Invoke();
+    public static void RaiseBackdropChanged() => RaiseIsolated(BackdropChanged, nameof(BackdropChanged));
     public static void RaiseRestoreFloating(string[] tokens) => RestoreFloating?.Invoke(tokens);
     public static void RaiseBackdropOffDone(bool ok, string message) => BackdropOffDone?.Invoke(ok, message);
     public static void RaiseReminderDanmaku(string text, int seconds) => ReminderDanmaku?.Invoke(text, seconds);
@@ -140,9 +181,14 @@ public static class AppEvents
     public static void RaiseQuickOpenCountdown() => QuickOpenCountdown?.Invoke();
     public static void RaiseQuickOpenDuty() => QuickOpenDuty?.Invoke();
     public static void RaiseQuickOpenSettings() => QuickOpenSettings?.Invoke();
+    public static void RaiseQuickOpenWeek() => QuickOpenWeek?.Invoke();
+    public static void RaiseQuickOpenPublish() => QuickOpenPublish?.Invoke();
+    public static void RaiseQuickOpenInfoLedger() => QuickOpenInfoLedger?.Invoke();
+    public static void RaiseQuickActionsChanged() => QuickActionsChanged?.Invoke();
     public static void RaiseQuickCheckUpdate() => QuickCheckUpdate?.Invoke();
     public static void RaiseQuickCheckUpdateDone(bool ok, string message)
         => QuickCheckUpdateDone?.Invoke(ok, message);
 
+    public static void RaiseNoteLockChanged() => RaiseIsolated(NoteLockChanged, nameof(NoteLockChanged));
     public static void RaiseHandwritingBallChanged() => HandwritingBallChanged?.Invoke();
 }
