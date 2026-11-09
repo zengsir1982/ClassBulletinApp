@@ -205,8 +205,8 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
         // 老师第一次打开窗口看到整条灰工具条，得知道点一下输入框就能用。
         TxtTarget.Text = active ? "正在设置：" + TargetName : "点输入框后设置格式";
         TxtTarget.Foreground = active
-            ? new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63))
-            : new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
+            ? new SolidColorBrush(Color.FromRgb(0x47, 0x54, 0x67))
+            : new SolidColorBrush(Color.FromRgb(0x98, 0xA2, 0xB3));
         // 作用对象都没了，还挂着上一次的「27 号」摘要只会让人以为工具条仍有效
         TxtPreviewMeta.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
 
@@ -242,7 +242,7 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
             bool selected = string.Equals(opt.Value ?? "", s?.Color ?? "", StringComparison.OrdinalIgnoreCase);
             if (selected)
             {
-                swatch.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+                swatch.BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
                 swatch.BorderThickness = new Thickness(2);
             }
 

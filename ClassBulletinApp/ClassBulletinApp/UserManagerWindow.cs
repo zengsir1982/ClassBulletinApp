@@ -74,7 +74,7 @@ public class UserManagerWindow : Window
             return b;
         }
 
-        var btnAdd = Mk("新增账号", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"));
+        var btnAdd = Mk("新增账号", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9"));
         btnAdd.Click += (_, _) => AddUser();
 
         var btnEdit = Mk("修改 / 重置密码");

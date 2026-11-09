@@ -128,8 +128,6 @@
 
                 <DockPanel LastChildFill="False" Margin="0,4,0,8">
                     <TextBlock Text="缺交作业名单已独立为单独的便签" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
-                    <ctl:HelpBubble Margin="8,0,0,0" PopupTitle="缺交名单在哪里编辑"
-                                    Text="缺交名单可在控制面板「便签管理」页的「缺交作业名单」区块、或独立的缺交便签（双击）中编辑：支持独立主题、独立桌面便签位置与固定大小，作业条数再多也不会把它挤出可视区域。"/>
                 </DockPanel>
             </StackPanel>
         </ScrollViewer>
@@ -142,8 +140,6 @@
                         MinHeight="44" Padding="14,6" FontSize="15" Margin="0,0,16,0"
                         Background="{DynamicResource PrimarySoftBrush}" BorderBrush="#B9CBE8"
                         ToolTip="先用手指点一下要输入的输入框，再点这里手写"/>
-                <ctl:HelpBubble PopupTitle="保存说明"
-                                Text="确定后会立即保存，并同步更新桌面背景（若已开启）。"/>
                 <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="24,8" FontSize="15" MinHeight="44" Margin="10,0,0,0"
                         Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" IsDefault="True" Click="BtnOk_Click"/>
                 <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="24,8" FontSize="15" MinHeight="44"

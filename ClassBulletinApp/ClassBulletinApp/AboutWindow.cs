@@ -57,15 +57,15 @@ public class AboutWindow : Window
             Text = "班级公布栏",
             FontSize = 26,
             FontWeight = FontWeights.Bold,
-            Foreground = HexBrush("#1F2A37"),
+            Foreground = HexBrush("#1B2836"),
             VerticalAlignment = VerticalAlignment.Center
         };
         titleGrid.Children.Add(title);
 
         var badge = new Border
         {
-            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
-            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9")),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(12, 4, 12, 4),
@@ -75,7 +75,7 @@ public class AboutWindow : Window
                 Text = "v" + ver,
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
-                Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8"))
+                Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryDark, "#143A7A"))
             }
         };
         Grid.SetColumn(badge, 1);
@@ -114,8 +114,8 @@ public class AboutWindow : Window
 
         var info = new Border
         {
-            Background = HexBrush("#F7F9FC"),
-            BorderBrush = HexBrush("#E3E8EF"),
+            Background = HexBrush("#F4F6FA"),
+            BorderBrush = HexBrush("#E1E6EE"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16, 12, 16, 12)
@@ -148,8 +148,8 @@ public class AboutWindow : Window
             Content = "复制版本信息",
             Padding = new Thickness(16, 8, 16, 8),
             FontSize = 13.5,
-            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
-            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9")),
             Margin = new Thickness(0, 0, 8, 0),
             ToolTip = "把版本、身份、数据目录等一起复制到剪贴板，反馈问题时直接粘贴"
         };
@@ -169,8 +169,8 @@ public class AboutWindow : Window
             Content = "打开数据目录",
             Padding = new Thickness(16, 8, 16, 8),
             FontSize = 13.5,
-            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD")),
-            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0")),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9")),
             Margin = new Thickness(0, 0, 8, 0),
             ToolTip = "备份 / 排查时在这个文件夹里找 settings、schedule、users.json"
         };
@@ -186,9 +186,9 @@ public class AboutWindow : Window
             Content = "关闭",
             Padding = new Thickness(22, 8, 22, 8),
             FontSize = 13.5,
-            Background = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
+            Background = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#1E4FA3")),
             Foreground = Brushes.White,
-            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
+            BorderBrush = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#1E4FA3")),
             IsDefault = true
         };
         btnClose.Click += (_, _) => Close();
@@ -201,7 +201,7 @@ public class AboutWindow : Window
         {
             Text = "© 2026　逆流的鱼　·　仅供校内使用",
             FontSize = 12,
-            Foreground = HexBrush("#9CA3AF"),
+            Foreground = HexBrush("#98A2B3"),
             Margin = new Thickness(0, 16, 0, 0)
         });
 
@@ -222,7 +222,7 @@ public class AboutWindow : Window
         {
             Text = text,
             FontSize = size,
-            Foreground = HexBrush("#6B7280"),
+            Foreground = HexBrush("#667085"),
             Margin = new Thickness(left, top, right, bottom)
         };
 
@@ -232,7 +232,7 @@ public class AboutWindow : Window
             Text = text,
             FontSize = 14,
             FontWeight = FontWeights.Bold,
-            Foreground = HexBrush("#1F2A37"),
+            Foreground = HexBrush("#1B2836"),
             Margin = new Thickness(0, 0, 0, 8)
         };
 
@@ -240,7 +240,7 @@ public class AboutWindow : Window
         => new()
         {
             Height = 1,
-            Background = HexBrush("#E3E8EF"),
+            Background = HexBrush("#E1E6EE"),
             Margin = new Thickness(0, top, 0, top - 2)
         };
 
@@ -256,7 +256,7 @@ public class AboutWindow : Window
             Text = name,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#2D6CDF")),
+            Foreground = HexBrush(ChromePalette.HexOf(ChromePalette.Primary, "#1E4FA3")),
             VerticalAlignment = VerticalAlignment.Top
         });
 
@@ -266,7 +266,7 @@ public class AboutWindow : Window
             FontSize = 13,
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 19,
-            Foreground = HexBrush("#4B5563")
+            Foreground = HexBrush("#475467")
         };
         Grid.SetColumn(d, 1);
         g.Children.Add(d);
@@ -282,7 +282,7 @@ public class AboutWindow : Window
         {
             Text = label,
             FontSize = 12.5,
-            Foreground = HexBrush("#6B7280"),
+            Foreground = HexBrush("#667085"),
             Margin = new Thickness(0, 3, 0, isLast ? 3 : 9)
         };
         Grid.SetRow(lb, row);
@@ -293,7 +293,7 @@ public class AboutWindow : Window
         {
             Text = value,
             FontSize = 12.5,
-            Foreground = HexBrush("#1F2A37"),
+            Foreground = HexBrush("#1B2836"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 3, 0, isLast ? 3 : 9)
         };

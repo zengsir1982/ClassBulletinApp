@@ -89,7 +89,7 @@ public class SuspendedOverridesWindow : Window
             Padding = new Thickness(14, 7, 14, 7),
             FontSize = 13,
             Background = HexBrush("#F3F4F6"),
-            BorderBrush = HexBrush("#D1D5DB")
+            BorderBrush = HexBrush("#C7CFDA")
         };
         btnClose.Click += (_, _) => Close();
 

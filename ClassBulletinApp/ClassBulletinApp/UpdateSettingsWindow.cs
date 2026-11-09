@@ -66,29 +66,27 @@ public class UpdateSettingsWindow : Window
 
         // ---------- 顶部：说明 ----------
         var head = new StackPanel();
-        head.Children.Add(new TextBlock
+        // r77：问号并入标题行末（非管理员时该行才多出一个「权限说明」）
+        var titleRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        titleRow.Children.Add(new TextBlock
         {
             Text = "自动更新（共享文件夹 / FTP）",
             FontSize = 19,
             FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 4)
+            VerticalAlignment = VerticalAlignment.Center
         });
-        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = "程序会定时读取数据源里的 manifest.json，发现整包摘要变化才下载 data.cbpack，"
-                 + "校验通过后自动应用。连不上就继续用本地数据，不会影响正常使用。",
-            Margin = new Thickness(0, 0, 0, 12)
-        });
-
         // 非管理员（但有自动更新设置权限）打开时的提示：能改本机数据源，但不能动"发布机"身份
         _roleNote.PopupTitle = "权限说明";
         _roleNote.Text = "当前身份不是管理员：可以修改本机的共享文件夹 / FTP / 检查频率等更新来源，"
                  + "但「发布机」身份及其专属项（源目录、自动发布、同步策略）为只读，只有管理员能开关。"
                  + "这样既能防止改了共享文件夹就收不到更新，又不会让教室机误变成发布机往数据源写数据。";
-        _roleNote.Margin = new Thickness(0, 0, 0, 12);
         _roleNote.Visibility = Visibility.Collapsed;
-        head.Children.Add(_roleNote);
+        titleRow.Children.Add(_roleNote);
+        head.Children.Add(titleRow);
 
         System.Windows.Controls.DockPanel.SetDock(head, System.Windows.Controls.Dock.Top);
         root.Children.Add(head);
@@ -97,12 +95,12 @@ public class UpdateSettingsWindow : Window
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
         // 向导入口放在最左：它的作用就是"把这张表里跟共享/FTP 有关的几行一次填对"，
         // 用户遇到「发布源目录不存在」时第一反应应该是点它，而不是在这里逐格猜。
-        var btnWizard = MakeButton("共享访问向导…", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9DBDF0"));
+        var btnWizard = MakeButton("共享访问向导…", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9"));
         btnWizard.ToolTip = "三步走：① 办公电脑开共享并建只读账号　② 本机保存访问凭据并实测　③ 配置 FTP 数据通道。\n"
                           + "做完会自动回填下面的「发布源目录」，并把数据源设为 FTP。";
-        var btnTest = MakeButton("测试连接", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"));
+        var btnTest = MakeButton("测试连接", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9"));
         var btnSave = MakeButton("保存", "#E8F6EE", "#7FC99A");
-        var btnClose = MakeButton("取消", "#F3F4F6", "#D1D5DB");
+        var btnClose = MakeButton("取消", "#F3F4F6", "#C7CFDA");
         btnWizard.Click += (_, _) =>
         {
             new ShareAccessWizardWindow { Owner = this }.ShowDialog();
@@ -217,7 +215,7 @@ public class UpdateSettingsWindow : Window
         Grid.SetColumn(_sourceDir, 0);
         srcPanel.Children.Add(_sourceDir);
 
-        var btnBrowse = MakeButton("浏览…", "#F3F4F6", "#D1D5DB");
+        var btnBrowse = MakeButton("浏览…", "#F3F4F6", "#C7CFDA");
         btnBrowse.Padding = new Thickness(12, 6, 12, 6);
         btnBrowse.Margin = new Thickness(8, 0, 0, 0);
         btnBrowse.VerticalAlignment = System.Windows.VerticalAlignment.Stretch;
@@ -242,17 +240,20 @@ public class UpdateSettingsWindow : Window
         _rbOverwrite.FontSize = 13;
 
         var policyPanel = _policyPanel;
-        policyPanel.Children.Add(_rbKeep);
-        policyPanel.Children.Add(_rbOverwrite);
-        policyPanel.Children.Add(new ClassBulletinApp.Controls.HelpBubble
+        // r77：问号并入「保留本机手工调课」那一行的行末，不再独占一行
+        var keepRow = new StackPanel { Orientation = Orientation.Horizontal };
+        keepRow.Children.Add(_rbKeep);
+        keepRow.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
             PopupTitle = "注意事项",
             Text = "选「覆盖」后，各教室机老师自己拖的调课会在下一次同步时被停用"
                  + "（不删除，可在「数据管理 → 恢复被主机停用的本机调课」里复活）。"
                  + "长期改课（basePatch）任何时候都不受影响。\n"
                  + "只在勾了「发布机」的机器上可改；教室机以数据包里的设置为准。",
-            Margin = new Thickness(20, 6, 0, 0)
+            Margin = new Thickness(4, 0, 0, 0)
         });
+        policyPanel.Children.Add(keepRow);
+        policyPanel.Children.Add(_rbOverwrite);
         AddRow("同步策略", policyPanel, _policyLabel);
 
         _status.Text = "";

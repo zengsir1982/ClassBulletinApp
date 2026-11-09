@@ -253,7 +253,7 @@ internal static class GlassBackdrop
             {
                 AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,
                 AccentFlags = 2,
-                // ABGR：浅蓝白 #F2F5FA + 60% 不透明，颜色和主窗底色一致
+                // ABGR：浅蓝白 #F1F4F9 + 60% 不透明，颜色和主窗底色一致
                 GradientColor = unchecked((int)0x99FAF5F2u),
                 AnimationId = 0
             };

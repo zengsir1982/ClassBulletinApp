@@ -5,7 +5,7 @@ namespace ClassBulletinApp;
 
 /// <summary>
 /// P4：纯 C# 构造的窗口（没有 .xaml）写不了 {DynamicResource}，
-/// 以前把主色复制成 "#EAF1FD" 之类的字面量，ThemeManager 切主题时它们不会跟着变。
+/// 以前把主色复制成 "#E9EFF9" 之类的字面量，ThemeManager 切主题时它们不会跟着变。
 /// 这里给出统一入口：
 ///   · Bind()    —— SetResourceReference，运行时切主题会立刻跟随（已创建控件的首选）；
 ///   · HexOf()   —— 返回 #RRGGBB 字符串，给 HexBrush(...) / MakeButton(...) 这类既有辅助方法用；

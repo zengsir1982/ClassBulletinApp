@@ -98,8 +98,6 @@
             <StackPanel>
                 <DockPanel LastChildFill="False" Margin="0,0,0,8">
                     <TextBlock Text="缺交记录" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center"/>
-                    <ctl:HelpBubble Margin="8,0,0,0" PopupTitle="填写说明"
-                                    Text="科目留空表示不区分科目；学生姓名每行一个或用逗号 / 顿号分隔。"/>
                     <Button x:Name="BtnAddMiss" DockPanel.Dock="Right" Content="＋ 添加记录" Click="BtnAddMiss_Click" Padding="14,8" FontSize="14" MinHeight="40"
                             Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}"/>
                 </DockPanel>
@@ -132,8 +130,6 @@
                         MinHeight="44" Padding="14,6" FontSize="15" Margin="0,0,16,0"
                         Background="#FDEFF1" BorderBrush="#E7B9C2"
                         ToolTip="先用手指点一下「学生姓名」输入框，再点这里手写"/>
-                <ctl:HelpBubble PopupTitle="保存说明"
-                                Text="确定后会立即保存，并同步更新桌面背景便签（若已开启）。"/>
                 <Button x:Name="BtnOk" DockPanel.Dock="Right" Content="确定" Padding="24,8" FontSize="15" MinHeight="44" Margin="10,0,0,0"
                         Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" IsDefault="True" Click="BtnOk_Click"/>
                 <Button x:Name="BtnCancel" DockPanel.Dock="Right" Content="取消" Padding="24,8" FontSize="15" MinHeight="44"

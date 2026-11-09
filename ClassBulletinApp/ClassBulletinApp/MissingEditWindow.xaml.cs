@@ -121,7 +121,7 @@ public partial class MissingEditWindow : Window
     private void ApplyPreview(HomeworkTheme t)
     {
         PreviewCard.Background = ThemeHelper.Brush(t.Background, System.Windows.Media.Colors.White);
-        PreviewCard.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xE3, 0xE8, 0xEF));
+        PreviewCard.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xE1, 0xE6, 0xEE));
         PreviewTitle.Foreground = ThemeHelper.Brush(t.TitleColor, Color.FromRgb(0xC0, 0x39, 0x2B));
         PreviewLabel.Foreground = ThemeHelper.Brush(t.MissingColor, Color.FromRgb(0xC0, 0x39, 0x2B));
         PreviewBody.Foreground = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));

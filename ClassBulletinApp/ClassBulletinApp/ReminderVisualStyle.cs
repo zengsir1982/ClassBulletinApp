@@ -30,7 +30,7 @@ internal sealed class ReminderVisualStyle
     };
 
     public Color Card { get; init; } = Colors.White;
-    public Color Text { get; init; } = Color.FromRgb(0x1F, 0x2A, 0x37);
+    public Color Text { get; init; } = Color.FromRgb(0x1B, 0x28, 0x36);
     public double Opacity { get; init; } = 1.0;
     public double FontScale { get; init; } = 1.0;
 
@@ -73,11 +73,11 @@ internal sealed class ReminderVisualStyle
             case "custom":
                 // 自定义时若用户只改了一项，另一项回落到经典白，避免出现“黑底黑字”这类全糊的组合
                 var c = Parse(r?.PopupCardColor, Hex("#FFFFFF"));
-                var t = Parse(r?.PopupTextColor, Hex("#1F2A37"));
+                var t = Parse(r?.PopupTextColor, Hex("#1B2836"));
                 if (Luma(c) < 60 && Luma(t) < 60) t = Hex("#FFFFFF");    // 双黑兜底
-                if (Luma(c) > 200 && Luma(t) > 200) t = Hex("#1F2A37");  // 双白兜底
+                if (Luma(c) > 200 && Luma(t) > 200) t = Hex("#1B2836");  // 双白兜底
                 return (c, t);
-            default: return (Hex("#FFFFFF"), Hex("#1F2A37"));
+            default: return (Hex("#FFFFFF"), Hex("#1B2836"));
         }
     }
 

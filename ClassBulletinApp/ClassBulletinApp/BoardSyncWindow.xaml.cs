@@ -71,7 +71,7 @@ public class BoardSyncWindow : Window
         MinWidth = 860;
         MinHeight = 540;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xF7, 0xFA));
+        Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF4, 0xF9));
 
         BuildUi();
         LoadHints();
@@ -217,21 +217,6 @@ public class BoardSyncWindow : Window
             Foreground = new SolidColorBrush(fg ?? Ink),
             Margin = new Thickness(0, 0, 0, 5)
         };
-
-    static Wpf.Border Card(string title, Color accent, params UIElement[] children)
-    {
-        var inner = new Wpf.StackPanel();
-        inner.Children.Add(Line(title, 13, accent, bold: true));
-        foreach (var c in children) inner.Children.Add(c);
-        return new Wpf.Border
-        {
-            Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0xDF, 0xE5, 0xEE)),
-            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 12),
-            Child = inner
-        };
-    }
 
     /// <summary>字段字典 → 中文标签两列表格（回执易读的关键）。</summary>
     static UIElement FieldGrid(IDictionary<string, string>? fields, string emptyText = "（无内容）")
@@ -437,107 +422,84 @@ public class BoardSyncWindow : Window
         var o = r.Order;
         bool done = !string.IsNullOrWhiteSpace(r.Decision) || r.IsTerminal;
 
-        // ---- ① 变更单本体 ----
-        var a = new List<UIElement>
-        {
-            Line("【" + r.Status + "】" + o.Summary, 16, Ink, bold: true),
-            Line($"班级：{o.ClassKey}　│　类型：{BoardSyncConsts.EntityName(o.Entity)}　│　操作：{BoardSyncConsts.OpName(o.Op)}", 12, Muted),
-            Line($"发送人：{o.Sender}（{o.SenderRole}）　任课科目：{(string.IsNullOrWhiteSpace(o.SenderSubject) ? "未填" : o.SenderSubject)}", 12, Muted),
-            Line($"发出时间：{o.CreatedAt:yyyy-MM-dd HH:mm:ss}　│　有效日：{o.ValidDay}", 12, Muted),
-            Line("目标条目：" + (string.IsNullOrWhiteSpace(o.ItemId)
-                    ? "（未指定 · 教室机会新增一条）"
-                    : (string.IsNullOrWhiteSpace(o.TargetText) ? o.ItemId : o.TargetText)), 13, Blue, bold: true),
-            Line("要求改成：", 12, Muted, bold: true),
-            FieldGrid(o.Fields)
-        };
+        // ---- 详情（r77 重排版：去标题、只留「目标 → 改成」，元信息收成浅色小字，提醒折叠） ----
+        _detailPanel.Children.Add(Line("目标条目", 12, Muted));
+        _detailPanel.Children.Add(Line(
+            string.IsNullOrWhiteSpace(o.ItemId)
+                ? "（未指定 · 教室机会新增一条）"
+                : (string.IsNullOrWhiteSpace(o.TargetText) ? o.ItemId : o.TargetText),
+            16, Ink, bold: true));
+
+        _detailPanel.Children.Add(Line("要求改成", 12, Muted));
+        _detailPanel.Children.Add(FieldGrid(o.Fields));
         if (o.IsWeeklyDuty)
-            a.Add(Line("一周安排（逐天）：\n" + BoardSyncConsts.WeekRowsText(o.WeekRows), 13, Blue));
-        if (o.AutoApply)
-            a.Add(Line("⚡ 发送方指定「直接增加」：教室机收到后自动新增，无需电教管理员点确认。" +
-                       "自动增加只新增一条，不会替换 / 删除教室机原有内容。", 12, Amber, bold: true));
+            _detailPanel.Children.Add(Line("一周安排（逐天）：\n" + BoardSyncConsts.WeekRowsText(o.WeekRows), 13, Blue));
         string reqStyles = BoardSyncConsts.FormatStyles(o.Styles);
         if (reqStyles.Length > 0)
-            a.Add(Line("要求的格式：\n" + reqStyles, 12, Muted));
-        // 发送方要求课间强提醒时，在这儿显式标出来：电教管理员知道「这条是要求全班当场注意的」
-        if (o.ForceBreakReminder)
-        {
-            a.Add(Line("🔔 发送方要求课间全屏提醒：教室机会在课间 / 放学后整屏大字提示一次" +
-                       "（上课时间不打断课堂；本机若关闭了「允许课间全屏提醒」则降级为右下角小卡片）。",
-                       12, Amber, bold: true));
-        }
-        // 全屏提醒的完整正文单独列出来：以前只有一行摘要，老师核对不出「到底会把哪几个字投到整屏」。
-        if (o.ForceBreakReminder && !string.IsNullOrWhiteSpace(o.ForceText))
-            a.Add(Line("全屏提醒显示内容：\n" + o.ForceText, 12, Muted));
-        if (!string.IsNullOrWhiteSpace(o.VoiceText))
-        {
-            a.Add(Line("🔊 发送方要求语音播报（" + (o.VoiceImmediate ? "收到就播，上课也播" : "课间播") + "）："
-                       + o.VoiceText, 12, Blue, bold: true));
-        }
-        _detailPanel.Children.Add(Card("① 这条变更单要求", Blue, a.ToArray()));
+            _detailPanel.Children.Add(Line("格式：\n" + reqStyles, 12, Muted));
 
-        // ---- ② 教室机回执 ----
-        var b = new List<UIElement>();
-        if (!done)
+        // 元信息：浅色小字一行（所属班级 · 发送人 · 发送时间 · 有效时间）
+        var metaParts = new List<string>
         {
-            b.Add(Line("尚未收到教室机的裁决回执。", 14, Amber, bold: true));
-            b.Add(Line(r.Direction == BoardSyncConsts.DirIn
-                ? "请由电教管理员在下方选择「增加 / 替换 / 忽略」。"
-                : "变更单已发出，教室机收到后会自动推进到「已送达」；只有出现「已应用 / 已核对」才是真的落地。", 12, Muted));
-        }
-        else
+            o.ClassKey,
+            "发送人 " + o.Sender + (string.IsNullOrWhiteSpace(o.SenderRole) ? "" : "（" + o.SenderRole + "）"),
+            "发送 " + o.CreatedAt.ToString("MM-dd HH:mm"),
+            "有效 " + o.ValidDay
+        };
+        _detailPanel.Children.Add(Line(string.Join("　·　", metaParts), 11, Muted));
+
+        // 状态 / 裁决压成一行，不额外占版面
+        if (done)
         {
-            b.Add(Line("状态：" + r.Status, 15,
-                r.Status == BoardSyncConsts.StVerified ? Green :
-                r.Status is BoardSyncConsts.StConflict or BoardSyncConsts.StExpired ? Amber : Blue,
-                bold: true));
+            var stParts = new List<string> { r.Status };
             if (!string.IsNullOrWhiteSpace(r.Decision))
-                b.Add(Line((r.DecisionBy == "教室机自动增加" ? "自动处理：" : "电教管理员裁决：") +
-                           BoardSyncConsts.DecisionName(r.Decision), 13, Ink, bold: true));
-            if (!string.IsNullOrWhiteSpace(r.DecisionBy) || !string.IsNullOrWhiteSpace(r.ReceiptTime))
-                b.Add(Line($"处理人：{(string.IsNullOrWhiteSpace(r.DecisionBy) ? "电教管理员" : r.DecisionBy)}" +
-                           $"　│　处理时间：{r.ReceiptTime}", 12, Muted));
-            if (!string.IsNullOrWhiteSpace(r.Note))
-                b.Add(Line(r.Note, 13, Ink));
-
-            if (r.AppliedFields.Count > 0)
-            {
-                b.Add(Line("教室机最终落地的内容：", 12, Green, bold: true));
-                b.Add(FieldGrid(r.AppliedFields));
-            }
-            string appliedStyles = BoardSyncConsts.FormatStyles(r.AppliedStyles);
-            if (appliedStyles.Length > 0)
-                b.Add(Line("教室机落地的格式：\n" + appliedStyles, 12, Muted));
-            if (r.ArchivedFields.Count > 0 || !string.IsNullOrWhiteSpace(r.TargetText))
-            {
-                b.Add(Line("被替换 / 删除的原文（已存档，可人工撤回）：", 12, Amber, bold: true));
-                b.Add(r.ArchivedFields.Count > 0
-                    ? FieldGrid(r.ArchivedFields)
-                    : Line(r.TargetText, 13, Ink));
-                string archStyles = BoardSyncConsts.FormatStyles(r.ArchivedStyles);
-                if (archStyles.Length > 0)
-                    b.Add(Line("原文的格式：\n" + archStyles, 12, Muted));
-            }
+                stParts.Add((r.DecisionBy == "教室机自动增加" ? "自动处理 " : "裁决 ") +
+                            BoardSyncConsts.DecisionName(r.Decision));
+            if (!string.IsNullOrWhiteSpace(r.ReceiptTime))
+                stParts.Add("处理 " + r.ReceiptTime);
+            _detailPanel.Children.Add(Line(string.Join("　·　", stParts), 11, Muted));
         }
-        _detailPanel.Children.Add(Card("② 教室机回执 · 核对结果", done ? Green : Amber, b.ToArray()));
+        if (o.AutoApply)
+            _detailPanel.Children.Add(Line("⚡ 发送方指定「直接增加」，教室机收到后自动新增一条。", 11, Amber));
 
-        // ---- ③ 技术信息（默认收起，不干扰阅读） ----
+        // 全屏 / 语音：折叠进一个「🔊 提醒详情」，点开再看，避免一屏都是提醒说明
+        bool hasFull = o.ForceBreakReminder;
+        bool hasVoice = !string.IsNullOrWhiteSpace(o.VoiceText);
+        if (hasFull || hasVoice)
+        {
+            var bell = new Wpf.StackPanel { Margin = new Thickness(0, 2, 0, 0) };
+            if (hasFull)
+            {
+                bell.Children.Add(Line("🔔 课间全屏提醒" + (string.IsNullOrWhiteSpace(o.ForceText) ? "（显示摘要）" : ""), 12, Amber, bold: true));
+                if (!string.IsNullOrWhiteSpace(o.ForceText))
+                    bell.Children.Add(Line(o.ForceText, 12, Muted));
+            }
+            if (hasVoice)
+            {
+                bell.Children.Add(Line("🔊 语音播报（" + (o.VoiceImmediate ? "收到就播，上课也播" : "课间播") + "）", 12, Blue, bold: true));
+                bell.Children.Add(Line(o.VoiceText!, 12, Muted));
+            }
+            _detailPanel.Children.Add(new Wpf.Expander
+            {
+                Header = "🔊 提醒详情（全屏 / 语音）", FontSize = 12,
+                Foreground = new SolidColorBrush(Muted), IsExpanded = false,
+                Margin = new Thickness(0, 6, 0, 6), Content = bell
+            });
+        }
+
+        // 技术信息保留为默认收起，方便排查但不占版面
         var tech = new Wpf.StackPanel();
         tech.Children.Add(Line("MsgId：" + o.MsgId, 11, Muted, mono: true));
         tech.Children.Add(Line("目标 Id：" + (string.IsNullOrWhiteSpace(o.ItemId) ? "（空）" : o.ItemId), 11, Muted, mono: true));
-        tech.Children.Add(Line("目标来源：" + (o.FromSnapshot ? "教室机内容快照" : "本机 / 未指定"), 11, Muted));
         tech.Children.Add(Line("base 签名：" + (string.IsNullOrWhiteSpace(o.BaseSignature) ? "（无）" : o.BaseSignature), 11, Muted, mono: true));
-        tech.Children.Add(Line("应用后条目 Id：" + (string.IsNullOrWhiteSpace(r.AppliedItemId) ? "（无）" : r.AppliedItemId), 11, Muted, mono: true));
-        tech.Children.Add(Line("数据版本 dataVersion：" + (string.IsNullOrWhiteSpace(r.DataVersion) ? "（无）" : r.DataVersion), 11, Muted, mono: true));
         if (!string.IsNullOrWhiteSpace(r.ArchivedSnapshot))
             tech.Children.Add(Line("被覆盖版本全文存档：" + r.ArchivedSnapshot, 11, Muted, mono: true));
-        var exp = new Wpf.Expander
+        _detailPanel.Children.Add(new Wpf.Expander
         {
-            Header = "③ 技术信息（Id / 签名 / 存档）", FontSize = 12,
+            Header = "技术信息（Id / 签名 / 存档）", FontSize = 12,
             Foreground = new SolidColorBrush(Muted), IsExpanded = false,
-            Margin = new Thickness(0, 0, 0, 10), Content = tech
-        };
-        _detailPanel.Children.Add(exp);
-        _detailPanel.Children.Add(Line("提示：「已阅」只代表看过，不等于改好；只有「已核对」才表示教室机落地内容与变更单一致。", 11, Muted));
+            Margin = new Thickness(0, 0, 0, 8), Content = tech
+        });
 
         // ---- 撤回还原：只有教室机（本机数据的唯一写者）能按存档把原文放回去 ----
         // 放在窗口底部操作条而不是详情卡里：详情卡要滚动才看得到，这个按钮是「改错了要救」的，
@@ -742,7 +704,7 @@ public class LedgerCleanWindow : Window
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xF7, 0xFA));
+        Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF4, 0xF9));
 
         var root = new Wpf.StackPanel { Margin = new Thickness(18) };
         root.Children.Add(new Wpf.TextBlock
@@ -761,18 +723,18 @@ public class LedgerCleanWindow : Window
             Margin = new Thickness(0, 0, 0, 12)
         });
 
-        var only = new Wpf.RadioButton
-        {
-            Content = $"只清已终结记录（{terminal} 条，推荐）", FontSize = 14, IsChecked = true,
-            Margin = new Thickness(0, 0, 0, 6)
-        };
         var all = new Wpf.RadioButton
         {
-            Content = $"全部清空（{total} 条，包含 {pending} 条未处理）", FontSize = 14,
+            Content = $"全部清空（{total} 条，含 {pending} 条未处理）", FontSize = 14, IsChecked = true,
             IsEnabled = total > 0, Margin = new Thickness(0, 0, 0, 6)
         };
-        root.Children.Add(only);
+        var only = new Wpf.RadioButton
+        {
+            Content = $"只清已终结记录（{terminal} 条）", FontSize = 14,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
         root.Children.Add(all);
+        root.Children.Add(only);
         root.Children.Add(new Wpf.TextBlock
         {
             Text = "★ 清掉之后：这些回执再也查不到，也不能再按存档「撤回替换」；"

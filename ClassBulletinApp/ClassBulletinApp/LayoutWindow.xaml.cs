@@ -10,16 +10,6 @@ public partial class LayoutWindow : Window
 {
     private readonly AppSettings _s;
 
-    // 「取消」要还原玻璃的实时预览（它会直接改内存设置与已打开的悬浮窗）
-    private readonly bool _glassOnAtOpen;
-    private readonly double _glassPercentAtOpen;
-    /// <summary>r73：取消时普通窗口玻璃的两个新字段也要还原（它们是「实时改内存 + 实时改窗口」的）。</summary>
-    private readonly bool _glassAllAtOpen;
-    private readonly string _glassModeAtOpen;
-    /// <summary>r74：两组通透度拆开后，取消时同样要还原（悬浮窗组开关 + 普通窗口组通透度）。</summary>
-    private readonly bool _glassFloatAtOpen;
-    private readonly double _glassChromePercentAtOpen;
-
     private int _initialTabIndex;
     /// <summary>打开时默认选中的标签页下标（0=课表悬浮窗，1=通知悬浮窗，2=桌面背景）。
     /// 必须用属性 setter 生效：以 `new LayoutWindow { InitialTabIndex = 2 }` 形式创建时，
@@ -53,15 +43,8 @@ public partial class LayoutWindow : Window
     {
         InitializeComponent();
         _s = Store.LoadSettings();
-        _glassOnAtOpen = _s.GlassEnabled;
-        _glassPercentAtOpen = _s.GlassOpacity;
-        _glassAllAtOpen = _s.GlassAllWindows;
-        _glassModeAtOpen = _s.GlassBackdropMode;
-        _glassFloatAtOpen = _s.GlassFloatEnabled;
-        _glassChromePercentAtOpen = _s.GlassChromeOpacity;
         LoadValues();
         WireLabels();
-        WireGlass();
         // 「移上去变透明」只在穿透态有意义：没穿透时把条子淡到看不见，等于让人对着空气点
         ChkNotClick.Checked += (_, _) => UpdateHoverFadeEnabled();
         ChkNotClick.Unchecked += (_, _) => UpdateHoverFadeEnabled();
@@ -100,14 +83,6 @@ public partial class LayoutWindow : Window
         ChkNotClassHide.IsChecked = nl.AutoHideDuringClass;
         SlNotPeek.Value = Math.Clamp(nl.EdgePeek, SlNotPeek.Minimum, SlNotPeek.Maximum);
         SlNotEdge.Value = Math.Clamp(nl.EdgeTrigger, SlNotEdge.Minimum, SlNotEdge.Maximum);
-
-        ChkGlassOn.IsChecked = _s.GlassEnabled;
-        ChkGlassFloat.IsChecked = _s.GlassFloatEnabled;
-        SlGlass.Value = Math.Clamp(_s.GlassOpacity, SlGlass.Minimum, SlGlass.Maximum);
-        ChkGlassAll.IsChecked = _s.GlassAllWindows;
-        SlGlassChrome.Value = Math.Clamp(_s.GlassChromeOpacity, SlGlassChrome.Minimum, SlGlassChrome.Maximum);
-        SelectGlassMode(_s.GlassBackdropMode);   // 必须在 WireGlass() 之前，避免初始化就触发 Changed
-        RefreshGlassUi();
     }
 
     /// <summary>按当前勾选状态刷新「移上去变透明」的可勾选性：常驻（非自动隐藏）+ 穿透 才有效。</summary>
@@ -189,28 +164,6 @@ public partial class LayoutWindow : Window
         nl.AutoHideDuringClass = ChkNotClassHide.IsChecked == true;
         nl.EdgePeek = SlNotPeek.Value;
         nl.EdgeTrigger = SlNotEdge.Value;
-
-        _s.GlassEnabled = ChkGlassOn.IsChecked == true;
-        _s.GlassFloatEnabled = ChkGlassFloat.IsChecked == true;
-        _s.GlassOpacity = SlGlass.Value;
-        _s.GlassAllWindows = ChkGlassAll.IsChecked == true;
-        _s.GlassChromeOpacity = SlGlassChrome.Value;
-        _s.GlassBackdropMode = SelectedGlassMode();
-    }
-
-    /// <summary>r73：ComboBoxItem.Tag 存的是持久化字符串，别把显示文案写进 settings.json。</summary>
-    private string SelectedGlassMode()
-        => (CbGlassMode.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string
-           ?? GlassBackdrop.ModeAuto;
-
-    private void SelectGlassMode(string? mode)
-    {
-        string m = string.IsNullOrWhiteSpace(mode) ? GlassBackdrop.ModeAuto : mode!;
-        foreach (var o in CbGlassMode.Items)
-            if (o is System.Windows.Controls.ComboBoxItem it
-                && string.Equals(it.Tag as string, m, StringComparison.OrdinalIgnoreCase))
-            { CbGlassMode.SelectedItem = it; return; }
-        CbGlassMode.SelectedIndex = 0;
     }
 
     /// <summary>诊断用（纯内存、不写盘）：把通知条字号设为 seed 后走一遍「控件 → 设置」同步，
@@ -220,25 +173,6 @@ public partial class LayoutWindow : Window
         _s.NotificationLayout.FontSize = seed;
         SyncControlsToSettings();
         return _s.NotificationLayout.FontSize;
-    }
-
-    /// <summary>r73 诊断：暴露玻璃卡的两个新控件，并走一遍「控件 → 设置」同步。</summary>
-    internal System.Windows.Controls.CheckBox DiagGlassAllBox => ChkGlassAll;
-    internal System.Windows.Controls.ComboBox DiagGlassModeBox => CbGlassMode;
-    internal (bool All, string Mode) DiagSyncGlass()
-    {
-        SyncControlsToSettings();
-        return (_s.GlassAllWindows, _s.GlassBackdropMode);
-    }
-
-    /// <summary>r74 诊断：悬浮窗 / 普通窗口两组控件，供「分开设置」的断言直接摆弄。</summary>
-    internal System.Windows.Controls.CheckBox DiagGlassFloatBox => ChkGlassFloat;
-    internal System.Windows.Controls.Slider DiagGlassFloatSlider => SlGlass;
-    internal System.Windows.Controls.Slider DiagGlassChromeSlider => SlGlassChrome;
-    internal (bool FloatOn, double FloatPercent, bool ChromeOn, double ChromePercent) DiagSyncGlassSplit()
-    {
-        SyncControlsToSettings();
-        return (_s.GlassFloatEnabled, _s.GlassOpacity, _s.GlassAllWindows, _s.GlassChromeOpacity);
     }
 
     /// <summary>r71 诊断（纯内存、不写盘）：同时勾上「鼠标穿透 / 上课自动隐藏 / 自动靠边隐藏」，
@@ -251,56 +185,6 @@ public partial class LayoutWindow : Window
         SyncControlsToSettings();
         var nl = _s.NotificationLayout;
         return (nl.ClickThrough, nl.AutoHideDuringClass, nl.AutoHide);
-    }
-
-    /// <summary>玻璃开关 / 通透度：实时改内存设置、刷新预览块，并让已打开的悬浮窗立刻跟上。</summary>
-    private void WireGlass()
-    {
-        void Changed()
-        {
-            SyncControlsToSettings();
-            RefreshGlassUi();
-            GlassBrush.RefreshAll(_s);
-        }
-        ChkGlassOn.Checked += (_, _) => Changed();
-        ChkGlassOn.Unchecked += (_, _) => Changed();
-        ChkGlassFloat.Checked += (_, _) => Changed();
-        ChkGlassFloat.Unchecked += (_, _) => Changed();
-        SlGlass.ValueChanged += (_, _) => Changed();
-        ChkGlassAll.Checked += (_, _) => Changed();
-        ChkGlassAll.Unchecked += (_, _) => Changed();
-        SlGlassChrome.ValueChanged += (_, _) => Changed();
-        CbGlassMode.SelectionChanged += (_, _) => Changed();
-    }
-
-    /// <summary>刷新文字与右侧两个预览块（预览只改底色 alpha，示例文字始终全不透明）。</summary>
-    private void RefreshGlassUi()
-    {
-        bool on = ChkGlassOn.IsChecked == true;
-        bool floatOn = on && ChkGlassFloat.IsChecked == true;
-        bool chromeOn = on && ChkGlassAll.IsChecked == true;
-
-        ChkGlassFloat.IsEnabled = on;
-        SlGlass.IsEnabled = floatOn;
-        ChkGlassAll.IsEnabled = on;
-        SlGlassChrome.IsEnabled = chromeOn;
-        CbGlassMode.IsEnabled = chromeOn;
-
-        TxtGlass.Text = floatOn ? $"{SlGlass.Value:0}% 通透" : "未启用";
-        TxtGlassChrome.Text = chromeOn ? $"{SlGlassChrome.Value:0}% 通透" : "未启用";
-
-        GlassPreviewFloat.Background = PreviewBrush(floatOn, SlGlass.Value);
-        GlassPreviewChrome.Background = PreviewBrush(chromeOn, SlGlassChrome.Value);
-    }
-
-    /// <summary>预览块底色：关掉时是浅灰（等同「实色底」），开启时按该组自己的通透度降蓝底 alpha。</summary>
-    private static System.Windows.Media.Brush PreviewBrush(bool on, double percent)
-    {
-        if (!on)
-            return new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb((byte)0xF3, (byte)0xF4, (byte)0xF6));
-        return new System.Windows.Media.SolidColorBrush(
-            System.Windows.Media.Color.FromArgb(GlassBrush.AlphaOf(percent), (byte)0x2D, (byte)0x6C, (byte)0xDF));
     }
 
     /// <summary>拖动透明度 / 字号 / 自动隐藏参数时，实时让已打开的悬浮窗同步（所见即所得）。
@@ -344,14 +228,6 @@ public partial class LayoutWindow : Window
 
     private void BtnCancel_Click(object sender, RoutedEventArgs e)
     {
-        // 玻璃是「实时改内存 + 实时改窗口」的，取消必须把这两处都还原成打开设置窗时的样子
-        _s.GlassEnabled = _glassOnAtOpen;
-        _s.GlassFloatEnabled = _glassFloatAtOpen;
-        _s.GlassOpacity = _glassPercentAtOpen;
-        _s.GlassAllWindows = _glassAllAtOpen;
-        _s.GlassChromeOpacity = _glassChromePercentAtOpen;
-        _s.GlassBackdropMode = _glassModeAtOpen;
-        GlassBrush.RefreshAll(_s);
         try { DialogResult = false; } catch (InvalidOperationException) { }
         Close();
     }
@@ -395,7 +271,7 @@ public partial class LayoutWindow : Window
             Text = "自定义便签",
             FontSize = 14,
             FontWeight = FontWeights.Bold,
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1B, 0x28, 0x36)),
             Margin = new Thickness(0, 2, 0, 2)
         });
 

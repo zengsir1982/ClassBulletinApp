@@ -148,8 +148,8 @@ public partial class CountdownEditWindow : Window
     /// </summary>
     private void RefreshPreviews()
     {
-        ApplyText(PreviewTitle, _draft.TitleStyle, 16, true, "#1F2A37");
-        ApplyText(PreviewName, _draft.ContentStyle, 13, false, "#4B5563");
+        ApplyText(PreviewTitle, _draft.TitleStyle, 16, true, "#1B2836");
+        ApplyText(PreviewName, _draft.ContentStyle, 13, false, "#475467");
         ApplyDaysPreview(PreviewDays);
         foreach (var box in _dayBoxes.ToArray()) ApplyDaysBox(box);
     }

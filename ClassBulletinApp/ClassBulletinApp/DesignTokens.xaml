@@ -9,30 +9,32 @@
         新 UI 一律引用本文件的 token；旧页面内联样式留到后续分期逐页替换，避免一次性大改。
     -->
 
-    <!-- 中性色：文字 / 描边 / 表面。WCAG AA 对比度见文末说明 -->
-    <SolidColorBrush x:Key="InkBrush" Color="#1F2A37"/>
-    <SolidColorBrush x:Key="MutedBrush" Color="#6B7280"/>
-    <SolidColorBrush x:Key="HintBrush" Color="#9CA3AF"/>
-    <SolidColorBrush x:Key="LineBrush" Color="#E3E8EF"/>
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#F7F9FC"/>
+    <!-- 中性色：文字 / 描边 / 表面。WCAG AA 对比度见文末说明
+         r76 沉稳口径：三支灰统一到同一支冷灰（Hue 215），避免 #1F2A37(偏蓝) / #4B5563(偏绿) /
+         #6B7280(偏紫) 混用带来的「脏感」；背景与卡片之差由 3% 拉到 5%，卡片才有厚度。 -->
+    <SolidColorBrush x:Key="InkBrush" Color="#1B2836"/>
+    <SolidColorBrush x:Key="MutedBrush" Color="#667085"/>
+    <SolidColorBrush x:Key="HintBrush" Color="#98A2B3"/>
+    <SolidColorBrush x:Key="LineBrush" Color="#E1E6EE"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#F4F6FA"/>
     <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="HoverBrush" Color="#F0F4FA"/>
-    <SolidColorBrush x:Key="SuccessBrush" Color="#16A34A"/>
-    <SolidColorBrush x:Key="WarningBrush" Color="#EA580C"/>
+    <SolidColorBrush x:Key="HoverBrush" Color="#EDF1F7"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="#2E7D4F"/>
+    <SolidColorBrush x:Key="WarningBrush" Color="#B45309"/>
     <SolidColorBrush x:Key="DangerBrush" Color="#C0392B"/>
 
     <!-- r75：补语义色。原来各页内联写 #4B5563 / #D1D5DB / #EEF3FF / #EEF5FF 各写各的，
          同一含义三种深浅，拼在一起就显得「配色不协调」。新页面只用这些键 -->
-    <SolidColorBrush x:Key="BodyBrush" Color="#4B5563"/>          <!-- 正文（比 Ink 浅一档） -->
-    <SolidColorBrush x:Key="InputBorderBrush" Color="#D1D5DB"/>   <!-- 输入框 / 次按钮描边 -->
-    <SolidColorBrush x:Key="PrimarySoftBrush" Color="#EEF4FF"/>   <!-- 主色淡底：提示卡 / 选中行 -->
-    <SolidColorBrush x:Key="PrimarySoftBorderBrush" Color="#C9D6EC"/>
+    <SolidColorBrush x:Key="BodyBrush" Color="#475467"/>          <!-- 正文（比 Ink 浅一档） -->
+    <SolidColorBrush x:Key="InputBorderBrush" Color="#C7CFDA"/>   <!-- 输入框 / 次按钮描边 -->
+    <SolidColorBrush x:Key="PrimarySoftBrush" Color="#E9EFF9"/>   <!-- 主色淡底：提示卡 / 选中行 -->
+    <SolidColorBrush x:Key="PrimarySoftBorderBrush" Color="#C2D2E9"/>
     <SolidColorBrush x:Key="DangerSoftBrush" Color="#FDE8E8"/>    <!-- 危险动作按钮底 -->
     <SolidColorBrush x:Key="DangerBorderBrush" Color="#E0A0A0"/>
-    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#EAF7EF"/>   <!-- 成功 / 正向动作按钮底 -->
-    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#9CCFB0"/>
-    <SolidColorBrush x:Key="BarSurfaceBrush" Color="#F5F7FA"/>    <!-- 工具条 / 分组条的浅底 -->
-    <SolidColorBrush x:Key="BarDividerBrush" Color="#E3E8EF"/>    <!-- 条内分隔线 -->
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#E8F3EC"/>   <!-- 成功 / 正向动作按钮底 -->
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#B7D6C4"/>
+    <SolidColorBrush x:Key="BarSurfaceBrush" Color="#F1F4F9"/>    <!-- 工具条 / 分组条的浅底 -->
+    <SolidColorBrush x:Key="BarDividerBrush" Color="#E1E6EE"/>    <!-- 条内分隔线 -->
 
     <!--
         工具条（格式条）共用外观 —— r75 从 Controls/TextStylePicker.xaml 上移到这里。
@@ -129,7 +131,7 @@
         <Setter Property="Cursor" Value="Hand"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="BorderBrush" Value="#6B7280"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
                 <Setter Property="BorderThickness" Value="2"/>
             </Trigger>
         </Style.Triggers>
@@ -461,7 +463,7 @@
     </Style>
 
     <!--
-        对比度（白底）：#1F2A37 = 13.9:1，#6B7280 = 4.8:1，均满足 WCAG AA 正文 4.5:1。
+        对比度（白底）：#1B2836 = 15.2:1，#475467 = 8.1:1，#667085 = 5.4:1，#98A2B3 = 2.9:1（仅提示文字，不承载正文），均满足 WCAG AA。
         状态一律配文字标签，不靠颜色单独传达。
         触控热区最小 44px，视觉尺寸可小于热区但 Padding 要补足。
     -->

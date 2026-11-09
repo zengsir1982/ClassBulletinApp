@@ -233,7 +233,7 @@ public partial class DutyWindow : Window, IGlassSurface
         TxtTitle.FontSize = HwTextRender.TitleSize(style);
         TxtTitle.FontWeight = HwTextRender.BoldOr(style, true) ? FontWeights.Bold : FontWeights.Normal;
         TxtTitle.Foreground = ThemeHelper.Brush(
-            HwTextRender.ColorOr(style, t.HeaderForeground), Color.FromRgb(0x1F, 0x2A, 0x37));
+            HwTextRender.ColorOr(style, t.HeaderForeground), Color.FromRgb(0x1B, 0x28, 0x36));
     }
 
     private void OnDutyChanged()
@@ -246,9 +246,9 @@ public partial class DutyWindow : Window, IGlassSurface
     {
         NoteBorder.Background = ThemeHelper.Brush(t.Background, Color.FromRgb(0xFF, 0xFF, 0xFF));
         NoteBorder.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xD8, 0xDE, 0xE9));
-        Header.Background = ThemeHelper.Brush(t.HeaderBackground, Color.FromRgb(0xEA, 0xF1, 0xFD));
-        TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
-        BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1F, 0x2A, 0x37));
+        Header.Background = ThemeHelper.Brush(t.HeaderBackground, Color.FromRgb(0xE9, 0xEF, 0xF9));
+        TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1B, 0x28, 0x36));
+        BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x1B, 0x28, 0x36));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x5B, 0x64, 0x72));
         GlassBrush.Apply(NoteBorder);
     }
@@ -410,7 +410,7 @@ public partial class DutyWindow : Window, IGlassSurface
         if (BtnTop == null) return;
         bool top = Topmost;
         BtnTop.Content = top ? "已置顶" : "置顶";
-        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
     }
 
@@ -438,7 +438,7 @@ public partial class DutyWindow : Window, IGlassSurface
     private void RefreshLockVisual()
     {
         BtnLock.Content = _locked ? "🔒" : "🔓";
-        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnLock.Foreground = _locked ? Brushes.White : Brushes.Black;
         if (TxtHint != null)
             TxtHint.Text = _locked ? "已锁定" : "拖动·双击编辑";
@@ -508,7 +508,7 @@ public partial class DutyWindow : Window, IGlassSurface
         try { on = Store.LoadSettings().Backdrop?.ShowDuty == true; }
         catch { }
 
-        BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
         BtnWp.ToolTip = on
             ? "值日生名单已在桌面背景显示；再点一次会按「现在的位置和大小」重新锁定。要取消：布局设置 → 桌面背景 取消勾选它"

@@ -272,7 +272,7 @@ public partial class BackdropEditorWindow : Window
 
         var sel = new Border
         {
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)),
             BorderThickness = new Thickness(2),
             Background = Brushes.Transparent,
             IsHitTestVisible = false,
@@ -318,7 +318,7 @@ public partial class BackdropEditorWindow : Window
             Width = HANDLE,
             Height = HANDLE,
             Background = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)),
             BorderThickness = new Thickness(1.5),
             CornerRadius = new CornerRadius(2),
             Cursor = cur,
@@ -541,7 +541,7 @@ public partial class BackdropEditorWindow : Window
                 Text = ce.Label,
                 FontSize = 14,
                 FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37))
+                Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36))
             });
 
             var cb = new CheckBox
@@ -558,7 +558,7 @@ public partial class BackdropEditorWindow : Window
             var lbl = new TextBlock
             {
                 FontSize = 12,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0x70, 0x85)),
                 Margin = new Thickness(0, 4, 0, 0),
                 TextWrapping = TextWrapping.Wrap
             };

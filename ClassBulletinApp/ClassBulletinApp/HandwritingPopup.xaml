@@ -25,7 +25,6 @@
                 <Button x:Name="BtnThick" Content="粗" Click="BtnThick_Click" MinHeight="40" MinWidth="52"
                         FontSize="15" Margin="8,0,0,0" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"/>
             </StackPanel>
-            <ctl:HelpBubble PopupTitle="手写说明" Text="用指尖或笔在白板上写字，停笔自动识别；点候选字即插入。" Margin="0,0,0,8"/>
         </DockPanel>
 
         <!-- 手写板 -->

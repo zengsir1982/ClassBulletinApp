@@ -265,7 +265,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         {
             var h = new Border
             {
-                Background = Brush("#2D6CDF"),
+                Background = Brush("#1E4FA3"),
                 Margin = new System.Windows.Thickness(3),
                 CornerRadius = new CornerRadius(6)
             };
@@ -289,14 +289,14 @@ public partial class WeekView : System.Windows.Controls.UserControl
         {
             var ph = new Border
             {
-                Background = Brush("#EAF1FD"),
+                Background = Brush("#E9EFF9"),
                 Margin = new System.Windows.Thickness(3),
                 CornerRadius = new CornerRadius(6)
             };
             ph.Child = new TextBlock
             {
                 Text = data.PeriodHeaders[p],
-                Foreground = Brush("#2D6CDF"),
+                Foreground = Brush("#1E4FA3"),
                 FontSize = 13,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
@@ -324,7 +324,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         var border = new Border
         {
             Background = cell.IsEmpty ? Brush("#F2F2F2") : WpfBrushes.White,
-            BorderBrush = Brush("#E3E8EF"),
+            BorderBrush = Brush("#E1E6EE"),
             BorderThickness = new System.Windows.Thickness(1),
             CornerRadius = new CornerRadius(8),
             Margin = new System.Windows.Thickness(3),
@@ -365,7 +365,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
                 {
                     Text = cell.Teacher,
                     FontSize = 12,
-                    Foreground = Brush("#2D6CDF"),
+                    Foreground = Brush("#1E4FA3"),
                     Background = WpfBrushes.Transparent,
                     Cursor = WpfCursors.Hand,
                     ToolTip = "双击切换到该" + (_isTeacher ? "班级" : "教师") + "的周课表"
@@ -902,7 +902,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         _dropBorder = b;
         _dropSavedBrush = b.BorderBrush;
         _dropSavedThick = b.BorderThickness;
-        b.BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x2D, 0x6C, 0xDF));
+        b.BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x4F, 0xA3));
         b.BorderThickness = new System.Windows.Thickness(3);
     }
 

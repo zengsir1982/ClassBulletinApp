@@ -64,13 +64,6 @@ public class TrayMenuWindow : Window
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 6)
         });
-        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = "自定义在右下角托盘图标上点右键时弹出的菜单。默认是「打开控制面板」「用户中心」「手写悬浮球」「退出」；"
-                 + "需要哪些开关也可以增删。文字留空则用该命令的默认名称。\n"
-                 + "★ 这些开关在控制面板里同样能操作，菜单加得越长越容易点错。"
-        });
         DockPanel.SetDock(head, Dock.Top);
         body.Children.Add(head);
 

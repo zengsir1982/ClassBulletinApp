@@ -65,6 +65,13 @@ public class BoardSendWindow : Window
         ToolTip = "一周值日通常一起换：这里按星期逐行填，教室机只裁决一次、撤回也整周一起撤"
     };
     readonly Wpf.StackPanel _weekPanel = new();
+    /// <summary>整周值日裁决方式：问号挂在「一次安排一周」勾选框那一行的行末（r77）。</summary>
+    readonly Controls.HelpBubble _weekBubble = new()
+    {
+        PopupTitle = "整周值日的裁决方式",
+        Text = "教室机裁决：「追加整周」= 保留原表、把这几天都加进去；" +
+               "「整表换成这一周」= 旧值日全部存档后换成这张表（可整周一键撤回）。"
+    };
     Wpf.StackPanel? _weekSwitch;
     readonly List<(string Day, Wpf.TextBox Duty, Wpf.TextBox Names)> _weekInputs = new();
 
@@ -136,15 +143,6 @@ public class BoardSendWindow : Window
         ToolTip = "勾上后教室机会在课间 / 放学后用整屏大字提示一次；上课时间绝不打断课堂。" +
                   "全屏内容自动取本次发送的标题与完整正文，不用另填"
     };
-    readonly Controls.HelpBubble _forceBubble = new()
-    {
-        PopupTitle = "课间全屏提醒",
-        Text = "勾上后教室机会在课间用整屏大字把这条信息的完整内容提示一次" +
-               "（例如「明天带跳绳」这类要学生立刻知道的事）；不勾就只弹右下角小卡片。\n\n" +
-               "上课时间绝不打断课堂；教室机若整体关闭了「允许课间全屏提醒」，这条会降级成小卡片。\n\n" +
-               "全屏显示的是本次发送的标题 + 完整正文 + 新增字段，自动带出，无需另填。"
-    };
-
     // 语音提醒：把这条信息在教室里念一遍（讲台离得远、学生未必看得到小卡片）。
     // 通知默认勾上；时机默认「课间播」，最急的可以改成「收到就播」。
     readonly Wpf.CheckBox _voice = new()
@@ -157,14 +155,6 @@ public class BoardSendWindow : Window
     {
         Width = 148, FontSize = 12, Margin = new Thickness(10, 0, 0, 0),
         ToolTip = "课间播 = 上课时间先排队，下课再念（默认）；收到就播 = 上课也立刻念，只给真正紧急的通知用"
-    };
-    readonly Controls.HelpBubble _voiceBubble = new()
-    {
-        PopupTitle = "语音提醒",
-        Text = "教室机会用系统语音把「播报内容」念一遍（音色 / 语速 / 音量沿用那台机器的「提醒设置」）。\n\n" +
-               "本班通知默认念完整内容（标题 + 正文 + 有效期）；作业 / 缺交 / 值日默认只念摘要，" +
-               "免得课堂上念一大段。两种都可以在下面的输入框里手工改。\n\n" +
-               "「课间播」在上课时间先排队、下课再念，只有真正紧急的通知才选「收到就播」。"
     };
     readonly Wpf.TextBox _voiceText = new() { Width = 420, FontSize = 12 };
     bool _voiceTouched;        // 用户亲手改过勾选：切换内容类型时不再自动勾 / 取消
@@ -212,8 +202,8 @@ public class BoardSendWindow : Window
     internal Wpf.ComboBox ClassInputBox => _classInput;
     internal Wpf.Button AddClassButton => _addClass;
     internal Wpf.StackPanel? ReminderRow => _reminderRow;
-    internal Controls.HelpBubble ForceBubble => _forceBubble;
-    internal Controls.HelpBubble VoiceBubble => _voiceBubble;
+    internal Wpf.CheckBox ForceBox => _force;
+    internal Wpf.CheckBox VoiceBox => _voice;
     internal bool WeekPanelVisible => _weekPanel.Visibility == Visibility.Visible;
     internal bool AutoRowVisible => _autoRow.Visibility == Visibility.Visible;
     // r71 诊断：全屏 / 语音的默认文案与输入框，用来锁住「通知念完整、其余念摘要」这条规则
@@ -241,7 +231,7 @@ public class BoardSendWindow : Window
         SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xF7, 0xFA));
+        Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF4, 0xF9));
 
         // 优先尊重调用方在「信息管理」页勾选的班级（老师明确选过就不擅自加别的班）。
         if (classes != null)
@@ -381,7 +371,7 @@ public class BoardSendWindow : Window
         {
             var b = new Wpf.TextBlock
             {
-                Text = t, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80))
+                Text = t, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0x70, 0x85))
             };
             Wpf.Grid.SetColumn(b, col);
             head.Children.Add(b);
@@ -400,7 +390,7 @@ public class BoardSendWindow : Window
             var lab = new Wpf.TextBlock
             {
                 Text = day, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37))
+                Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36))
             };
             var duty = new Wpf.TextBox { Width = 230, FontSize = 12, Margin = new Thickness(0, 0, 8, 0) };
             var names = new Wpf.TextBox
@@ -412,14 +402,6 @@ public class BoardSendWindow : Window
             _weekPanel.Children.Add(g);
             _weekInputs.Add((day, duty, names));
         }
-
-        _weekPanel.Children.Add(new Controls.HelpBubble
-        {
-            PopupTitle = "整周值日的裁决方式",
-            HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
-            Text = "教室机裁决：「追加整周」= 保留原表、把这几天都加进去；" +
-                   "「整表换成这一周」= 旧值日全部存档后换成这张表（可整周一键撤回）。"
-        });
     }
 
     // ---------------- 语音提醒 ----------------
@@ -471,7 +453,7 @@ public class BoardSendWindow : Window
         _voiceWhen.IsEnabled = on;
         _voiceText.Foreground = on
             ? Brushes.Black
-            : new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
+            : new SolidColorBrush(Color.FromRgb(0x98, 0xA2, 0xB3));
     }
 
     /// <summary>默认播报文案：通知 = 标题 + 正文前一段；作业 / 缺交 = 类型 + 科目 + 内容；值日 = 星期 + 岗位 + 名单。</summary>
@@ -568,7 +550,7 @@ public class BoardSendWindow : Window
         });
         _snapshotInfo.FontSize = 12;
         _snapshotInfo.Margin = new Thickness(0, 0, 0, 14);
-        _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+        _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
         root.Children.Add(_snapshotInfo);
 
         // 默认已经带出「账号所属班级」，这里还能临时增加别的班：
@@ -685,6 +667,7 @@ public class BoardSendWindow : Window
         };
         _weekSwitch = weekSwitch;
         weekSwitch.Children.Add(_weekMode);
+        weekSwitch.Children.Add(_weekBubble);
         root.Children.Add(weekSwitch);
         BuildWeekTable();
         root.Children.Add(_weekPanel);
@@ -711,18 +694,15 @@ public class BoardSendWindow : Window
             tbNames.TextChanged += (_, _) => RefreshAutoTexts();
         }
 
-        // 说明文字收成问号图标后，全屏提醒与语音提醒可以并排放在同一行。
-        // 两个气泡各自讲清规则；「播报内容」仍留一行可手工改。
+        // 全屏提醒与语音提醒并排放在同一行，「播报内容」另起一行可手工改。
         InitVoiceControls();
         _reminderRow = new Wpf.StackPanel
         {
             Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(92, 0, 0, 6)
         };
         _reminderRow.Children.Add(_force);
-        _reminderRow.Children.Add(_forceBubble);
         _reminderRow.Children.Add(_voice);
         _reminderRow.Children.Add(_voiceWhen);
-        _reminderRow.Children.Add(_voiceBubble);
         root.Children.Add(_reminderRow);
         root.Children.Add(Row(Lab("播报内容"), _voiceText));
 
@@ -807,7 +787,7 @@ public class BoardSendWindow : Window
         else
         {
             _snapshotInfo.Text = "📡 正在读取教室机内容…";
-            _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+            _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
             try
             {
                 var (s, msg) = await Task.Run(() => BoardSyncService.LoadRemoteSnapshot(cls));
@@ -816,7 +796,7 @@ public class BoardSendWindow : Window
                 _snapshotInfo.Text = "📡 " + msg;
                 _snapshotInfo.Foreground = new SolidColorBrush(snap == null
                     ? Color.FromRgb(0xC0, 0x6A, 0x2B)
-                    : Color.FromRgb(0x2D, 0x6C, 0xDF));
+                    : Color.FromRgb(0x1E, 0x4F, 0xA3));
             }
             catch (Exception ex)
             {

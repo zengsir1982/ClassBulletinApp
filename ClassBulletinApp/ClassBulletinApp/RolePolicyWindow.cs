@@ -146,12 +146,18 @@ public class RolePolicyWindow : Window
 
         // ---------- 顶部说明 ----------
         var head = new StackPanel();
-        head.Children.Add(new TextBlock
+        // r77：问号并入标题行末
+        var titleRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 8)
+        };
+        titleRow.Children.Add(new TextBlock
         {
             Text = "角色权限",
             FontSize = 19,
             FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 0, 0, 6)
+            VerticalAlignment = VerticalAlignment.Center
         });
 
         var intro = new ClassBulletinApp.Controls.HelpBubble
@@ -164,7 +170,8 @@ public class RolePolicyWindow : Window
                  + "★ 「发布信息」＝教师机发作业 / 缺交 / 通知变更单；电教管理员默认关，"
                  + "因为他负责在教室机确认应用，不能自己发自己批。"
         };
-        head.Children.Add(intro);
+        titleRow.Children.Add(intro);
+        head.Children.Add(titleRow);
 
         // 非发布机：明确告诉他为什么不能改，以及要去哪里切换
         if (!_canEdit)

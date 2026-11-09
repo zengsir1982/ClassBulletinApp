@@ -22,13 +22,15 @@ public static class ThemeManager
     };
 
     // 每个主题：主色 / 深主色 / 浅色（按钮背景）/ 浅色描边
+    // r76：整套降饱和 + 加深一档（「沉稳」口径）。亮饱和的主色在教室投影 / 一体机低亮度屏上
+    // 会发飘、和白字对比不稳；压深之后白字更容易看清，和红色天数也不互相抢。
     private static readonly Dictionary<string, (string Primary, string Dark, string Light, string Border)> Palette = new()
     {
-        ["ClassicBlue"]   = ("#2D6CDF", "#1E4FA8", "#EAF1FD", "#9DBDF0"),
-        ["FreshGreen"]    = ("#16A34A", "#0F7A38", "#E7F6EC", "#8FD9AE"),
-        ["ElegantPurple"] = ("#7C3AED", "#5B21B6", "#F1E9FD", "#C4A6F0"),
-        ["VibrantOrange"] = ("#EA580C", "#B45309", "#FDEDE2", "#F5B98C"),
-        ["CalmTeal"]      = ("#0D9488", "#0B6B62", "#E2F5F2", "#8FD3CB"),
+        ["ClassicBlue"]   = ("#1E4FA3", "#143A7A", "#E9EFF9", "#C2D2E9"),
+        ["FreshGreen"]    = ("#2E7D4F", "#1F5C39", "#E8F3EC", "#B7D6C4"),
+        ["ElegantPurple"] = ("#6B4BA8", "#4E3679", "#EFEAF7", "#C3B5DC"),
+        ["VibrantOrange"] = ("#C2703A", "#97522A", "#F7EDE6", "#DEBFA8"),
+        ["CalmTeal"]      = ("#17706B", "#0F4F4A", "#E5F2F1", "#B7D9D6"),
     };
 
     /// <summary>把指定主题应用到整个应用程序（替换 Application.Resources 中的主色刷）。</summary>

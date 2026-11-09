@@ -54,21 +54,33 @@ public class EffectiveRangeWindow : Window
         var sp = new StackPanel();
         Grid.SetRow(sp, 0);
 
-        sp.Children.Add(new TextBlock
+        // r77：标题 + 问号同一行（问号贴行末）；用 Grid 而不是 StackPanel，
+        // 这样长标题仍然能换行，问号也不会被挤出窗口。
+        var headRow = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        headRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var headText = new TextBlock
         {
             Text = headline,
             FontSize = 15,
             FontWeight = FontWeights.Bold,
             Foreground = System.Windows.Media.Brushes.Black,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 6)
-        });
-        sp.Children.Add(new ClassBulletinApp.Controls.HelpBubble
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(headText, 0);
+        headRow.Children.Add(headText);
+
+        var headBubble = new ClassBulletinApp.Controls.HelpBubble
         {
             PopupTitle = "操作说明",
             Text = "请选择这份临时安排生效的时间段（默认本周）。过期后自动失效，基础课表不受影响。",
-            Margin = new Thickness(0, 0, 0, 14)
-        });
+            Margin = new Thickness(6, 0, 0, 0)
+        };
+        Grid.SetColumn(headBubble, 1);
+        headRow.Children.Add(headBubble);
+        sp.Children.Add(headRow);
 
         sp.Children.Add(MakeRadio($"本周（{thisStart:M月d日} – {thisEnd:M月d日}）", true));
         sp.Children.Add(MakeRadio($"下周（{nextStart:M月d日} – {nextEnd:M月d日}）", false));

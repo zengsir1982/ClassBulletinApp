@@ -9,10 +9,10 @@
                 <ResourceDictionary Source="DesignTokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-        <SolidColorBrush x:Key="PrimaryBrush" Color="#2D6CDF"/>
-        <SolidColorBrush x:Key="PrimaryDarkBrush" Color="#1E4FA8"/>
-        <SolidColorBrush x:Key="PrimaryLightBrush" Color="#EAF1FD"/>
-        <SolidColorBrush x:Key="PrimaryBorderBrush" Color="#9DBDF0"/>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#1E4FA3"/>
+        <SolidColorBrush x:Key="PrimaryDarkBrush" Color="#143A7A"/>
+        <SolidColorBrush x:Key="PrimaryLightBrush" Color="#E9EFF9"/>
+        <SolidColorBrush x:Key="PrimaryBorderBrush" Color="#C2D2E9"/>
 
         <!--
             悬浮课表底部的内置快捷胶囊（作业 / 缺交 / 便签）。
@@ -25,7 +25,7 @@
             <Setter Property="Padding" Value="8,4"/>
             <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Foreground" Value="#1F2A37"/>
+            <Setter Property="Foreground" Value="#1B2836"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">

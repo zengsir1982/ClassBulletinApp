@@ -432,7 +432,7 @@ public partial class NoticeWindow : Window, IGlassSurface
         if (BtnTop == null) return;
         bool top = Topmost;
         BtnTop.Content = top ? "已置顶" : "置顶";
-        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
     }
 
@@ -460,7 +460,7 @@ public partial class NoticeWindow : Window, IGlassSurface
     private void RefreshLockVisual()
     {
         BtnLock.Content = _locked ? "🔒" : "🔓";
-        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnLock.Foreground = _locked ? Brushes.White : Brushes.Black;
         if (TxtHint != null)
             TxtHint.Text = _locked ? "已锁定" : "拖动·双击编辑";
@@ -530,7 +530,7 @@ public partial class NoticeWindow : Window, IGlassSurface
         try { on = Store.LoadSettings().Backdrop?.ShowNotice == true; }
         catch { }
 
-        BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
         BtnWp.ToolTip = on
             ? "通知公告已在桌面背景显示；再点一次会按「现在的位置和大小」重新锁定。要取消：布局设置 → 桌面背景 取消勾选它"

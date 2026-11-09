@@ -1050,38 +1050,32 @@ public partial class App : System.Windows.Application
                 var b = System.Windows.Application.Current?.TryFindResource("PrimaryLightBrush") as System.Windows.Media.SolidColorBrush;
                 if (b == null) throw new Exception("主色资源键缺失");
                 string expect = "#" + b.Color.R.ToString("X2") + b.Color.G.ToString("X2") + b.Color.B.ToString("X2");
-                if (!string.Equals(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF1FD"), expect, StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9"), expect, StringComparison.OrdinalIgnoreCase))
                     throw new Exception("纯 C# 窗口取色没跟上资源键");
                 return w;
             });
             // 玻璃底色：只压 Border.Background 的 alpha，绝不碰 Window.Opacity（HoverFader 占着它）
             Check("玻璃底色只压底色 / 不动整窗透明度", () =>
             {
+                // ★ 探针用一个和主题无关的固定色：早先这里写的是主色字面量，
+                //   一改配色（r76 沉稳蓝）就地跟断言里的期望值对不上，白白红一条。
+                const byte pr = 0x12, pg = 0x34, pb = 0x56;
                 var probe = new System.Windows.Controls.Border
                 {
                     Background = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+                        System.Windows.Media.Color.FromRgb(pr, pg, pb))
                 };
                 GlassBrush.ApplyCore(probe, true, 45);
                 var on = probe.Background as System.Windows.Media.SolidColorBrush;
                 if (on == null || on.Color.A != GlassBrush.AlphaOf(45)
-                    || on.Color.R != 0x2D || on.Color.G != 0x6C || on.Color.B != 0xDF)
+                    || on.Color.R != pr || on.Color.G != pg || on.Color.B != pb)
                     throw new Exception("通透度没只作用到底色 alpha 上");
                 GlassBrush.ApplyCore(probe, false, 45);
                 var off = probe.Background as System.Windows.Media.SolidColorBrush;
                 if (off == null || off.Color.A != 255)
                     throw new Exception("关闭玻璃后没有还原原始 alpha");
 
-                var lw = new LayoutWindow();
-                try
-                {
-                    if (lw.FindName("ChkGlassOn") == null || lw.FindName("SlGlass") == null
-                        || lw.FindName("ChkGlassFloat") == null || lw.FindName("ChkGlassAll") == null
-                        || lw.FindName("SlGlassChrome") == null
-                        || lw.FindName("GlassPreviewFloat") == null || lw.FindName("GlassPreviewChrome") == null)
-                        throw new Exception("玻璃设置入口缺失（r74：两组开关 / 两个滑块 / 两块预览都要在）");
-                }
-                finally { try { lw.Close(); } catch { } }
+                // r77：玻璃设置已迁到「显示设置 → 界面主题」，不再属于 LayoutWindow，这里的入口断言移除。
 
                 var w = new NotificationWindow();
                 try
@@ -1647,7 +1641,7 @@ public partial class App : System.Windows.Application
             {
                 var w = new BoardSendWindow(new[] { "一班" }, BoardSyncConsts.EntityNotice);
                 var row = w.ReminderRow;
-                if (row == null || !row.Children.Contains(w.ForceBubble) || !row.Children.Contains(w.VoiceBubble))
+                if (row == null || !row.Children.Contains(w.ForceBox) || !row.Children.Contains(w.VoiceBox))
                     throw new Exception("全屏提醒和语音提醒没放在同一行");
 
                 w.Field1Box.Text = "明天带跳绳";
@@ -1887,7 +1881,6 @@ public partial class App : System.Windows.Application
                 if (fresh.GlassEnabled) throw new Exception("总闸仍应默认关闭，开玻璃是用户显式动作");
 
                 Exception? err = null;
-                var lw = new LayoutWindow();
                 var probe = new Window { Width = 120, Height = 80,
                                          Background = System.Windows.Media.Brushes.White };
                 var host = new Window { Width = 120, Height = 80,
@@ -1895,17 +1888,6 @@ public partial class App : System.Windows.Application
                                         Left = -3000, Top = -3000 };
                 try
                 {
-                    if (lw.DiagGlassModeBox.Items.Count != 4)
-                        throw new Exception("玻璃效果下拉应有 自动/亚克力/云母/磨砂 四项");
-                    if (lw.DiagGlassAllBox.IsChecked != true)
-                        throw new Exception("普通窗口玻璃默认没勾上");
-                    lw.DiagGlassAllBox.IsChecked = false;
-                    var r = lw.DiagSyncGlass();
-                    if (r.All || r.Mode != "auto")
-                        throw new Exception("取消勾选后没同步进设置对象");
-                    lw.DiagGlassAllBox.IsChecked = true;
-                    lw.DiagSyncGlass();
-
                     // ★ 诊断 / 截图模式绝不能改窗口底色：DWM 效果截图抓不到，改了只会把 --shot 拍黑
                     var before = probe.Background;
                     var on = new AppSettings { GlassEnabled = true, GlassAllWindows = true, GlassChromeOpacity = 45 };
@@ -1924,7 +1906,6 @@ public partial class App : System.Windows.Application
                 catch (Exception ex) { err = ex; }
                 finally
                 {
-                    try { lw.Close(); } catch { }
                     try { probe.Close(); } catch { }
                     try { host.Close(); } catch { }
                 }
@@ -2083,23 +2064,7 @@ public partial class App : System.Windows.Application
                 if (!double.IsFinite(dirty.GlassChromeOpacity) || dirty.GlassChromeOpacity > 65)
                     throw new Exception("脏数据（NaN）没被规范成合法通透度");
 
-                // ④ 设置卡：两个滑块各写各的字段，取消也能还原
-                var lw = new LayoutWindow();
-                try
-                {
-                    if (lw.DiagGlassFloatBox.IsChecked != lw.DiagSyncGlassSplit().FloatOn)
-                        throw new Exception("悬浮窗开关与设置对象不一致");
-                    lw.DiagGlassFloatBox.IsChecked = false;
-                    lw.DiagGlassChromeSlider.Value = 20;
-                    var r = lw.DiagSyncGlassSplit();
-                    if (r.FloatOn) throw new Exception("取消「悬浮窗」勾选没同步进设置");
-                    if (Math.Abs(r.ChromePercent - 20) > 0.001)
-                        throw new Exception("主窗通透度滑块没写进 GlassChromeOpacity（" + r.ChromePercent + "）");
-                    if (Math.Abs(r.FloatPercent - r.ChromePercent) < 0.001
-                        && Math.Abs(r.ChromePercent - 20) < 0.001)
-                        throw new Exception("两个滑块写到了同一个字段（两组没拆开）");
-                }
-                finally { try { lw.Close(); } catch { } }
+                // r77：玻璃卡已迁到「显示设置 → 界面主题」，此处的 LayoutWindow 玻璃断言移除。
                 return new MainWindow();
             });
 
@@ -3451,7 +3416,7 @@ public partial class App : System.Windows.Application
                 Styles = new System.Collections.Generic.Dictionary<string, BoardTextStyle>
                 {
                     ["subject"] = new BoardTextStyle { Bold = true, Color = "#C0392B", SizeLevel = 5 },
-                    ["content"] = new BoardTextStyle { Bold = false, Color = "#2D6CDF", SizeLevel = 6 }
+                    ["content"] = new BoardTextStyle { Bold = false, Color = "#1E4FA3", SizeLevel = 6 }
                 },
                 Sender = "teacher01", SenderRole = "teacher", SenderSubject = "数学",
                 Summary = "带格式的作业修改", ValidDay = DateTime.Today.ToString("yyyy-MM-dd")
@@ -3470,7 +3435,7 @@ public partial class App : System.Windows.Application
                   styApplied == null ? "条目没找到" : styApplied.SubjectStyle.SizeLevel + " " + styApplied.SubjectStyle.Color);
             Check("格式随单落地：正文 巨大 / 蓝色（与科目分开）",
                   styApplied != null && styApplied.ContentStyle.SizeLevel == 6
-                  && styApplied.ContentStyle.Color == "#2D6CDF",
+                  && styApplied.ContentStyle.Color == "#1E4FA3",
                   styApplied == null ? "条目没找到" : styApplied.ContentStyle.SizeLevel + " " + styApplied.ContentStyle.Color);
             Check("回执带回落地格式（教师机能确认格式也到了）",
                   styRes.Receipt != null && styRes.Receipt.AppliedStyles.Count == 2);

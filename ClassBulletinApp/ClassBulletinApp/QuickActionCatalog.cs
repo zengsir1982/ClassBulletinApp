@@ -49,7 +49,7 @@ public static class QuickActionCatalog
     {
         new()
         {
-            Key = Homework, Text = "📋 作业", Bg = "#EAF2FD", Border = "#9EC1F0",
+            Key = Homework, Text = "📋 作业", Bg = "#E9EFF9", Border = "#C2D2E9",
             Tip = "打开「作业公示」便签，可以直接编辑各科作业内容"
         },
         new()

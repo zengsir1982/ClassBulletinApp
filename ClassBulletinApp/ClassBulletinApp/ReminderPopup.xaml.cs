@@ -98,7 +98,7 @@ public partial class ReminderPopup : Window, IGlassSurface
 
         Loaded += (_, _) =>
         {
-            try { Card.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF)); } catch { }
+            try { Card.BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3)); } catch { }
             PlaceBySettings(src);
             Activate();
             Focus();
@@ -123,7 +123,7 @@ public partial class ReminderPopup : Window, IGlassSurface
             BtnCancelLayout.BorderBrush = _style.AccentBorder;
             BtnCancelLayout.Foreground = _style.TextBrush(0.95);
 
-            var blue = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF));
+            var blue = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3));
             BtnSaveLayout.Background = blue;
             BtnSaveLayout.BorderBrush = blue;
             BtnSaveLayout.Foreground = System.Windows.Media.Brushes.White;

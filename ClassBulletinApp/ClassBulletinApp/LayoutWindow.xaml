@@ -29,7 +29,6 @@
                         <Border Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12">
                             <StackPanel>
                                 <TextBlock Text="位置 / 大小：直接在屏幕上拖" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                                <ctl:HelpBubble PopupTitle="课表位置与大小" Text="按住悬浮课表的标题区（班级 / 日期那一块）拖动即可移动位置；把鼠标移到窗口边沿或四角，出现双向箭头时拖动即可改变大小。松手即自动记住，下次启动保持原位。把窗口拖到屏幕边沿会自动开启「自动靠边隐藏」，拖离屏幕边沿则自动关闭。" Margin="0,0,0,8"/>
                             </StackPanel>
                         </Border>
 
@@ -52,7 +51,6 @@
                         <TextBlock Text="屏幕边沿感应宽度（像素）：鼠标 / 触摸进入屏幕这一边缘范围就滑出" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,12,0,4"/>
                         <Slider x:Name="SlSchEdge" Minimum="2" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtSchEdge" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
-                        <ctl:HelpBubble PopupTitle="鼠标穿透" Text="提示：默认不勾选「鼠标穿透」——此时隐藏按钮可单击、标题可双击换班/换日、课卡可拖动调课。「自动隐藏」模式下窗口本身也是可交互的；只有勾选「鼠标穿透」后，非交互区域的鼠标操作才会落到底层窗口。" Margin="0,0,0,8"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -64,7 +62,6 @@
                         <Border Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12">
                             <StackPanel>
                                 <TextBlock Text="位置 / 大小：直接在屏幕上拖" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                                <ctl:HelpBubble PopupTitle="通知条位置与出厂默认" Text="按住通知条拖动即可移动位置（双击仍是编辑通知）；把鼠标移到条子边沿，出现双向箭头时拖动即可改变大小与条高。松手即自动记住。把通知条拖到屏幕边沿会自动开启「自动靠边隐藏」，拖离屏幕边沿则自动关闭。&#10;&#10;★ 出厂默认是「置顶常驻 + 鼠标穿透 + 移上去变透明」：通知条纯展示、不挡课件，鼠标移过去它自己让开。穿透态下拖不动也点不到它 —— 想拖动 / 双击编辑，先取消下面的「鼠标穿透」。" Margin="0,0,0,8"/>
                             </StackPanel>
                         </Border>
 
@@ -73,7 +70,6 @@
                         <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,16,0,4">
                             <StackPanel>
                                 <TextBlock Text="字幕字号" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                                <ctl:HelpBubble PopupTitle="字幕字号" Text="已统一到「内容 → 通知公告 → 通知条样式」的字号下拉（12～96 共 22 档），这里不再重复设置。" Margin="0,0,0,8"/>
                             </StackPanel>
                         </Border>
                         <Slider x:Name="SlNotFont" Minimum="14" Maximum="64" TickFrequency="2" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left" Visibility="Collapsed"/>
@@ -104,7 +100,6 @@
                         <TextBlock Text="屏幕边沿感应宽度（像素）：鼠标 / 触摸进入屏幕这一边缘范围就滑出" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,12,0,4"/>
                         <Slider x:Name="SlNotEdge" Minimum="2" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotEdge" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
-                        <ctl:HelpBubble PopupTitle="通知条默认行为" Text="默认：置顶常驻 + 鼠标穿透 + 鼠标移上去变透明 —— 通知条纯展示、不挡课件，鼠标一移过去它自己让开。穿透态下条子不接收鼠标，所以双击编辑与条上的「自动隐藏」按钮都不生效；要改这些请先取消「鼠标穿透」。" Margin="0,0,0,8"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -114,7 +109,6 @@
                 <ScrollViewer Margin="10">
                     <StackPanel>
                         <TextBlock Text="🖥 桌面背景（可同时显示多张便签）" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,4"/>
-                        <ctl:HelpBubble PopupTitle="桌面背景" Text="把「当天课表」「作业公示」「缺交作业名单」「倒计时」「值日生名单」「通知公告」以及自建的「自定义便签」画到桌面壁纸上：位于所有窗口之下，不遮挡、不影响电脑操作，也不会被误触。各便签可同时显示，主题风格、位置与大小各自独立调整。" Margin="0,0,0,8"/>
 
                         <TextBlock Text="显示内容" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
                         <WrapPanel Margin="12,0,0,6">
@@ -134,7 +128,6 @@
                         <Border Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="14,12" Margin="0,14,0,4">
                             <StackPanel>
                                 <TextBlock Text="便签位置 / 大小：所见即所得调整" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                                <ctl:HelpBubble PopupTitle="排版窗" Text="点击下方按钮，可在模拟屏幕上直接拖动便签调整位置、拖动四角 / 四边改变大小，比滑块更直观便捷。" Margin="0,0,0,8"/>
                                 <Button x:Name="BtnWpEdit" Content="🖱 打开所见即所得排版（拖动便签 / 拉边框改大小）"
                                         Padding="14,9" FontSize="14" HorizontalAlignment="Left"
                                         Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnWpEdit_Click"/>
@@ -169,79 +162,12 @@
                                     Click="BtnClearWp_Click"/>
                         </StackPanel>
                         <TextBlock x:Name="TxtWpStatus" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="10,8,0,0" TextWrapping="Wrap"/>
-                        <ctl:HelpBubble PopupTitle="应用后行为" Text="提示：应用后课表内容变化、跨天会自动更新；悬浮课表 / 作业便签 / 缺交便签 / 自定义便签底部都有「设为背景」，可一键把当前位置与大小锁进壁纸。便签的位置与大小也可在上方「所见即所得排版」里拖动调整。" Margin="0,0,0,8"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
         </TabControl>
 
-        <!-- 全局玻璃底色：不属于任何单个悬浮窗，放在所有标签页之外，一眼就能找到 -->
-        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
-                CornerRadius="10" Padding="14,10" Margin="0,12,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="全局玻璃底色（悬浮窗 / 普通窗口分开设置）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                    <CheckBox x:Name="ChkGlassOn" Content="开启玻璃效果（默认关闭；老机器 / 远程桌面可随时关掉）"
-                              FontSize="13" Margin="0,6,0,2"/>
-                    <!-- r74：悬浮窗与普通窗口各一组「开关 + 自己的通透度」，互不牵连。
-                         每组两行（勾选一行、滑块一行）—— 挤在一行时滑块只剩几十像素，拖都拖不动 -->
-                    <CheckBox x:Name="ChkGlassFloat" Content="悬浮窗（课表 / 便签 / 通知条）"
-                              FontSize="13" Margin="0,4,0,0"/>
-                    <Grid Margin="22,2,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Slider x:Name="SlGlass" Grid.Column="0" Minimum="0" Maximum="65" TickFrequency="5"
-                                IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TxtGlass" Grid.Column="1" Width="70" FontSize="12" Foreground="{DynamicResource MutedBrush}"
-                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    </Grid>
-                    <CheckBox x:Name="ChkGlassAll" Content="主窗 / 设置 / 编辑窗口"
-                              FontSize="13" Margin="0,6,0,0"/>
-                    <Grid Margin="22,2,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Slider x:Name="SlGlassChrome" Grid.Column="0" Minimum="0" Maximum="65" TickFrequency="5"
-                                IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TxtGlassChrome" Grid.Column="1" Width="70" FontSize="12" Foreground="{DynamicResource MutedBrush}"
-                                   VerticalAlignment="Center" Margin="8,0,0,0"/>
-                    </Grid>
-                    <!-- r73d：普通窗口改成「分层窗 + 自绘标题栏」，和悬浮窗一样真透出桌面；
-                         「系统档位」下拉只管系统 backdrop（备用路径，Win11 上基本没有可见差别） -->
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="系统档位" FontSize="13" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox x:Name="CbGlassMode" Width="112" FontSize="13" VerticalAlignment="Center">
-                            <ComboBoxItem Tag="auto" Content="自动"/>
-                            <ComboBoxItem Tag="acrylic" Content="亚克力"/>
-                            <ComboBoxItem Tag="mica" Content="云母"/>
-                            <ComboBoxItem Tag="frosted" Content="磨砂"/>
-                        </ComboBox>
-                    </StackPanel>
-                    <ctl:HelpBubble PopupTitle="玻璃效果"
-                                    Text="悬浮窗：只改窗口底色，文字与按钮始终完全不透明，能透出桌面。&#10;&#10;普通窗口：改成透明分层窗 + 自绘标题栏（和悬浮窗同一套观感），标题栏左侧是窗口名、右侧是最小化 / 最大化 / 关闭；按住标题栏拖动窗口，拖边角改大小，双击标题栏最大化。文字仍完全清晰。&#10;&#10;★ 两组完全分开：可以只给悬浮窗开玻璃、主窗保持实色，也可以反过来；通透度各拖各的，互不影响。&#10;&#10;★ 两条要知道的：① 已打开的窗口不会变，要关掉重开才套上新外观；② 分层窗一旦创建就回不到原生标题栏，所以运行中关掉主窗玻璃只是「变不透明 + 保留自绘标题栏」，新开的窗口才完全恢复原生。&#10;&#10;「系统档位」下拉是备用方案（Win11 上基本看不出差别，Win10 一体机可试 acrylic）。&#10;&#10;一体机自测：命令行运行 ClassBulletinApp.exe --glass-probe 输出.png chrome，把生成的图发回即可确认效果。"
-                                    Margin="0,0,0,8"/>
-                </StackPanel>
-                <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                    <Border x:Name="GlassPreviewFloat" Width="112" Height="46" CornerRadius="8"
-                            BorderBrush="{DynamicResource PrimarySoftBorderBrush}" BorderThickness="1">
-                        <TextBlock Text="悬浮窗" FontSize="12" Foreground="{DynamicResource InkBrush}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <Border x:Name="GlassPreviewChrome" Width="112" Height="46" CornerRadius="8" Margin="0,8,0,0"
-                            BorderBrush="{DynamicResource PrimarySoftBorderBrush}" BorderThickness="1">
-                        <TextBlock Text="主窗 / 设置" FontSize="12" Foreground="{DynamicResource InkBrush}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                </StackPanel>
-            </Grid>
-        </Border>
+        <!-- 全局玻璃底色已迁到「显示设置 → 界面主题」（r77）。此处不再提供玻璃设置。 -->
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button x:Name="BtnCancel" Content="取消" Padding="18,8" FontSize="14" Margin="0,0,10,0" Click="BtnCancel_Click"/>

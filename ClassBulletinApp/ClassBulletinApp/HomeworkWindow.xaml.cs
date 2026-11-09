@@ -245,8 +245,8 @@ public partial class HomeworkWindow : Window, IGlassSurface
     private void RebuildContent(HomeworkBoard board)
     {
         var t = HomeworkThemes.Find(_themeKey);
-        var accent = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
-        var muted = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x9C, 0xA3, 0xAF));
+        var accent = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x1E, 0x4F, 0xA3));
+        var muted = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x98, 0xA2, 0xB3));
         var fg = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
 
         ContentPanel.Children.Clear();
@@ -276,7 +276,7 @@ public partial class HomeworkWindow : Window, IGlassSurface
                         FontSize = HwTextRender.BodySize(ss),
                         FontWeight = HwTextRender.BoldOr(ss, true) ? FontWeights.Bold : FontWeights.Normal,
                         Foreground = ThemeHelper.Brush(HwTextRender.ColorOr(ss, t.Accent),
-                                                       Color.FromRgb(0x2D, 0x6C, 0xDF)),
+                                                       Color.FromRgb(0x1E, 0x4F, 0xA3)),
                         TextWrapping = TextWrapping.Wrap
                     });
                 }
@@ -339,7 +339,7 @@ public partial class HomeworkWindow : Window, IGlassSurface
             if (BtnWp == null) return;
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             bool on = b.ShowHomework;
-            BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+            BtnWp.Background = on ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
             BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
             BtnWp.ToolTip = on
                 ? "作业公示已在桌面背景显示；再点一次会按「现在的位置和大小」重新锁定。要取消：布局设置 → 桌面背景 取消勾选"
@@ -378,7 +378,7 @@ public partial class HomeworkWindow : Window, IGlassSurface
         if (BtnTop == null) return;
         bool top = Topmost;
         BtnTop.Content = top ? "已置顶" : "置顶";
-        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
     }
 
@@ -403,7 +403,7 @@ public partial class HomeworkWindow : Window, IGlassSurface
         if (BtnLock == null) return;
         bool locked = _locked;
         BtnLock.Content = locked ? "🔒" : "🔓";
-        BtnLock.Background = locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnLock.Background = locked ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnLock.Foreground = locked ? Brushes.White : Brushes.Black;
         if (TxtHint != null)
             TxtHint.Text = locked ? "已锁定：不能移动 / 缩放 / 编辑" : "拖动摆放 · 拉边沿改大小 · 双击编辑";

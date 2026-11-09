@@ -130,12 +130,6 @@ public class ShareAccessWizardWindow : Window
         titleGrid.Children.Add(tag);
         head.Children.Add(titleGrid);
 
-        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作步骤",
-            Text = "课表 Excel 放在办公电脑的共享文件夹里，三台发布机从那里读；发布后的数据包再上传到 FTP，供 30 台教室机下载。",
-            Margin = new Thickness(0, 0, 0, 12)
-        });
 
         head.Children.Add(BuildStepBar());
         head.Children.Add(new Border
@@ -166,12 +160,6 @@ public class ShareAccessWizardWindow : Window
         DockPanel.SetDock(right, Dock.Right);
         bar.Children.Add(right);
 
-        bar.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作提示",
-            Text = "教室机不需要做第 1、2 步，只填 FTP 即可。",
-            Margin = new Thickness(0, 0, 16, 0)
-        });
 
         // ---------- 组装 ----------
         _pages.Add(BuildStep1());
@@ -269,10 +257,6 @@ public class ShareAccessWizardWindow : Window
     {
         var p = new StackPanel();
 
-        p.Children.Add(Note(
-            "本节在【办公电脑】上做，一次即可，需要管理员权限。做完之后换课表、加班级都不用再来，"
-            + "只有当共享名、路径或密码变了才需要重做。",
-            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         p.Children.Add(Field("办公电脑地址", _hostBox,
             "办公电脑的 IP 或计算机名，例如 192.168.40.168 或 ZLOVEK。不要带 \\\\，也不要带路径。"));
@@ -280,13 +264,6 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Field("课表子目录", _subBox,
             "默认 source。如果 Excel 就直接放在共享根目录里，这里留空。"));
 
-        p.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "注意事项",
-            Text = "下面命令里的 D:\\dfzx 是示例路径，改成办公电脑上真实放课表的文件夹。"
-                 + "共享名 dfzx 保持不变即可。",
-            Margin = new Thickness(0, 2, 0, 14)
-        });
 
         p.Children.Add(SectionTitle("① 建一个专用账号（不要用管理员账号，也不要用你自己的账号）"));
         p.Children.Add(CmdBlock(
@@ -306,13 +283,6 @@ public class ShareAccessWizardWindow : Window
             "共享权限和 NTFS 权限是两套，取交集，两边都要给：",
             () => "icacls \"D:\\dfzx\" /grant \"" + SmbUserText() + ":(OI)(CI)M\" /T"));
 
-        p.Children.Add(Note(
-            "为什么是「更改 / 修改」而不是只读、也不是完全控制：\n"
-            + "· 只读 → 发布机能读课表，但你在资源管理器里往 source 拖文件会被拒绝；\n"
-            + "· 更改 / 修改 → 既能拖文件进来，也能正常保存 Excel（Excel 保存网络文件是「写临时文件→删原文件→改名」，"
-            + "所以必须带删除权限，只勾「写入」会保存失败）；\n"
-            + "· 完全控制 → 多给的是「改权限」和「取得所有权」，等于把钥匙一起给出去，没必要。",
-            "#F7F9FC", "#E3E8EF", "#4B5563"));
 
         p.Children.Add(SectionTitle("④ 自测一遍：读要通，写也要通"));
         p.Children.Add(CmdBlock(
@@ -329,15 +299,7 @@ public class ShareAccessWizardWindow : Window
                     + "net use \\\\" + host + "\\" + share + " /delete";
             }));
 
-        p.Children.Add(Note(
-            "第 3 行报「拒绝访问」= 写权限没给到：回看第 ② ③ 步，共享权限要是「更改」、NTFS 要是「修改」，"
-            + "缺一层都写不进去。测试文件叫 _写入测试.txt，不是 .xlsx，不会被当成课表。",
-            "#FFFBEB", "#F3D08A", "#8A5A00"));
 
-        p.Children.Add(Note(
-            "★ 三台发布机用的是不同的 Windows 账号，而凭据是按账号隔离的："
-            + "第 2 步必须在每台发布机上各做一次，在一台机器上做好了，另外两台不会自动生效。",
-            "#FEF2F2", "#F5B5B5", "#9B1C1C"));
 
         return WrapScroll(p);
     }
@@ -348,10 +310,6 @@ public class ShareAccessWizardWindow : Window
     {
         var p = new StackPanel();
 
-        p.Children.Add(Note(
-            "本节在【本机】做，三台发布机各做一次。账号密码只写进 Windows 凭据管理器（等同于 cmdkey），"
-            + "不写进 settings.json，也不随数据包下发。",
-            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         var uncRow = new Border
         {
@@ -424,11 +382,6 @@ public class ShareAccessWizardWindow : Window
         _testBox.Child = _testText;
         p.Children.Add(_testBox);
 
-        p.Children.Add(Note(
-            "常见报错对照：① 错误 1219「不允许一个用户使用一个以上用户名与一个服务器建立多重连接」"
-            + "→ 这台机器之前用别的账号连过，先在命令行执行 net use \\\\办公电脑IP /delete 再重试；"
-            + "② 拒绝访问 → 共享权限或 NTFS 权限没给到；③ 找不到网络路径 → IP 不对或 445 端口被防火墙拦了。",
-            "#FFFBEB", "#F3D08A", "#8A5A00"));
 
         return WrapScroll(p);
     }
@@ -604,10 +557,6 @@ public class ShareAccessWizardWindow : Window
     {
         var p = new StackPanel();
 
-        p.Children.Add(Note(
-            "发布机把 Excel 打包成 data.cbpack，再连同 manifest.json 上传到 FTP；教室机只从 FTP 下载。"
-            + "Excel 本身永远留在共享目录里，不上传 FTP。",
-            ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"), ChromePalette.HexOf(ChromePalette.PrimaryDark, "#1E4FA8")));
 
         _rbSchool.GroupName = "ftpMode";
         _rbOffice.GroupName = "ftpMode";
@@ -621,13 +570,6 @@ public class ShareAccessWizardWindow : Window
         _rbOffice.Checked += (_, _) => SyncFtpNote();
         p.Children.Add(_rbSchool);
 
-        p.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = "办公电脑不用装 FTP，也不要求它 24 小时开机 —— 通道保持现状，只把「读 Excel 的地方」"
-                 + "从 FTP 换成共享目录。三台发布机谁都能发布，因为读的是同一份 source。",
-            Margin = new Thickness(20, 0, 0, 6)
-        });
         p.Children.Add(_rbOffice);
 
         // 说明块必须有自己的底色：它紧跟在第二个单选项后面，不区分的话会被读成"自建 FTP 的说明"，
@@ -656,10 +598,6 @@ public class ShareAccessWizardWindow : Window
         p.Children.Add(Field("FTP 账号", _ftpUser, "程序只需要在这两个文件上有读写权限：manifest.json、data.cbpack。"));
         p.Children.Add(Field("FTP 密码", _ftpPwd, "教室机也用这个账号读包，所以要填能用的公开通道账号。"));
 
-        p.Children.Add(Note(
-            "点「完成并保存」会把三件事一起写进本机设置：① 数据源类型设为 FTP；② 发布源目录设为上面那个共享路径；"
-            + "③ 勾上「本机兼任发布机」。之后打开「自动更新设置」会看到它们已经填好，不用再手输。",
-            "#E8F6EE", "#7FC99A", "#2F7A4E"));
 
         return WrapScroll(p);
     }
@@ -902,20 +840,6 @@ public class ShareAccessWizardWindow : Window
             Margin = new Thickness(0, top, 0, top + 8)
         };
 
-    /// <summary>
-    /// r70：整段操作说明收成「问号小图标 + 点击弹层」，不再用一整块彩色灰字占版面。
-    /// <para>★ 保留 bg / border / fg 三个参数是为了 8 处调用点一行都不动；
-    /// 颜色语义统一交给 HelpBubble 走 DesignTokens（切主题自动跟随）。</para>
-    /// <para>★ 返回 UIElement 而不是 Border：调用点全是 <c>Children.Add(Note(...))</c>，
-    /// 换成气泡控件后原结构完全成立。</para>
-    /// </summary>
-    static UIElement Note(string text, string bg, string border, string fg)
-        => new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = text,
-            Margin = new Thickness(0, 6, 0, 12)
-        };
 
     static Grid Field(string label, System.Windows.Controls.Control input, string tip)
     {

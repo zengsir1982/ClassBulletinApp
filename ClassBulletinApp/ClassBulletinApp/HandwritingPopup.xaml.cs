@@ -224,8 +224,8 @@ public partial class HandwritingPopup : Window
 
         BtnClearText.Content = "清空输入框";
         BtnClearText.Background = Brushes.White;
-        BtnClearText.BorderBrush = new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB));
-        BtnClearText.Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37));
+        BtnClearText.BorderBrush = new SolidColorBrush(Color.FromRgb(0xC7, 0xCF, 0xDA));
+        BtnClearText.Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36));
     }
 
     // ---------- 定位 ----------
@@ -393,8 +393,8 @@ public partial class HandwritingPopup : Window
                 Padding = new Thickness(16, 4, 16, 4),
                 Margin = new Thickness(0, 0, 8, 0),
                 Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB)),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xC7, 0xCF, 0xDA)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36)),
             };
             btn.Click += (_, _) => Accept(text);
             CandidatePanel.Children.Add(btn);
@@ -539,11 +539,11 @@ public partial class HandwritingPopup : Window
     {
         if (btn == null) return;
         btn.Background = on
-            ? new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD))
+            ? new SolidColorBrush(Color.FromRgb(0xE9, 0xEF, 0xF9))
             : Brushes.White;
         btn.BorderBrush = on
-            ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
-            : new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB));
+            ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3))
+            : new SolidColorBrush(Color.FromRgb(0xC7, 0xCF, 0xDA));
     }
 
     /// <summary>

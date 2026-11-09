@@ -53,22 +53,24 @@ public class ClearOverridesWindow : Window
 
         var root = new StackPanel { Margin = new Thickness(20, 18, 20, 18) };
 
-        root.Children.Add(new TextBlock
+        // r77：问号并入标题行末，不再自己占一行
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
+        head.Children.Add(new TextBlock
         {
             Text = "清除哪一段的临时调课？",
             FontSize = 17,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x1F, 0x2A, 0x37)),
-            Margin = new Thickness(0, 0, 0, 6)
+            Foreground = new SolidColorBrush(MediaColor.FromRgb(0x1B, 0x28, 0x36)),
+            VerticalAlignment = VerticalAlignment.Center
         });
-
-        root.Children.Add(new ClassBulletinApp.Controls.HelpBubble
+        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
         {
             PopupTitle = "操作说明",
             Text = "这里清的是「临时」层：手动改课、从临时课表导入的调代、悬浮窗改的记录。"
                  + "长期改课（改在原始课表上的）属于底表本身，不受影响。",
-            Margin = new Thickness(0, 0, 0, 14)
+            Margin = new Thickness(6, 0, 0, 0)
         });
+        root.Children.Add(head);
 
         // ---------- ① 本周 ----------
         _rWeek.Content = "清除本周";
@@ -79,7 +81,7 @@ public class ClearOverridesWindow : Window
         _weekHint.Text = $"本周是 {ws:M月d日}（{WeekHelper.StartDayName(startDay)}）~ {we:M月d日}，"
                        + "只清这 7 天里生效的记录，往后的周不受影响。";
         _weekHint.FontSize = 12;
-        _weekHint.Foreground = new SolidColorBrush(MediaColor.FromRgb(0x6B, 0x72, 0x80));
+        _weekHint.Foreground = new SolidColorBrush(MediaColor.FromRgb(0x66, 0x70, 0x85));
         _weekHint.TextWrapping = TextWrapping.Wrap;
         _weekHint.Margin = new Thickness(26, 0, 0, 12);
 
@@ -134,7 +136,7 @@ public class ClearOverridesWindow : Window
 
         // ---------- 预览 ----------
         _preview.FontSize = 13.5;
-        _preview.Foreground = new SolidColorBrush(MediaColor.FromRgb(0x1F, 0x2A, 0x37));
+        _preview.Foreground = new SolidColorBrush(MediaColor.FromRgb(0x1B, 0x28, 0x36));
         _preview.TextWrapping = TextWrapping.Wrap;
 
         _protect.FontSize = 12.5;
@@ -149,7 +151,7 @@ public class ClearOverridesWindow : Window
 
         root.Children.Add(new Border
         {
-            Background = new SolidColorBrush(MediaColor.FromRgb(0xF7, 0xF9, 0xFC)),
+            Background = new SolidColorBrush(MediaColor.FromRgb(0xF4, 0xF6, 0xFA)),
             BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0xE0, 0xE6, 0xF0)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
@@ -175,7 +177,7 @@ public class ClearOverridesWindow : Window
             Padding = new Thickness(20, 8, 20, 8),
             Margin = new Thickness(0, 0, 10, 0),
             Background = new SolidColorBrush(MediaColor.FromRgb(0xF3, 0xF4, 0xF6)),
-            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0xD1, 0xD5, 0xDB))
+            BorderBrush = new SolidColorBrush(MediaColor.FromRgb(0xC7, 0xCF, 0xDA))
         };
         cancel.Click += (_, _) => { Result = null; DialogResult = false; };
 

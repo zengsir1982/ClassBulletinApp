@@ -48,12 +48,6 @@ public class PolicyLogWindow : Window
             FontWeight = FontWeights.Bold,
             Margin = new Thickness(0, 0, 0, 4)
         });
-        head.Children.Add(new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = "这里记录本机在「角色权限」里每次保存的改动（最新在前）。"
-                 + "日志只保存在本机，不随数据包下发。"
-        });
         DockPanel.SetDock(head, Dock.Top);
         root.Children.Add(head);
 

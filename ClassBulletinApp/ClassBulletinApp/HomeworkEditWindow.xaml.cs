@@ -129,9 +129,9 @@ public partial class HomeworkEditWindow : Window
     private void ApplyPreview(HomeworkTheme t)
     {
         PreviewCard.Background = ThemeHelper.Brush(t.Background, Colors.White);
-        PreviewCard.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xE3, 0xE8, 0xEF));
-        PreviewTitle.Foreground = ThemeHelper.Brush(t.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
-        PreviewSubject.Foreground = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
+        PreviewCard.BorderBrush = ThemeHelper.Brush(t.BorderColor, Color.FromRgb(0xE1, 0xE6, 0xEE));
+        PreviewTitle.Foreground = ThemeHelper.Brush(t.TitleColor, Color.FromRgb(0x1B, 0x28, 0x36));
+        PreviewSubject.Foreground = ThemeHelper.Brush(t.Accent, Color.FromRgb(0x1E, 0x4F, 0xA3));
         PreviewBody.Foreground = ThemeHelper.Brush(t.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
     }
 

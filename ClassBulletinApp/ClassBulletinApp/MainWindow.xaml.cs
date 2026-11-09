@@ -482,6 +482,7 @@ public partial class MainWindow : Window
             ReloadNotifStyle();
             PopulateThemeCombo(settings.Theme);
             PopulateClockCombo(settings.ScheduleClockMode);
+            InitGlassControls();
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -1331,8 +1332,8 @@ public partial class MainWindow : Window
         ColorOption("白色", "#FFFFFF"),
         ColorOption("米白", "#FFF8E7"),
         ColorOption("纯黑", "#111111"),
-        ColorOption("深灰", "#1F2A37"),
-        ColorOption("中灰", "#4B5563"),
+        ColorOption("深灰", "#1B2836"),
+        ColorOption("中灰", "#475467"),
         ColorOption("深蓝", "#123A6B"),
         ColorOption("海军蓝", "#0B2545"),
         ColorOption("深绿", "#14532D"),
@@ -1364,7 +1365,7 @@ public partial class MainWindow : Window
 
             var texts = PopupColorOptions();
             CbPopupText.ItemsSource = texts;
-            CbPopupText.SelectedItem = EnsureNotifColor(texts, string.IsNullOrWhiteSpace(r.PopupTextColor) ? "#1F2A37" : r.PopupTextColor);
+            CbPopupText.SelectedItem = EnsureNotifColor(texts, string.IsNullOrWhiteSpace(r.PopupTextColor) ? "#1B2836" : r.PopupTextColor);
 
             var cards = PopupColorOptions();
             CbPopupCard.ItemsSource = cards;
@@ -1719,7 +1720,7 @@ public partial class MainWindow : Window
         bool on = (Store.LoadSettings().Backdrop ?? new BackdropSettings()).ShowMissing;
         BtnMsWp.Content = on ? "缺交→桌面背景：开" : "缺交→桌面背景：关";
         BtnMsWp.Background = on
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3))
             : System.Windows.Media.Brushes.White;
         BtnMsWp.Foreground = on ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black;
     }
@@ -1957,6 +1958,86 @@ public partial class MainWindow : Window
         {
             TxtStatus.Text = "恢复默认主题失败：" + ex.Message;
         }
+    }
+
+    // ---------- 全局玻璃底色（r77：从「布局设置」迁到界面主题） ----------
+    private bool _glassWired;
+
+    /// <summary>从设置读出玻璃控件并挂事件（只在窗口构造时调一次）。</summary>
+    private void InitGlassControls()
+    {
+        if (_glassWired || ChkGlassOn == null) return;
+        _glassWired = true;
+
+        var s = Store.LoadSettings();
+        ChkGlassOn.IsChecked = s.GlassEnabled;
+        ChkGlassFloat.IsChecked = s.GlassFloatEnabled;
+        SlGlass.Value = Math.Clamp(s.GlassOpacity, SlGlass.Minimum, SlGlass.Maximum);
+        ChkGlassAll.IsChecked = s.GlassAllWindows;
+        SlGlassChrome.Value = Math.Clamp(s.GlassChromeOpacity, SlGlassChrome.Minimum, SlGlassChrome.Maximum);
+        SelectGlassMode(s.GlassBackdropMode);
+        RefreshGlassUi();
+
+        ChkGlassOn.Click += (_, _) => ApplyGlassChange();
+        ChkGlassFloat.Click += (_, _) => ApplyGlassChange();
+        ChkGlassAll.Click += (_, _) => ApplyGlassChange();
+        SlGlass.ValueChanged += (_, _) => ApplyGlassChange();
+        SlGlassChrome.ValueChanged += (_, _) => ApplyGlassChange();
+        CbGlassMode.SelectionChanged += (_, _) => ApplyGlassChange();
+    }
+
+    /// <summary>玻璃开关 / 通透度 / 档位：即时写盘，刷新文字并让已打开的窗口立刻跟上。</summary>
+    private void ApplyGlassChange()
+    {
+        if (!_glassWired) return;
+        try
+        {
+            var s = Store.LoadSettings();
+            s.GlassEnabled = ChkGlassOn.IsChecked == true;
+            s.GlassFloatEnabled = ChkGlassFloat.IsChecked == true;
+            s.GlassOpacity = SlGlass.Value;
+            s.GlassAllWindows = ChkGlassAll.IsChecked == true;
+            s.GlassChromeOpacity = SlGlassChrome.Value;
+            s.GlassBackdropMode = SelectedGlassMode();
+            if (Store.EnablePersistence) Store.SaveSettings(s);
+            RefreshGlassUi();
+            GlassBrush.RefreshAll(s);
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换玻璃效果失败：" + ex.Message;
+        }
+    }
+
+    private string SelectedGlassMode()
+        => (CbGlassMode.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string
+           ?? GlassBackdrop.ModeAuto;
+
+    private void SelectGlassMode(string? mode)
+    {
+        string m = string.IsNullOrWhiteSpace(mode) ? GlassBackdrop.ModeAuto : mode!;
+        foreach (var o in CbGlassMode.Items)
+            if (o is System.Windows.Controls.ComboBoxItem it
+                && string.Equals(it.Tag as string, m, StringComparison.OrdinalIgnoreCase))
+            { CbGlassMode.SelectedItem = it; return; }
+        CbGlassMode.SelectedIndex = 0;
+    }
+
+    private void RefreshGlassUi()
+    {
+        if (ChkGlassOn == null) return;
+        bool on = ChkGlassOn.IsChecked == true;
+        bool floatOn = on && ChkGlassFloat.IsChecked == true;
+        bool chromeOn = on && ChkGlassAll.IsChecked == true;
+
+        ChkGlassFloat.IsEnabled = on;
+        SlGlass.IsEnabled = floatOn;
+        ChkGlassAll.IsEnabled = on;
+        SlGlassChrome.IsEnabled = chromeOn;
+        CbGlassMode.IsEnabled = chromeOn;
+
+        TxtGlass.Text = floatOn ? $"{SlGlass.Value:0}% 通透" : "未启用";
+        TxtGlassChrome.Text = chromeOn ? $"{SlGlassChrome.Value:0}% 通透" : "未启用";
     }
 
     // ---------- 作业公示 → 桌面背景位置调整 ----------
@@ -3157,8 +3238,8 @@ public partial class MainWindow : Window
     }
 
     // ---------- 全屏 / 锁定 ----------
-    private void BtnFull_Click(object sender, RoutedEventArgs e) => SetFullscreen(!_isFull);
-
+    // 展示控制里的「全屏 / 锁定 / 隐藏到托盘」按钮已移除；全屏与锁定改由启动项与快捷键驱动
+    // （Ctrl+L 锁定、F11/Esc 切换全屏），这里只保留状态切换逻辑，不再回写按钮文字。
     private void SetFullscreen(bool on)
     {
         _isFull = on;
@@ -3166,24 +3247,19 @@ public partial class MainWindow : Window
         {
             WindowStyle = WindowStyle.None;
             WindowState = WindowState.Maximized;
-            BtnFull.Content = "退出全屏";
         }
         else
         {
             WindowStyle = WindowStyle.SingleBorderWindow;
             WindowState = WindowState.Normal;
-            BtnFull.Content = "全屏";
         }
     }
-
-    private void BtnLock_Click(object sender, RoutedEventArgs e) => ToggleLock();
 
     private void ToggleLock()
     {
         _locked = !_locked;
         LockOverlay.Visibility = _locked ? Visibility.Visible : Visibility.Collapsed;
         Cursor = _locked ? System.Windows.Input.Cursors.None : System.Windows.Input.Cursors.Arrow;
-        BtnLock.Content = _locked ? "解锁" : "锁定";
     }
 
     // ---------- 设置 ----------
@@ -4183,7 +4259,7 @@ public partial class MainWindow : Window
         ColorOption("酒红", "#5B1F2A"),
         ColorOption("咖啡", "#4B3427"),
         ColorOption("紫黑", "#2E2233"),
-        ColorOption("浅色", "#F2F5FA"),
+        ColorOption("浅色", "#F1F4F9"),
         ColorOption("淡蓝", "#DCEBFF"),
         ColorOption("纯白", "#FFFFFF")
     };
@@ -4297,7 +4373,7 @@ public partial class MainWindow : Window
             if (string.Equals(opt.Hex ?? "", cur.Hex ?? "", StringComparison.OrdinalIgnoreCase))
             {
                 sw.BorderBrush = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF));
+                    System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3));
                 sw.BorderThickness = new Thickness(2);
             }
             var picked = opt;
@@ -4755,7 +4831,7 @@ public partial class MainWindow : Window
         else if (!s.BoardSyncEnabled)
         {
             TxtInfoHint.Text = "提示：同步还没启用。展开下面「③ 同步设置」勾选「启用同步」并保存后才能发布信息。";
-            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80));
+            TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x70, 0x85));
         }
         else if (!configured)
         {
@@ -4966,7 +5042,7 @@ public partial class MainWindow : Window
         bool on = (Store.LoadSettings().Backdrop ?? new BackdropSettings()).ShowHomework;
         BtnHwWp.Content = on ? "作业→桌面背景：开" : "作业→桌面背景：关";
         BtnHwWp.Background = on
-            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x6C, 0xDF))
+            ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3))
             : System.Windows.Media.Brushes.White;
         BtnHwWp.Foreground = on ? System.Windows.Media.Brushes.White : System.Windows.Media.Brushes.Black;
     }

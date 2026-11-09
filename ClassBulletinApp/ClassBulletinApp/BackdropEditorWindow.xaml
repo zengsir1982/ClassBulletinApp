@@ -26,7 +26,6 @@
 
             <StackPanel Grid.Row="0">
                 <TextBlock Text="所见即所得排版" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
-                <ctl:HelpBubble PopupTitle="拖动排版" Text="· 直接拖动便签：调整位置&#10;· 拖动便签四角 / 四边：改变大小&#10;· 选中便签后可在右侧勾选「固定大小」" Margin="0,0,0,8"/>
                 <TextBlock x:Name="TxtSel" FontSize="13" Foreground="{DynamicResource PrimaryBrush}" TextWrapping="Wrap" MinHeight="20"/>
             </StackPanel>
 
@@ -41,7 +40,6 @@
                 <Button x:Name="BtnApply" Content="应用并关闭" Padding="14,10" FontSize="15"
                         Background="{DynamicResource PrimaryBrush}" Foreground="White" BorderBrush="{DynamicResource PrimaryBrush}" Click="BtnApply_Click"/>
                 <Button x:Name="BtnCancel" Content="取消" Padding="14,10" FontSize="14" Margin="0,8,0,0" Click="BtnCancel_Click"/>
-                <ctl:HelpBubble PopupTitle="应用说明" Text="未「应用到桌面背景」前，本窗口只调整布局不改变当前壁纸；若壁纸已应用，关闭时会按新布局自动重绘。" Margin="0,0,0,8"/>
             </StackPanel>
         </Grid>
     </Grid>

@@ -140,7 +140,7 @@ public static class BackdropRenderer
     private static Brush MakeBackground(int width, int height, string? backgroundPath, bool useOrigin)
     {
         var fallback = new LinearGradientBrush(
-            Color.FromRgb(0xEA, 0xF1, 0xFD), Color.FromRgb(0xD7, 0xE3, 0xFB), 120);
+            Color.FromRgb(0xE9, 0xEF, 0xF9), Color.FromRgb(0xCF, 0xDD, 0xEF), 120);
 
         if (!useOrigin || string.IsNullOrWhiteSpace(backgroundPath) || !File.Exists(backgroundPath))
             return fallback;
@@ -269,7 +269,7 @@ public static class BackdropRenderer
                     {
                         Text = "…",
                         FontSize = Math.Max(12, 20 * height / 1080.0),
-                        Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)),
+                        Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0x70, 0x85)),
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Bottom,
                         Margin = new Thickness(0, 0, 0, 2)
@@ -320,9 +320,9 @@ public static class BackdropRenderer
         double scale, Func<double, double> ScaleFont, double cardWidth, HomeworkTheme theme)
     {
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x23, 0x2A, 0x33));
-        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
-        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
-        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0x9C, 0xA3, 0xAF));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x1E, 0x4F, 0xA3));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1B, 0x28, 0x36));
+        var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0x98, 0xA2, 0xB3));
         var border = ParseHwColor(theme.BorderColor, Color.FromRgb(0xDC, 0xE3, 0xF1));
 
         var stack = new StackPanel();
@@ -556,8 +556,8 @@ public static class BackdropRenderer
     {
         var theme = HomeworkThemes.Find(board.Theme);
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
-        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x2D, 0x6C, 0xDF));
-        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
+        var accent = ParseHwColor(theme.Accent, Color.FromRgb(0x1E, 0x4F, 0xA3));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1B, 0x28, 0x36));
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
@@ -711,7 +711,7 @@ public static class BackdropRenderer
     {
         var theme = HomeworkThemes.Find(note.Theme);
         var fg = ParseHwColor(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
-        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1F, 0x2A, 0x37));
+        var titleColor = ParseHwColor(theme.TitleColor, Color.FromRgb(0x1B, 0x28, 0x36));
         var muted = ParseHwColor(theme.MutedColor, Color.FromRgb(0xB0, 0xB6, 0xBF));
 
         var stack = new StackPanel();
@@ -1190,8 +1190,8 @@ public static class BackdropRenderer
             ? BrushOf(Color.FromRgb(0xFF, 0xFF, 0xFF), 0xF6)
             : BrushOf(ParseHwColor(theme.Background, Color.FromRgb(0xFF, 0xFF, 0xFF)), 0xF7),
         BorderBrush = theme == null
-            ? new SolidColorBrush(Color.FromRgb(0xC9, 0xD6, 0xEC))
-            : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC9, 0xD6, 0xEC))),
+            ? new SolidColorBrush(Color.FromRgb(0xC2, 0xD2, 0xE9))
+            : BrushOf(ParseHwColor(theme.BorderColor, Color.FromRgb(0xC2, 0xD2, 0xE9))),
         BorderThickness = new Thickness(1 * scale),
         Padding = new Thickness(PAD_DIP * scale, PAD_DIP * scale, padRightDip * scale, PAD_DIP * scale),
         HorizontalAlignment = HorizontalAlignment.Left,

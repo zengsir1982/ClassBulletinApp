@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
@@ -442,7 +442,7 @@ internal static class GlassChrome
             Text = string.IsNullOrWhiteSpace(w.Title) ? "班级公布栏" : w.Title,
             FontSize = 13,
             FontWeight = W.FontWeights.SemiBold,
-            Foreground = new WM.SolidColorBrush(WM.Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = new WM.SolidColorBrush(WM.Color.FromRgb(0x1B, 0x28, 0x36)),
             VerticalAlignment = W.VerticalAlignment.Center,
             TextTrimming = W.TextTrimming.CharacterEllipsis
         });
@@ -493,7 +493,7 @@ internal static class GlassChrome
         template.VisualTree = border;
         btn.Template = template;
 
-        var hover = new WM.SolidColorBrush(hoverBg ?? WM.Color.FromArgb(0x1A, 0x1F, 0x2A, 0x37));
+        var hover = new WM.SolidColorBrush(hoverBg ?? WM.Color.FromArgb(0x1A, 0x1B, 0x28, 0x36));
         btn.MouseEnter += (_, _) =>
         {
             btn.Background = hover;

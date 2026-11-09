@@ -42,16 +42,8 @@ public class BackupWindow : Window
             Margin = new Thickness(0, 0, 0, 4)
         };
 
-        var sub = new ClassBulletinApp.Controls.HelpBubble
-        {
-            PopupTitle = "操作说明",
-            Text = "每次导入数据包、导入总课表或恢复备份前都会自动存档；最多保留 20 份，超出后自动删最旧的。",
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-
         var header = new StackPanel();
         header.Children.Add(title);
-        header.Children.Add(sub);
         System.Windows.Controls.DockPanel.SetDock(header, System.Windows.Controls.Dock.Top);
         root.Children.Add(header);
 
@@ -71,7 +63,7 @@ public class BackupWindow : Window
             Margin = new Thickness(0, 2, 0, 12)
         };
 
-        var btnNow = MakeButton("立即备份一份", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#EAF2FD"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#9EC1F0"));
+        var btnNow = MakeButton("立即备份一份", ChromePalette.HexOf(ChromePalette.PrimaryLight, "#E9EFF9"), ChromePalette.HexOf(ChromePalette.PrimaryBorder, "#C2D2E9"));
         btnNow.Click += (_, _) =>
         {
             string dir = Store.BackupNow("手动备份");
@@ -84,7 +76,7 @@ public class BackupWindow : Window
         var btnRestore = MakeButton("恢复到选中备份", "#FDF3E0", "#E8C48A");
         btnRestore.Click += (_, _) => RestoreSelected();
 
-        var btnOpen = MakeButton("打开备份文件夹", "#F3F4F6", "#D1D5DB");
+        var btnOpen = MakeButton("打开备份文件夹", "#F3F4F6", "#C7CFDA");
         btnOpen.Click += (_, _) =>
         {
             try
@@ -103,7 +95,7 @@ public class BackupWindow : Window
             }
         };
 
-        var btnClose = MakeButton("关闭", "#F3F4F6", "#D1D5DB");
+        var btnClose = MakeButton("关闭", "#F3F4F6", "#C7CFDA");
         btnClose.Click += (_, _) => Close();
 
         bar.Children.Add(btnNow);

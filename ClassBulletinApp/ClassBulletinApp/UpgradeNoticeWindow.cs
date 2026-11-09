@@ -36,7 +36,7 @@ public class UpgradeNoticeWindow : Window
             Text = $"已更新到 {version}",
             FontSize = 18,
             FontWeight = FontWeights.Bold,
-            Foreground = ChromePalette.BrushOf(ChromePalette.Ink, "#1F2A37"),
+            Foreground = ChromePalette.BrushOf(ChromePalette.Ink, "#1B2836"),
             Margin = new Thickness(0, 0, 0, 4)
         });
 
@@ -44,7 +44,7 @@ public class UpgradeNoticeWindow : Window
         {
             Text = "下面几处跟以前不一样。不需要做任何操作也能正常上课；要改设置时再看第 1 条。这个提示只会出现一次。",
             FontSize = 12.5,
-            Foreground = ChromePalette.BrushOf(ChromePalette.Muted, "#6B7280"),
+            Foreground = ChromePalette.BrushOf(ChromePalette.Muted, "#667085"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 14)
         });
@@ -58,7 +58,7 @@ public class UpgradeNoticeWindow : Window
                 Text = "· " + title,
                 FontSize = 14,
                 FontWeight = FontWeights.Bold,
-                Foreground = ChromePalette.BrushOf(ChromePalette.Primary, "#2D6CDF"),
+                Foreground = ChromePalette.BrushOf(ChromePalette.Primary, "#1E4FA3"),
                 TextWrapping = TextWrapping.Wrap
             });
 
@@ -82,8 +82,8 @@ public class UpgradeNoticeWindow : Window
             Padding = new Thickness(26, 8, 26, 8),
             HorizontalAlignment = HAlign.Right,
             Margin = new Thickness(0, 8, 0, 0),
-            Background = ChromePalette.BrushOf(ChromePalette.PrimaryLight, "#EAF2FD"),
-            BorderBrush = ChromePalette.BrushOf(ChromePalette.PrimaryBorder, "#9EC1F0")
+            Background = ChromePalette.BrushOf(ChromePalette.PrimaryLight, "#E9EFF9"),
+            BorderBrush = ChromePalette.BrushOf(ChromePalette.PrimaryBorder, "#C2D2E9")
         };
         ok.Click += (_, _) => { DialogResult = true; };
 
@@ -104,6 +104,38 @@ public class UpgradeNoticeWindow : Window
     {
         var items = new List<(string, string)>();
         int from = ParseRelease(fromVersion);
+
+        // ===== 1.0.13（界面精简 + 排版修整）=====
+        if (from < 13)
+        {
+            items.Add(("「显示设置」少了三个按钮：全屏 / 锁定 / 隐藏到托盘",
+                "全屏之后再点「退出全屏」经常出错，干脆把这三个按钮去掉，功能本身一个都没少。\n"
+              + "★ 全屏：按 F11 切换（Esc 也能退出全屏）；锁定：按 Ctrl+L 切换。\n"
+              + "★ 隐藏到托盘：直接点窗口右上角的 ×，跟以前一样，程序还在后台跑。\n"
+              + "★ 想让教室机开机就是全屏 / 锁定：仍可在「启动选项…」里勾，设置项没动。\n"
+              + "★ 原来的「悬浮窗」和「展示控制」两块合并成一张「展示与控制」卡片，按钮和勾选项都在。"));
+
+            items.Add(("玻璃底色换了地方：现在在「显示设置 → 界面主题」",
+                "和配色方案、日期旁时钟放在一起，改完立刻生效，不用再点确定。\n"
+              + "★ 「布局设置」窗口里的玻璃面板已经撤掉，不用再去那儿找。"));
+
+            items.Add(("左侧少了三个标签：布局设置 / 消息台账·回执 / 立即检查",
+                "这三页的功能都还在，只是入口挪近了：\n"
+              + "★ 布局设置：显示设置 →「展示与控制」→「布局设置…」按钮弹窗。\n"
+              + "★ 消息台账·回执、立即检查：设置 →「同步与设置」页里的同名按钮。"));
+
+            items.Add(("消息台账能一次清干净，详情也重新排了版",
+                "清除对话框现在默认就是「全部清空（含未处理）」，勾一下全清掉（清前自动备份一份 .bak）；"
+              + "只想清已终结的记录选第二项。\n"
+              + "★ 点某条记录，右边不再是一堆小标题：先看「目标条目」是谁、「要求改成」什么样，"
+              + "下面一行浅灰小字写清所属班级 / 发送人 / 发送时间 / 有效时间。\n"
+              + "★ 全屏提醒、语音播报这些细节收进一个 🔊 小图标，点开才看；已处理的条目把状态合成一行，不再占半屏。"));
+
+            items.Add(("界面上的说明收成了「?」，并且贴着它说明的那一项",
+                "原来一大段灰色说明现在收成小问号，点一下弹卡片。而且问号不再单独挂在内容下面一行，"
+              + "一律跟在它所说明的标题 / 选项那一行的末尾，一眼能对上说的是谁。\n"
+              + "★ 鼠标悬停的提示（ToolTip）全部保留；同一时刻只开一个说明卡，Esc 关掉。"));
+        }
 
         // ===== 1.0.12（界面重做 + 玻璃底色 + 格式条点哪改哪 + 通知公告便签化）=====
         if (from < 12)

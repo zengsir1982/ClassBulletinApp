@@ -549,8 +549,8 @@ public partial class ScheduleWindow : Window, IGlassSurface
             bool on = b.ShowSchedule;
             BtnWp.Content = on ? "还原背景" : "设为背景";
             BtnWp.Background = on
-                ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF))
-                : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
+                ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3))
+                : new SolidColorBrush(Color.FromRgb(0xE9, 0xEF, 0xF9));
             BtnWp.Foreground = on ? Brushes.White : Brushes.Black;
             BtnWp.ToolTip = on
                 ? "当天课表已画在桌面背景上；点「还原背景」可撤掉壁纸内容、恢复系统壁纸，并把悬浮课表放回屏幕"
@@ -881,7 +881,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             var border = new Border
             {
                 Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0xE3, 0xE8, 0xEF)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xE1, 0xE6, 0xEE)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(0, 0, 6, 6)
@@ -934,7 +934,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
                 FontSize = 13,
                 Width = 18,
                 Height = 18,
-                Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x98, 0xA2, 0xB3)),
                 Tag = item,
                 ToolTip = "移除"
             };
@@ -1265,7 +1265,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
     {
         if (BtnLock == null) return;
         BtnLock.Content = _locked ? "🔒" : "🔓";
-        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFD));
+        BtnLock.Background = _locked ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : new SolidColorBrush(Color.FromRgb(0xE9, 0xEF, 0xF9));
         BtnLock.Foreground = _locked ? Brushes.White : Brushes.Black;
     }
 
@@ -1289,9 +1289,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
         if (BtnTop == null) return;
         bool top = Topmost;
         BtnTop.Content = top ? "已置顶" : "置顶";
-        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : Brushes.White;
+        BtnTop.Background = top ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : Brushes.White;
         BtnTop.Foreground = top ? Brushes.White : Brushes.Black;
-        BtnTop.BorderBrush = top ? new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)) : new SolidColorBrush(Color.FromRgb(0xD1, 0xD5, 0xDB));
+        BtnTop.BorderBrush = top ? new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)) : new SolidColorBrush(Color.FromRgb(0xC7, 0xCF, 0xDA));
     }
 
     private void BtnTop_Click(object sender, RoutedEventArgs e)
@@ -1624,7 +1624,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             Text = row.PeriodText,
             FontSize = 16,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3)),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         if (!string.IsNullOrEmpty(row.TimeRange))
@@ -1633,7 +1633,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
                 Text = row.TimeRange,
                 FontSize = 10,
                 Margin = new Thickness(0, 2, 0, 0),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF))
+                Foreground = new SolidColorBrush(Color.FromRgb(0x98, 0xA2, 0xB3))
             });
         Grid.SetColumn(left, 0);
         g.Children.Add(left);
@@ -1644,7 +1644,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             Text = lv?.DisplaySubject ?? "",
             FontSize = 17,
             FontWeight = FontWeights.Bold,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x2A, 0x37)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36)),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         if (!string.IsNullOrEmpty(lv?.Teacher))
@@ -1653,7 +1653,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
                 Text = "教师：" + lv!.Teacher,
                 FontSize = 11,
                 Margin = new Thickness(0, 3, 0, 0),
-                Foreground = new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x54, 0x67)),
                 TextTrimming = TextTrimming.CharacterEllipsis
             });
         Grid.SetColumn(right, 1);
@@ -1741,7 +1741,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
         if (DragLayer == null) return;
         if (_dropMarkerL == null || _dropMarkerR == null)
         {
-            var brush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+            var brush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
             _dropMarkerL = new System.Windows.Shapes.Rectangle { Width = 3, RadiusX = 1.5, RadiusY = 1.5, Fill = brush };
             _dropMarkerR = new System.Windows.Shapes.Rectangle { Width = 3, RadiusX = 1.5, RadiusY = 1.5, Fill = brush };
             DragLayer.Children.Add(_dropMarkerL);
@@ -2423,7 +2423,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
                 _savedBorder = border.BorderBrush;
                 _savedBorderThickness = border.BorderThickness;
                 border.Background = new SolidColorBrush(Color.FromRgb(0xDC, 0xEB, 0xFD));
-                border.BorderBrush = new SolidColorBrush(Color.FromRgb(0x2D, 0x6C, 0xDF));
+                border.BorderBrush = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
                 border.BorderThickness = new Thickness(2);
 
                 var tl = border.TransformToVisual(DragLayer).Transform(new System.Windows.Point(0, 0));

@@ -100,7 +100,7 @@ public partial class QuickLaunchWindow : Window
             BuiltinToggleWrap.Children.Add(new TextBlock
             {
                 Text = "（当前账号没有可显示的入口）", FontSize = 12,
-                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x9C, 0xA3, 0xAF))
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x98, 0xA2, 0xB3))
             });
     }
 
@@ -231,7 +231,7 @@ public partial class QuickLaunchWindow : Window
             {
                 Text = "（全部隐藏：悬浮课表底部不会显示内置快捷）",
                 FontSize = 12,
-                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x9C, 0xA3, 0xAF))
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x98, 0xA2, 0xB3))
             });
 
         if (TxtBuiltinSize != null) TxtBuiltinSize.Text = $"字号 {fs:0.#}";
@@ -257,7 +257,7 @@ public partial class QuickLaunchWindow : Window
             var border = new Border
             {
                 Background = WpfBrushes.White,
-                BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0xE3, 0xE8, 0xEF)),
+                BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0xE1, 0xE6, 0xEE)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(0, 0, 6, 6)
@@ -314,7 +314,7 @@ public partial class QuickLaunchWindow : Window
             {
                 Text = "（还没有添加任何快捷方式）",
                 FontSize = 13,
-                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x9C, 0xA3, 0xAF)),
+                Foreground = new SolidColorBrush(WpfColor.FromRgb(0x98, 0xA2, 0xB3)),
                 Margin = new Thickness(2, 4, 0, 0)
             });
             return;

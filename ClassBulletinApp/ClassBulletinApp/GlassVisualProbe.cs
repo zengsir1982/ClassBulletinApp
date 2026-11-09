@@ -80,7 +80,7 @@ internal static class GlassVisualProbe
         };
 
         // ★ bare：内容<b>完全不铺底色</b>，只有一行字。
-        //   之前几轮对照实验里内容根 Grid 自己有一层 #F2F5FA 实色，本来就把窗口盖死了，
+        //   之前几轮对照实验里内容根 Grid 自己有一层 #F1F4F9 实色，本来就把窗口盖死了，
         //   于是"看不到后方条纹"可能只是被自己的实色挡住，而不是系统 backdrop 没生效。
         bool bare = string.Equals(mode, "bare", StringComparison.OrdinalIgnoreCase);
 
@@ -88,7 +88,7 @@ internal static class GlassVisualProbe
         if (!bare)
         {
             grid.Background = new System.Windows.Media.SolidColorBrush(
-                System.Windows.Media.Color.FromRgb(0xF2, 0xF5, 0xFA));
+                System.Windows.Media.Color.FromRgb(0xF1, 0xF4, 0xF9));
         }
         grid.Children.Add(new System.Windows.Controls.TextBlock
         {
