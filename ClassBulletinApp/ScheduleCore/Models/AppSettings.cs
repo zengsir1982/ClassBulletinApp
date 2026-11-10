@@ -5,6 +5,20 @@ public class AppSettings
     public string SelectedClass { get; set; } = "";
     public string LastImportPath { get; set; } = "";
 
+    /// <summary>
+    /// 导出数据包时默认打开的文件夹（空 = 不指定，交给系统 / 上次用过的位置）。
+    /// <para>导出成功后会把实际目录记到这里，下次打开导出对话框直接落在这儿。</para>
+    /// </summary>
+    public string PackageSaveDir { get; set; } = "";
+
+    /// <summary>
+    /// 自动备份的根目录（空 = 程序目录下的 <c>backup</c>）。
+    /// <para>可以不填绝对路径指向 D 盘或共享盘 —— 程序装在 C 盘、数据想留别处时用得上。
+    /// 换目录时旧备份会被搬过去（见 MainWindow.BtnPickBackupDir_Click）。</para>
+    /// </summary>
+    public string BackupRootDir { get; set; } = "";
+
+
     /// <summary>登录用户名（默认 admin）。当 Username 与某个班级名一致时，启动后默认显示该班课表。</summary>
     public string Username { get; set; } = "admin";
 
@@ -96,6 +110,14 @@ public class AppSettings
     /// <summary>启动即进入防误触锁定模式（需配合 LaunchFullscreen 或单独生效）。</summary>
     public bool LaunchLocked { get; set; }
 
+    /// <summary>
+    /// 登录后是否把控制面板主窗口打开。
+    /// <para><b>默认 <c>false</c>（不打开）</b>：教室机开机就是要那块牌子，控制面板弹出来反而挡住。</para>
+    /// <para>★ 安全兜底在 <c>App.OnStartup</c>：如果一个悬浮窗都不会自动显示，仍然把控制面板打开，
+    /// 否则用户会看到「点了图标什么也没发生」。</para>
+    /// </summary>
+    public bool ShowPanelOnStart { get; set; }
+
     /// <summary>启动后是否自动弹出课表悬浮窗。</summary>
     public bool AutoShowSchedule { get; set; } = true;
 
@@ -133,6 +155,19 @@ public class AppSettings
     /// 老配置没有这个字段，反序列化后取字段初始值 → 升级后自动出现，符合「通知改便签」的意图。</para>
     /// </summary>
     public bool AutoShowNotice { get; set; } = true;
+
+    /// <summary>
+    /// 通知公告便签的配色预设（对应 <c>HomeworkThemes.Presets</c> 的 Key，如 blue / classic / dark）。
+    /// <para>r79：原来这个便签的颜色在代码里写死成「清新蓝」，用户没得挑。存在本机设置里、
+    /// 不进数据包 —— 同一条通知在不同教室机上可以用各自的便签样式。</para>
+    /// </summary>
+    public string NoticeNoteTheme { get; set; } = "blue";
+
+    /// <summary>
+    /// 通知公告便签的正文字号倍率：0.9 = 小、1.0 = 标准、1.15 = 大。
+    /// <para>只缩放便签里「没单独设过字号」的标题/正文，逐条设过格式的仍以格式为准。</para>
+    /// </summary>
+    public double NoticeNoteScale { get; set; } = 1.0;
 
     /// <summary>缺交作业名单便签固定摆放的左上角 X（为空表示未设置，首次弹出时自动定位）。</summary>
     public double? MsWinLeft { get; set; }

@@ -248,6 +248,99 @@
         </Setter>
     </Style>
 
+    <!--
+        危险动作按钮（r79）：与 AppGhostButton 同构，只把底色/描边/文字换成危险色。
+        为什么要单独一份：AppGhostButton 的模板里 Background 写死 DynamicResource CardBrush，
+        外挂 Background="..." 是无效的（模板不读 TemplateBinding），
+        所以「清除本周调课」「一键清除全部导入数据」这类必须有自己的模板。
+    -->
+    <Style x:Key="AppDangerButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{DynamicResource DangerSoftBrush}"
+                            BorderBrush="{DynamicResource DangerBorderBrush}" BorderThickness="1"
+                            CornerRadius="{DynamicResource CrControl}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.82"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        成功 / 接收类动作（导入数据包、导入临时课表）：绿色语义底。
+        原来这些地方直接写 #E8F6EE + #7FC99A，两页各写一遍、深浅还不一样。
+    -->
+    <Style x:Key="AppSuccessButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{DynamicResource SuccessSoftBrush}"
+                            BorderBrush="{DynamicResource SuccessBorderBrush}" BorderThickness="1"
+                            CornerRadius="{DynamicResource CrControl}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 主色淡底按钮：需要强调但不是「页面唯一主操作」时用（如工具栏里的发布信息） -->
+    <Style x:Key="AppPrimarySoftButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDarkBrush}"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Padding" Value="12,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{DynamicResource PrimaryLightBrush}"
+                            BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1"
+                            CornerRadius="{DynamicResource CrControl}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.85"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- 左侧一级导航按钮：选中态由代码设置 Background，故模板只用 TemplateBinding -->
     <Style x:Key="AppNavButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>

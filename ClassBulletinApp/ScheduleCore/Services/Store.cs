@@ -1032,7 +1032,28 @@ public static class Store
 
     // ================== 自动备份 ==================
 
-    public static string BackupRoot => Path.Combine(AppDir, "backup");
+    /// <summary>
+    /// 备份根目录。默认是程序目录下的 <c>backup</c>；用户在「数据管理 → 保存位置」里指定过就按他的走
+    /// （可以指向 D 盘或共享盘：程序装在 C 盘、数据想留别处）。
+    /// <para>★ 这里每次都读设置，不能缓存成静态字段 —— 改完目录要立刻生效，
+    /// 否则「备份与恢复」列表还会指回旧位置，用户以为备份丢了。</para>
+    /// </summary>
+    public static string BackupRoot
+    {
+        get
+        {
+            try
+            {
+                string custom = (LoadSettings().BackupRootDir ?? "").Trim().Trim('"');
+                if (custom.Length > 0) return custom;
+            }
+            catch { /* 设置读不出来就退回默认位置，绝不让备份链因为配置坏掉而中断 */ }
+            return Path.Combine(AppDir, "backup");
+        }
+    }
+
+    /// <summary>默认备份目录（未自定义时的位置）。</summary>
+    public static string DefaultBackupRoot => Path.Combine(AppDir, "backup");
 
     /// <summary>备份保留份数（超出后删最旧的）。</summary>
     public const int BackupKeep = 20;

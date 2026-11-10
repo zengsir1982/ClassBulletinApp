@@ -3,39 +3,55 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:ClassBulletinApp"
              x:Name="Root"
+             Background="{DynamicResource CardBrush}"
              Stylus.IsPressAndHoldEnabled="False"
              Stylus.IsFlicksEnabled="False">
+    <!--
+        r79 配色重做：原来的顶部是一条 PrimaryBrush 实心深蓝、按钮却是系统默认灰底，
+        再叠上浅蓝的周范围条 + 灰格的空格子 + 绿地点 + 紫/橙/蓝徽标 —— 六种饱和色互相打架。
+        现在收敛成「一个主色 + 一套同亮度带的学科淡彩」：
+          · 工具条   = 白底 + 一条细线，主色只留给按钮与今天列；
+          · 标题     = 不再重复写「周课程表」（页头已经有了），左端直接显示第几周 + 日期 + 班级；
+          · 表格     = 由代码生成，颜色口径见 WeekPalette.cs。
+    -->
     <DockPanel LastChildFill="True">
-        <!-- 顶部工具栏 -->
-        <Border DockPanel.Dock="Top" Background="{DynamicResource PrimaryBrush}" Padding="12">
+        <!-- 工具条 -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource CardBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="14,10">
             <DockPanel LastChildFill="True">
-                <TextBlock Text="📅 周课程表（拖拽调课）" Foreground="White" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TxtWeekRange" DockPanel.Dock="Left" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <Button x:Name="BtnPrevWeek" Content="上一周" Margin="4" Padding="10,5" FontSize="13" Click="BtnPrevWeek_Click"/>
-                    <Button x:Name="BtnThisWeek" Content="本周" Margin="4" Padding="10,5" FontSize="13" Click="BtnThisWeek_Click"/>
-                    <Button x:Name="BtnNextWeek" Content="下一周" Margin="4" Padding="10,5" FontSize="13" Click="BtnNextWeek_Click"/>
-                    <Button x:Name="BtnClearAll" Content="清除本周调课" Margin="4" Padding="10,5" FontSize="13" Click="BtnClearAll_Click" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}"/>
-                    <!-- 周起始日：放在「清除本周调课」右边，改的是「周视图从哪天排到哪天」 -->
-                    <Border Background="#FFFFFF" CornerRadius="4" Padding="8,2" Margin="10,4,4,4" VerticalAlignment="Center"
+                    <Button x:Name="BtnPrevWeek" Content="上一周" Margin="0,0,8,0"
+                            Style="{StaticResource AppGhostButton}" Click="BtnPrevWeek_Click"/>
+                    <Button x:Name="BtnThisWeek" Content="本周" Margin="0,0,8,0"
+                            Style="{StaticResource AppPrimarySoftButton}" Click="BtnThisWeek_Click"/>
+                    <Button x:Name="BtnNextWeek" Content="下一周" Margin="0,0,8,0"
+                            Style="{StaticResource AppGhostButton}" Click="BtnNextWeek_Click"/>
+                    <Button x:Name="BtnClearAll" Content="清除本周调课" Margin="0,0,0,0"
+                            Style="{StaticResource AppDangerButton}" Click="BtnClearAll_Click"/>
+                    <!-- 周起始日：改的是「周视图从哪天排到哪天」 -->
+                    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="10,4" Margin="10,0,0,0" VerticalAlignment="Center"
                             ToolTip="只改周视图从哪天排到哪天、以及「本周」是哪 7 天；课表内容与调代课记录不受影响。">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="一周从" FontSize="13" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <ComboBox x:Name="CbWeekStartDay" Width="92" FontSize="13" VerticalAlignment="Center"
+                            <TextBlock Text="一周从" FontSize="13" Foreground="{DynamicResource BodyBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="CbWeekStartDay" Width="88" FontSize="13" VerticalAlignment="Center"
+                                      BorderBrush="{DynamicResource InputBorderBrush}"
                                       SelectionChanged="CbWeekStartDay_SelectionChanged"/>
-                            <TextBlock Text="开始" FontSize="13" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <TextBlock Text="开始" FontSize="13" Foreground="{DynamicResource BodyBrush}"
+                                       VerticalAlignment="Center" Margin="6,0,0,0"/>
                         </StackPanel>
                     </Border>
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- 周范围 -->
-        <Border DockPanel.Dock="Top" Background="#EEF3FB" Padding="8">
-            <TextBlock x:Name="TxtWeekRange" FontSize="14" Foreground="{DynamicResource InkBrush}"/>
-        </Border>
-
         <!-- 提示 -->
-        <TextBlock x:Name="TxtHint" DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource HintBrush}" TextWrapping="Wrap" Margin="10,6"/>
+        <TextBlock x:Name="TxtHint" DockPanel.Dock="Top" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                   TextWrapping="Wrap" Margin="14,8,14,0"/>
 
         <!-- 周表格（动态生成）+ 拖动覆盖层。
              ★ PanningMode 必须是 None：只要交给系统托管，ScrollViewer 就会在触摸按下时捕获并
@@ -45,13 +61,13 @@
         <Grid>
             <ScrollViewer x:Name="WeekScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                           PanningMode="None">
-                <Grid x:Name="WeekGrid" Margin="10" MinWidth="900"/>
+                <Grid x:Name="WeekGrid" Margin="12,8,12,12" MinWidth="900"/>
             </ScrollViewer>
             <Canvas x:Name="DragLayer" IsHitTestVisible="False"/>
         </Grid>
 
-        <!-- 状态栏 -->
-        <Border DockPanel.Dock="Bottom" Background="{DynamicResource BarSurfaceBrush}" Padding="8">
+        <!-- 状态栏：只有一条细线，不再是一整条灰条 -->
+        <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="14,7">
             <TextBlock x:Name="TxtStatus" FontSize="13" Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"/>
         </Border>
     </DockPanel>

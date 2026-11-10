@@ -556,6 +556,7 @@ public partial class MainWindow : Window
         {
             RefreshUpdateStatus();
             SetupUpdateTimer();
+            RefreshSaveDirsUi();     // 「保存位置」两项路径回显（r79）
         }
         catch (Exception ex) { TxtStatus.Text += " [自动更新初始化失败：" + ex.Message + "]"; }
 
@@ -888,6 +889,32 @@ public partial class MainWindow : Window
     }
 
     private void BtnEditNotice_Click(object sender, RoutedEventArgs e) => OpenNotificationEditor();
+
+    /// <summary>
+    /// 通知公告便签的「风格」：配色预设 + 字号，只写本机 settings.json（不进数据包）。
+    /// 保存后立即让已打开的便签重绘，不用重启也不用等 30 秒轮询。
+    /// </summary>
+    private void BtnStyleNotice_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new NoticeStyleWindow { Owner = this };
+            if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.ResultTheme)) return;
+
+            var s = Store.LoadSettings();
+            s.NoticeNoteTheme = dlg.ResultTheme!;
+            s.NoticeNoteScale = dlg.ResultScale;
+            if (Store.EnablePersistence) Store.SaveSettings(s);
+
+            _noticeWin?.Reload();
+            string name = ScheduleCore.Models.HomeworkThemes.Find(s.NoticeNoteTheme).Name;
+            TxtStatus.Text = $"已更新通知公告便签风格：{name} · {ScaleName(s.NoticeNoteScale)}（仅本机）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "设置便签风格失败：" + ex.Message; }
+    }
+
+    static string ScaleName(double scale)
+        => scale < 0.999 ? "小字号" : scale > 1.001 ? "大字号" : "标准字号";
 
     /// <summary>打开通知编辑窗口（便签管理页与事项便签共用同一入口）。</summary>
     private void OpenNotificationEditor()
@@ -3332,6 +3359,169 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---------- 保存位置（数据包默认目录 / 备份文件夹，r79） ----------
+
+    /// <summary>把两项路径回显到界面；空值显示默认位置的说明文字。</summary>
+    private void RefreshSaveDirsUi()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            if (TxtPackDir != null)
+                TxtPackDir.Text = string.IsNullOrWhiteSpace(s.PackageSaveDir)
+                    ? "（默认：系统默认位置 / 上次用过的文件夹）"
+                    : s.PackageSaveDir;
+            if (TxtBackupDir != null)
+                TxtBackupDir.Text = string.IsNullOrWhiteSpace(s.BackupRootDir)
+                    ? Store.DefaultBackupRoot + "（默认）"
+                    : s.BackupRootDir;
+        }
+        catch { }
+    }
+
+    /// <summary>统一的选择文件夹对话框（.NET 8 自带的 OpenFolderDialog，比 WinForms 版好看且高 DPI 友好）。</summary>
+    private static string? PickFolder(string title, string? initial)
+    {
+        try
+        {
+            var dlg = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
+            if (!string.IsNullOrWhiteSpace(initial) && System.IO.Directory.Exists(initial))
+                dlg.InitialDirectory = initial!;
+            return dlg.ShowDialog() == true ? dlg.FolderName : null;
+        }
+        catch { return null; }
+    }
+
+    private void BtnPickPackDir_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        string? dir = PickFolder("选择数据包的默认保存文件夹", s.PackageSaveDir);
+        if (string.IsNullOrWhiteSpace(dir)) return;
+
+        s.PackageSaveDir = dir!.Trim();
+        Store.SaveSettings(s);
+        RefreshSaveDirsUi();
+        TxtStatus.Text = "导出数据包时将默认打开：" + s.PackageSaveDir;
+    }
+
+    private void BtnResetPackDir_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        s.PackageSaveDir = "";
+        Store.SaveSettings(s);
+        RefreshSaveDirsUi();
+        TxtStatus.Text = "数据包保存位置已改回默认（跟随系统默认 / 上次用过的文件夹）。";
+    }
+
+    private void BtnPickBackupDir_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        string current = Store.BackupRoot;
+
+        string? dir = PickFolder("选择备份文件夹（自动备份都会写到这里）", current);
+        if (string.IsNullOrWhiteSpace(dir)) return;
+
+        string target;
+        try { target = System.IO.Path.GetFullPath(dir!.Trim()); }
+        catch { TxtStatus.Text = "这个路径不对劲：" + dir; return; }
+
+        if (string.Equals(target.TrimEnd('\\'), current.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+        {
+            TxtStatus.Text = "备份文件夹没有变化。";
+            return;
+        }
+
+        int moved = MoveBackups(current, target, out string err);
+        if (err.Length > 0)
+        {
+            // 搬不动就整件事不做：宁可保持原状，也不能让「设置指向新目录、旧备份留在原地」
+            TxtStatus.Text = "备份文件夹没改成：" + err + "（原备份与设置都没有改动）";
+            return;
+        }
+
+        s.BackupRootDir = target;
+        Store.SaveSettings(s);
+        RefreshSaveDirsUi();
+        TxtStatus.Text = moved > 0
+            ? $"备份文件夹已改到 {target}，顺手搬过去 {moved} 份旧备份。"
+            : $"备份文件夹已改到 {target}。";
+    }
+
+    private void BtnResetBackupDir_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Store.LoadSettings();
+        if (string.IsNullOrWhiteSpace(s.BackupRootDir))
+        {
+            TxtStatus.Text = "备份文件夹已经是默认位置：" + Store.DefaultBackupRoot;
+            return;
+        }
+
+        string current = Store.BackupRoot;
+        string target = Store.DefaultBackupRoot;
+        int moved = MoveBackups(current, target, out string err);
+        if (err.Length > 0)
+        {
+            TxtStatus.Text = "没切回默认位置：" + err + "（设置未改动）";
+            return;
+        }
+
+        s.BackupRootDir = "";
+        Store.SaveSettings(s);
+        RefreshSaveDirsUi();
+        TxtStatus.Text = moved > 0
+            ? $"备份文件夹已恢复默认，{moved} 份备份已搬回 {target}。"
+            : "备份文件夹已恢复默认：" + target;
+    }
+
+    /// <summary>
+    /// 把旧备份根目录下的每一份备份搬到新目录，返回搬动份数。
+    /// <para>同名的（同一时间戳）跳过不覆盖；跨盘 / 跨共享时 Directory.Move 会失败，
+    /// 自动退化成「复制 + 删源」。任何一步出错都连源目录一起保留，并让调用方放弃改设置。</para>
+    /// </summary>
+    private static int MoveBackups(string from, string to, out string err)
+    {
+        err = "";
+        try
+        {
+            if (!System.IO.Directory.Exists(from)) return 0;
+            if (string.Equals(from.TrimEnd('\\'), to.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return 0;
+
+            System.IO.Directory.CreateDirectory(to);
+            int n = 0;
+            foreach (var sub in System.IO.Directory.GetDirectories(from))
+            {
+                string dest = System.IO.Path.Combine(to, System.IO.Path.GetFileName(sub));
+                if (System.IO.Directory.Exists(dest)) continue;
+
+                try
+                {
+                    System.IO.Directory.Move(sub, dest);
+                }
+                catch
+                {
+                    CopyFolder(sub, dest);
+                    try { System.IO.Directory.Delete(sub, true); } catch { }
+                }
+                n++;
+            }
+            return n;
+        }
+        catch (Exception ex)
+        {
+            err = ex.Message;
+            return 0;
+        }
+    }
+
+    private static void CopyFolder(string from, string to)
+    {
+        System.IO.Directory.CreateDirectory(to);
+        foreach (var f in System.IO.Directory.GetFiles(from))
+            System.IO.File.Copy(f, System.IO.Path.Combine(to, System.IO.Path.GetFileName(f)), true);
+        foreach (var d in System.IO.Directory.GetDirectories(from))
+            CopyFolder(d, System.IO.Path.Combine(to, System.IO.Path.GetFileName(d)));
+    }
+
     // ---------- 数据包导出 / 导入（离线版多教室机同步） ----------
 
     private void BtnExportPackage_Click(object sender, RoutedEventArgs e)
@@ -3351,6 +3541,10 @@ public partial class MainWindow : Window
             FileName = $"课表数据_{DateTime.Now:yyyyMMdd_HHmm}.cbpack",
             Title = "导出数据包"
         };
+        // r79：默认落在用户指定的目录（「数据管理 → 保存位置」）
+        string packDir = Store.LoadSettings().PackageSaveDir;
+        if (!string.IsNullOrWhiteSpace(packDir) && System.IO.Directory.Exists(packDir))
+            dlg.InitialDirectory = packDir;
         if (dlg.ShowDialog() != true) return;
 
         var r = SchedulePackage.Export(
@@ -3363,6 +3557,20 @@ public partial class MainWindow : Window
             TxtStatus.Text = "导出失败：" + r.Error;
             return;
         }
+
+        // 导出成功就把这次用的目录记下来，下次对话框直接落在这儿（用户手动换了地方也不用再选一遍）
+        try
+        {
+            string usedDir = System.IO.Path.GetDirectoryName(dlg.FileName) ?? "";
+            if (usedDir.Length > 0 && !string.Equals(usedDir, packDir, StringComparison.OrdinalIgnoreCase))
+            {
+                var st = Store.LoadSettings();
+                st.PackageSaveDir = usedDir;
+                Store.SaveSettings(st);
+                RefreshSaveDirsUi();
+            }
+        }
+        catch { }
 
         TxtStatus.Text = $"已导出数据包：{r.ClassCount} 个班、调代 {r.OverrideCount} 条" +
             (string.IsNullOrEmpty(r.OverrideRange) ? "" : $"（{r.OverrideRange}）") +
@@ -3377,6 +3585,10 @@ public partial class MainWindow : Window
             Filter = "班级公布栏数据包 (*.cbpack)|*.cbpack|所有文件 (*.*)|*.*",
             Title = "导入数据包"
         };
+        // r79：接收方一般从同一个目录拿包，直接用「保存位置」里设的目录
+        string inDir = Store.LoadSettings().PackageSaveDir;
+        if (!string.IsNullOrWhiteSpace(inDir) && System.IO.Directory.Exists(inDir))
+            dlg.InitialDirectory = inDir;
         if (dlg.ShowDialog() != true) return;
 
         var pkg = SchedulePackage.Inspect(dlg.FileName);

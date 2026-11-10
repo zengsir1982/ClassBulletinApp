@@ -320,6 +320,8 @@ public partial class App : System.Windows.Application
                     "countdownedit" => new CountdownEditWindow(),
                     "dutywin" => new DutyWindow(),
                     "noticewin" => new NoticeWindow(),
+                    // r79：通知公告便签的风格窗（配色预设 + 字号 + 预览）
+                    "noticestyle" => new NoticeStyleWindow(),
                     "noticeedit" => new NotificationEditWindow(),
                     "dutyedit" => new DutyEditWindow(),
                     "backupwin" => new BackupWindow(),
@@ -984,7 +986,13 @@ public partial class App : System.Windows.Application
                 if (w.BtnInfoPublishHw.Visibility != vis || w.BtnInfoPublishMs.Visibility != vis
                     || w.BtnInfoPublishDuty.Visibility != vis || w.BtnInfoPublishNotice.Visibility != vis)
                     throw new Exception("四类内容直达发布入口不可见");
-                if (w.BtnInfoPublish.Visibility != collapsed) throw new Exception("重复的通用发布按钮未收起");
+                // r79：用户要求「信息页把发布信息按钮放在立即检查那一行的前边」，所以通用发布按钮
+                // 重新可见，并且必须是工具栏 WrapPanel 的第一项、紧靠立即检查之前。
+                if (w.BtnInfoPublish.Visibility != vis) throw new Exception("通用发布按钮未恢复可见");
+                var infoBar = System.Windows.LogicalTreeHelper.GetParent(w.BtnInfoPublish) as System.Windows.Controls.WrapPanel;
+                if (infoBar == null || !ReferenceEquals(infoBar.Children[0], w.BtnInfoPublish)
+                    || !infoBar.Children.Contains(w.BtnInfoPull))
+                    throw new Exception("发布信息按钮没有排在立即检查之前");
                 if (w.BtnHwWp.Visibility != collapsed || w.BtnMsWp.Visibility != collapsed)
                     throw new Exception("桌面背景显隐的重复开关未收起");
                 if (w.FindName("BtnHwWp") == null || w.FindName("BtnMsWp") == null
@@ -1750,6 +1758,55 @@ public partial class App : System.Windows.Application
                     || w.DiagContentStyle.SizeLevel != 0 || w.DiagContentStyle.Bold
                     || !string.IsNullOrEmpty(w.DiagTitleStyle.Color))
                     throw new Exception("老通知载入后没有回到默认外观");
+                return w;
+            });
+
+            // ---------------- r79d：通知编辑窗「文字格式」行内的主题风格下拉 ----------------
+            Check("r79d 通知编辑窗文字格式行内主题下拉", () =>
+            {
+                var before = Store.LoadSettings();
+                string oldTheme = before.NoticeNoteTheme;
+                double oldScale = before.NoticeNoteScale;
+
+                var w = new NotificationEditWindow();
+                try
+                {
+                    if (w.DiagThemeItemCount != ScheduleCore.Models.HomeworkThemes.Presets.Count)
+                        throw new Exception("主题风格下拉项数不对（现在 " + w.DiagThemeItemCount + " 个，应该是 "
+                                            + ScheduleCore.Models.HomeworkThemes.Presets.Count + " 个）");
+                    if (w.DiagRowCount != 4)
+                        throw new Exception("为便签外观多起了一行（Grid 行数 " + w.DiagRowCount + "，应该是 4）");
+                    if (!w.DiagThemeInFormatBar)
+                        throw new Exception("主题风格下拉没有和文字格式工具条放在同一行");
+
+                    // 初始选中态必须跟 settings.json 一致，不能自己编一个默认值
+                    string want = string.IsNullOrWhiteSpace(oldTheme) ? "blue" : oldTheme.Trim();
+                    if (!string.Equals(w.DiagNoteTheme, want, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception("打开窗口时没有带回当前配色（期望 " + want + "，实际 " + w.DiagNoteTheme + "）");
+
+                    // 走真实的 ComboBox 选中事件：换主题要真的写进 settings.json
+                    string other = ScheduleCore.Models.HomeworkThemes.Presets
+                        .First(t => !string.Equals(t.Key, w.DiagNoteTheme, StringComparison.OrdinalIgnoreCase)).Key;
+                    w.DiagPickTheme(other);
+                    if (!string.Equals(Store.LoadSettings().NoticeNoteTheme, other, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception("切换主题风格下拉后没有写进 settings.json");
+
+                    // 字号倍率由「便签管理 → 风格…」独立窗负责，这里改主题不许顺手把它冲掉
+                    if (Math.Abs(Store.LoadSettings().NoticeNoteScale - oldScale) > 0.0001)
+                        throw new Exception("改主题时把便签字号倍率也改了");
+                }
+                finally
+                {
+                    // 还原成进来时的样子，别影响后面那些跟便签风格有关的断言
+                    try
+                    {
+                        var s = Store.LoadSettings();
+                        s.NoticeNoteTheme = oldTheme;
+                        s.NoticeNoteScale = oldScale;
+                        if (Store.EnablePersistence) Store.SaveSettings(s);
+                    }
+                    catch { }
+                }
                 return w;
             });
 
@@ -2565,9 +2622,46 @@ public partial class App : System.Windows.Application
         // 启动主控制面板（原来的 StartupUri 改为手动创建，便于支持上面的诊断模式）
         try
         {
+            var s0 = Store.LoadSettings();
+
+            // r79：登录后默认只显示悬浮窗（悬浮课表 + 上次开着的各种便签），控制面板留到需要时再开。
+            // 兜底：如果一个悬浮窗都不会自动出现，仍然把控制面板打开 ——
+            // 否则用户双击图标后看到的是「什么也没发生」，以为程序坏了。
+            bool anyFloat = s0.AutoShowSchedule || s0.AutoShowNotification || s0.AutoShowHomework
+                            || s0.AutoShowMissing || s0.AutoShowNotice
+                            || s0.CustomNotes?.Any(c => c.Visible) == true
+                            || s0.PlacementOf(CountdownWindow.PlacementKey).Visible
+                            || s0.PlacementOf(DutyWindow.PlacementKey).Visible;
+            bool hidePanel = !s0.ShowPanelOnStart && anyFloat;
+
             var win = new MainWindow();
             MainWindow = win;
+
+            if (hidePanel)
+            {
+                // 先透明再 Show：首帧不会闪出一整块控制面板。
+                // ★ 用 ContentRendered 而不是 Loaded：升级说明窗挂在 Loaded 上，
+                //   必须等窗口真正显示出来、它弹完再收，否则会把「知道了」一起藏掉。
+                win.Opacity = 0;
+                win.ShowInTaskbar = false;
+            }
+
             win.Show();
+
+            if (hidePanel)
+            {
+                win.ContentRendered += (_, _) =>
+                {
+                    try
+                    {
+                        win.Hide();
+                        win.Opacity = 1;
+                        win.ShowInTaskbar = true;
+                    }
+                    catch (Exception ex) { LogCrash("HidePanelOnStart", ex); }
+                };
+            }
+
             EnsureHandwritingBall();
             try { BoardSyncNotifier.Start(); } catch { }   // 二期：轮询摆渡目录 + 课间弹窗（未启用时零副作用）
         }
@@ -2575,6 +2669,34 @@ public partial class App : System.Windows.Application
         {
             LogCrash("MainWindow startup", ex);
             Shutdown(1);
+        }
+
+        // 诊断：--windows-check <输出 txt> —— 走完真实启动流程（登录 + 按设置开窗）后，
+        // 把每个窗口的「是否可见」写进文件再退出。用于验证「登录后只显示悬浮窗、不打开控制面板」，
+        // 这东西没法靠 --shot 验（截图是单独构造窗口，不经过启动逻辑）。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--windows-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string outFile = e.Args[1];
+            var probe = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+            probe.Tick += (_, _) =>
+            {
+                probe.Stop();
+                try
+                {
+                    var sb = new System.Text.StringBuilder();
+                    foreach (Window w in Windows)
+                    {
+                        string title = "";
+                        try { title = w.Title ?? ""; } catch { }
+                        sb.AppendLine($"{(w.IsVisible ? "VISIBLE" : "HIDDEN ")}\t{title}\t{w.GetType().Name}" +
+                                      $"\tvis={w.Visibility} state={w.WindowState} loaded={w.IsLoaded} op={w.Opacity:0.##} at={w.Left:0},{w.Top:0}");
+                    }
+                    File.WriteAllText(outFile, sb.ToString());
+                }
+                catch (Exception ex) { LogCrash("windows-check", ex); }
+                Shutdown(0);
+            };
+            probe.Start();
         }
     }
 

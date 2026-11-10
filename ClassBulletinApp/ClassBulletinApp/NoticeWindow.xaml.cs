@@ -28,8 +28,13 @@ public partial class NoticeWindow : Window, IGlassSurface
     /// <summary>在 <see cref="AppSettings.NoteWindows"/> 里的键名。</summary>
     internal const string PlacementKey = "notice";
 
-    /// <summary>便签主题键。通知一直是蓝色调，所以固定用「清新蓝」，不给单独的主题设置项。</summary>
-    private const string ThemeKey = "blue";
+    /// <summary>
+    /// 便签主题键与字号倍率（r79 起可配置）。以前写死 const "blue"，用户没得挑；
+    /// 现在读 settings.json 的 <see cref="AppSettings.NoticeNoteTheme"/> / <c>NoticeNoteScale</c>，
+    /// 改完由控制面板调 <see cref="Reload"/> 立刻生效。
+    /// </summary>
+    private string ThemeKey = "blue";
+    private double _scale = 1.0;
 
     private DispatcherTimer? _posTimer;
     private DispatcherTimer? _dayTimer;
@@ -245,8 +250,25 @@ public partial class NoticeWindow : Window, IGlassSurface
                                                   + ":" + x.Title + ":" + x.Content + ":" + x.StyleSignature));
     }
 
-    private void Reload()
+    /// <summary>重读「便签风格」设置（配色预设 + 字号倍率）。供控制面板改完风格后立即刷新。</summary>
+    private void LoadStyle()
     {
+        try
+        {
+            var s = Store.LoadSettings();
+            ThemeKey = string.IsNullOrWhiteSpace(s.NoticeNoteTheme) ? "blue" : s.NoticeNoteTheme.Trim();
+            _scale = s.NoticeNoteScale <= 0.01 ? 1.0 : Math.Clamp(s.NoticeNoteScale, 0.80, 1.40);
+        }
+        catch
+        {
+            ThemeKey = "blue";
+            _scale = 1.0;
+        }
+    }
+
+    public void Reload()
+    {
+        LoadStyle();
         ApplyTheme(HomeworkThemes.Find(ThemeKey));
         RebuildContent();
         UpdateBackdropButton();
@@ -266,6 +288,7 @@ public partial class NoticeWindow : Window, IGlassSurface
         TxtTitle.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x0D, 0x47, 0xA1));
         BtnHide.Foreground = ThemeHelper.Brush(t.HeaderForeground, Color.FromRgb(0x0D, 0x47, 0xA1));
         TxtHint.Foreground = ThemeHelper.Brush(t.MutedColor, Color.FromRgb(0x7A, 0x9A, 0xB5));
+
         GlassBrush.Apply(NoteBorder);
     }
 
@@ -338,7 +361,7 @@ public partial class NoticeWindow : Window, IGlassSurface
                 body.Children.Add(new TextBlock
                 {
                     Text = n.Title,
-                    FontSize = HwTextRender.ScaleSize(n.TitleStyle, 14),
+                    FontSize = HwTextRender.ScaleSize(n.TitleStyle, 14) * _scale,
                     FontWeight = HwTextRender.BoldOr(n.TitleStyle, true) ? FontWeights.Bold : FontWeights.Normal,
                     Foreground = string.IsNullOrWhiteSpace(n.TitleStyle?.Color)
                         ? fg
@@ -351,7 +374,7 @@ public partial class NoticeWindow : Window, IGlassSurface
                 body.Children.Add(new TextBlock
                 {
                     Text = n.Content,
-                    FontSize = HwTextRender.ScaleSize(n.ContentStyle, 13),
+                    FontSize = HwTextRender.ScaleSize(n.ContentStyle, 13) * _scale,
                     FontWeight = HwTextRender.BoldOr(n.ContentStyle, false) ? FontWeights.Bold : FontWeights.Normal,
                     Foreground = string.IsNullOrWhiteSpace(n.ContentStyle?.Color)
                         ? bodyFg

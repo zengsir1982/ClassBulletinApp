@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
-        Title="编辑通知 / 公告" Height="700" Width="640"
+        Title="编辑通知 / 公告" Height="700" Width="690"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
-    <Grid Margin="18">
+    <Grid x:Name="RootGrid" Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -38,9 +38,31 @@
 
         <StackPanel Grid.Row="2" Margin="0,10,0,0">
             <!-- 文字格式：全窗只一条工具条，放在第一个输入框上方；焦点落在标题 / 内容就改各自的格式 -->
+            <!-- 文字格式 + 便签主题风格：同一行左右两组，中间用一条细线分开。
+                 左边管「当前这一条通知」的文字，右边管「整块便签」的配色，别混为一谈。-->
             <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="6"
                     Padding="10,6" Margin="0,0,0,8">
                 <DockPanel LastChildFill="False">
+                    <!-- 右组：主题风格下拉（与作业公示便签同一形态：色块 + 名称） -->
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="7,0,0,0">
+                        <Border Width="1" Height="18" Background="{DynamicResource LineBrush}" Margin="0,0,7,0"/>
+                        <TextBlock Text="主题风格" FontSize="13" Foreground="{DynamicResource MutedBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="整块通知公告便签的配色。只在本机生效，不随数据包同步；不是当前这一条通知的文字格式。"/>
+                        <ComboBox x:Name="CbNoteTheme" Width="118" FontSize="13" SelectionChanged="CbNoteTheme_Changed">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="2">
+                                        <Rectangle Width="16" Height="16" RadiusX="4" RadiusY="4"
+                                                   Fill="{Binding Background}" Stroke="{DynamicResource HintBrush}"
+                                                   StrokeThickness="1" Margin="0,0,7,0"/>
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="12"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </StackPanel>
+
                     <TextBlock Text="文字格式" FontSize="13" Foreground="{DynamicResource MutedBrush}"
                                VerticalAlignment="Center" Margin="0,0,10,0"/>
                     <ctl:TextStylePicker x:Name="PickStyle" StyleChanged="Style_Changed"/>

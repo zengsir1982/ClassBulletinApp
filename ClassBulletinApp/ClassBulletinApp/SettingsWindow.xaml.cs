@@ -14,6 +14,7 @@ public partial class SettingsWindow : Window
         var s = Store.LoadSettings();
         ChkFullscreen.IsChecked = s.LaunchFullscreen;
         ChkLocked.IsChecked = s.LaunchLocked;
+        ChkHidePanel.IsChecked = !s.ShowPanelOnStart;   // 勾上 = 不打开控制面板（默认勾选）
         TxtVersion.Text = "班级公布栏 " + AppInfo.VersionText;
     
         GlassChrome.Prepare(this);}
@@ -23,6 +24,7 @@ public partial class SettingsWindow : Window
         var s = Store.LoadSettings();
         s.LaunchFullscreen = ChkFullscreen.IsChecked == true;
         s.LaunchLocked = ChkLocked.IsChecked == true;
+        s.ShowPanelOnStart = ChkHidePanel.IsChecked != true;
         Store.SaveSettings(s);
         DialogResult = true;
         Close();

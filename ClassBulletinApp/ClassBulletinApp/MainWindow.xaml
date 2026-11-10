@@ -170,31 +170,83 @@
                                         <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
                                         <ctl:HelpBubble PopupTitle="课表导入与调代课" Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。&#10;&#10;若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。&#10;&#10;导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。&#10;&#10;调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。" Margin="6,0,0,0"/>
                                     </StackPanel>
-                                    <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
-                                    <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportTemp_Click"/>
-                                    <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportSingle_Click"/>
-                                    <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnImportTeacher_Click"/>
-                                    <Button x:Name="BtnClearOverrides" Content="清除临时调课 / 代课…（本周 / 指定范围 / 全部）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}" Click="BtnClearOverrides_Click"/>
-                                    <Button x:Name="BtnRestoreSuspended" Content="恢复被主机停用的本机调课…" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}" Click="BtnRestoreSuspended_Click"/>
-                                    <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）" Margin="0,0,0,0" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}" Click="BtnClearImported_Click"/>
+                                    <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppPrimaryButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
+                                    <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppSuccessButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportTemp_Click"/>
+                                    <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportSingle_Click"/>
+                                    <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportTeacher_Click"/>
+                                    <Button x:Name="BtnClearOverrides" Content="清除临时调课 / 代课…（本周 / 指定范围 / 全部）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppDangerButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnClearOverrides_Click"/>
+                                    <Button x:Name="BtnRestoreSuspended" Content="恢复被主机停用的本机调课…" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnRestoreSuspended_Click"/>
+                                    <Button x:Name="BtnClearImported" Content="一键清除全部导入数据（课表 / 教师 / 调代）"
+                                            Style="{StaticResource AppDangerButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnClearImported_Click"/>
                                 </StackPanel>
 
                                 <StackPanel Grid.Column="1" MaxWidth="600">
                                     <TextBlock Text="数据包分发（离线版 / 多教室机同步）" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
-                                    <Button x:Name="BtnExportPackage" Content="导出数据包（发到其他教室机）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}" Click="BtnExportPackage_Click"/>
-                                    <Button x:Name="BtnImportPackage" Content="导入数据包（接收校务课表更新）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="#E8F6EE" BorderBrush="#7FC99A" Click="BtnImportPackage_Click"/>
-                                    <Button x:Name="BtnBackup" Content="备份与恢复" Margin="0,0,0,20" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnBackup_Click"/>
+                                    <Button x:Name="BtnExportPackage" Content="导出数据包（发到其他教室机）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnExportPackage_Click"/>
+                                    <Button x:Name="BtnImportPackage" Content="导入数据包（接收校务课表更新）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppSuccessButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportPackage_Click"/>
+                                    <Button x:Name="BtnBackup" Content="备份与恢复" Margin="0,0,0,20"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnBackup_Click"/>
 
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                         <TextBlock Text="自动更新（共享文件夹 / FTP）" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
                                         <ctl:HelpBubble PopupTitle="数据包与自动更新" Text="勾选「本机兼任发布机」并指定 source 目录后，程序会把该目录里的 Excel（临时课表文件名需以日期开头，如 2026-10-26_临时课表_八年级.xlsx）打包上传；其余教室机定时读取 publish 目录自动更新。连不上数据源时继续用本地数据，不影响使用。&#10;&#10;数据包只包含全校一致的内容：基础课表、调代课、标记为「全校」的通知、开学周等。本机的显示班级、窗口布局、密码、作业公示、缺交名单、自定义便签不会被打包，也不会被覆盖。&#10;&#10;每次导入数据包前会自动备份当前数据到 backup 目录（保留最近 20 份），可在「备份与恢复」里回滚。" Margin="6,0,0,0"/>
                                     </StackPanel>
-                                    <Button x:Name="BtnUpdateSettings" Content="自动更新设置…" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnUpdateSettings_Click"/>
-                                    <Button x:Name="BtnUpdateCheck" Content="立即检查更新" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateCheck_Click"/>
-                                    <Button x:Name="BtnPublishNow" Content="发布到数据源（供其他教室机更新）" Margin="0,0,0,10" Padding="14,10" FontSize="15" HorizontalAlignment="Left" Click="BtnPublishNow_Click"/>
+                                    <Button x:Name="BtnUpdateSettings" Content="自动更新设置…" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateSettings_Click"/>
+                                    <Button x:Name="BtnUpdateCheck" Content="立即检查更新" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateCheck_Click"/>
+                                    <Button x:Name="BtnPublishNow" Content="发布到数据源（供其他教室机更新）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnPublishNow_Click"/>
                                     <TextBlock x:Name="TxtUpdateStatus" Text="自动更新：未配置" FontSize="13" Foreground="{DynamicResource BodyBrush}" TextWrapping="Wrap" Margin="0,2,0,12" LineHeight="19"/>
                                 </StackPanel>
                             </Grid>
+
+                            <!-- 保存位置（r79）：数据包默认存到哪、备份写到哪。两项都是本机偏好，不进数据包。 -->
+                            <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="保存位置（本机）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
+                                    <TextBlock FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,12"
+                                               Text="只影响这台电脑：导出数据包时默认打开哪个文件夹、自动备份写到哪个文件夹。这两项不随数据包同步。"/>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="126"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="数据包默认存到" FontSize="14" VerticalAlignment="Center" Foreground="{DynamicResource InkBrush}"/>
+                                        <TextBox x:Name="TxtPackDir" Grid.Column="1" FontSize="13" IsReadOnly="True" Padding="8,6"
+                                                 Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                 ToolTip="点右边「选择…」指定；「改回默认」则回到系统默认（上次用过的文件夹 / 桌面）"/>
+                                        <Button x:Name="BtnPickPackDir" Grid.Column="2" Content="选择…" Margin="8,0,0,0" Style="{StaticResource AppGhostButton}" Click="BtnPickPackDir_Click"/>
+                                        <Button x:Name="BtnResetPackDir" Grid.Column="3" Content="改回默认" Margin="8,0,0,0" Style="{StaticResource AppGhostButton}" Click="BtnResetPackDir_Click"/>
+                                    </Grid>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="126"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="备份文件夹" FontSize="14" VerticalAlignment="Center" Foreground="{DynamicResource InkBrush}"/>
+                                        <TextBox x:Name="TxtBackupDir" Grid.Column="1" FontSize="13" IsReadOnly="True" Padding="8,6"
+                                                 Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                 ToolTip="自动备份（每次导入数据包 / 导入课表 / 清空之前）都会写到这里；换目录时已有备份会自动搬过去"/>
+                                        <Button x:Name="BtnPickBackupDir" Grid.Column="2" Content="选择…" Margin="8,0,0,0" Style="{StaticResource AppGhostButton}" Click="BtnPickBackupDir_Click"/>
+                                        <Button x:Name="BtnResetBackupDir" Grid.Column="3" Content="恢复默认" Margin="8,0,0,0" Style="{StaticResource AppGhostButton}" Click="BtnResetBackupDir_Click"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
 
                         </StackPanel>
                     </ScrollViewer>
@@ -758,7 +810,7 @@
                                         <Grid Margin="0,0,0,8">
                                             <TextBlock Text="📚 作业公示" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
                                             <Button x:Name="BtnEditHw" Content="编辑内容与格式…" HorizontalAlignment="Right"
-                                                    Padding="12,4" FontSize="13" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                    Style="{StaticResource AppGhostButton}" Padding="12,5" FontSize="13"
                                                     Click="BtnEditHw_Click"
                                                     ToolTip="打开编辑窗口：科目、作业内容、文字格式（加粗 / 颜色 / 字号）与主题风格"/>
                                         </Grid>
@@ -768,8 +820,8 @@
                                                    ToolTip="当前作业公示便签的样子（含主题风格与文字格式）"/>
                                         </Border>
                                         <WrapPanel Margin="0,10,0,0">
-                                            <Button x:Name="BtnToggleHw2" Content="显示作业便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnToggleHw_Click"
+                                            <Button x:Name="BtnToggleHw2" Content="显示作业便签" Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                     Click="BtnToggleHw_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏作业公示悬浮便签"/>
                                             <!-- P2 隐藏回退：桌面背景显隐已统一到右上角「桌面背景排版…」，控件与事件都保留，把 Visibility 改回 Visible 即可恢复 -->
                                             <Button x:Name="BtnHwWp" Content="作业→桌面背景：关" Padding="10,5" FontSize="13" Visibility="Collapsed"
@@ -784,7 +836,7 @@
                                         <Grid Margin="0,0,0,8">
                                             <TextBlock Text="📕 缺交作业名单" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}" VerticalAlignment="Center"/>
                                             <Button x:Name="BtnEditMs" Content="编辑内容与格式…" HorizontalAlignment="Right"
-                                                    Padding="12,4" FontSize="13" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}" Foreground="{DynamicResource DangerBrush}"
+                                                    Style="{StaticResource AppDangerButton}" Padding="12,5" FontSize="13"
                                                     Click="BtnEditMs_Click"
                                                     ToolTip="打开缺交名单编辑窗口：科目、学生姓名、文字格式与主题风格"/>
                                         </Grid>
@@ -794,8 +846,8 @@
                                                    ToolTip="当前缺交名单便签的样子（含主题风格与文字格式）"/>
                                         </Border>
                                         <WrapPanel Margin="0,10,0,0">
-                                            <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnToggleMs_Click"
+                                            <Button x:Name="BtnToggleMs2" Content="显示缺交便签" Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                     Click="BtnToggleMs_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏缺交名单悬浮便签"/>
                                             <Button x:Name="BtnMsWp" Content="缺交→桌面背景：关" Padding="10,5" FontSize="13" Visibility="Collapsed"
                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnMsWp_Click"
@@ -813,7 +865,7 @@
 
                                     <DockPanel Margin="0,12,0,0" LastChildFill="True">
                                         <Button x:Name="BtnCustomNote" DockPanel.Dock="Right" Content="新增 / 编辑…" VerticalAlignment="Center"
-                                                Padding="12,5" FontSize="13" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
+                                                Style="{StaticResource AppGhostButton}" Padding="12,5" FontSize="13"
                                                 Click="BtnCustomNote_Click"
                                                 ToolTip="打开编辑窗口：可新建便签或选择已有便签，设置标题、内容、文字格式（加粗 / 字色 / 字号）与主题风格"/>
                                         <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
@@ -829,8 +881,7 @@
                                             <Button x:Name="BtnToggleCd" Content="显示倒计时便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnToggleCd_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏倒计时悬浮便签（可拖动、可拉边改大小）"/>
-                                            <Button x:Name="BtnEditCountdown" Content="编辑…" Padding="12,5" FontSize="13"
-                                                    Background="#FFF8E1" BorderBrush="#E8CE8A" Foreground="#8D6E00"
+                                            <Button x:Name="BtnEditCountdown" Content="编辑…" Style="{StaticResource AppGhostButton}" Padding="12,5" FontSize="13"
                                                     Click="BtnEditCountdown_Click"
                                                     ToolTip="编辑倒计时便签：事件名称、目标日期、备注，以及标题 / 条目字体颜色与主题风格"/>
                                         </StackPanel>
@@ -844,11 +895,10 @@
 
                                     <DockPanel Margin="0,12,0,0" LastChildFill="True">
                                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Button x:Name="BtnToggleDuty" Content="显示值日便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnToggleDuty_Click"
+                                            <Button x:Name="BtnToggleDuty" Content="显示值日便签" Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                     Click="BtnToggleDuty_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏值日生名单悬浮便签（可拖动、可拉边改大小）"/>
-                                            <Button x:Name="BtnEditDuty" Content="编辑…" Padding="12,5" FontSize="13"
-                                                    Background="#E8F5E9" BorderBrush="#A5CFA8" Foreground="#1B5E20"
+                                            <Button x:Name="BtnEditDuty" Content="编辑…" Style="{StaticResource AppGhostButton}" Padding="12,5" FontSize="13"
                                                     Click="BtnEditDuty_Click"
                                                     ToolTip="编辑值日生名单：按星期填姓名与值日内容，可设标题 / 内容字体颜色与主题风格"/>
                                         </StackPanel>
@@ -864,11 +914,14 @@
                                          跑马灯只保留「最新两条」的摘要，完整清单在这里 -->
                                     <DockPanel Margin="0,12,0,0" LastChildFill="True">
                                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <Button x:Name="BtnToggleNotice" Content="显示通知公告便签" Padding="10,5" FontSize="13" Margin="0,0,8,0"
-                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnToggleNotice_Click"
+                                            <Button x:Name="BtnToggleNotice" Content="显示通知公告便签" Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="13" Margin="0,0,8,0"
+                                                     Click="BtnToggleNotice_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏通知公告悬浮便签（可拖动、可拉边改大小）"/>
+                                            <Button x:Name="BtnStyleNotice" Content="风格…" Padding="12,5" FontSize="13" Margin="0,0,8,0"
+                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnStyleNotice_Click"
+                                                    ToolTip="选这张便签的配色与字号（只影响本机，不随数据包同步）"/>
                                             <Button x:Name="BtnEditNotice" Content="编辑…" Padding="12,5" FontSize="13"
-                                                    Background="#E3F2FD" BorderBrush="#BBDEFB" Foreground="#0D47A1"
+                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                                                     Click="BtnEditNotice_Click"
                                                     ToolTip="打开通知编辑窗口：新增事项、改内容与范围、设截止日期（到期自动撤下，数据保留）"/>
                                         </StackPanel>
@@ -890,29 +943,22 @@
                 <TabItem Header="信息管理" x:Name="TabInfoManage">
                     <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="980">
-                            <!-- 标题 + 说明。P2：页内只保留下面四类内容的直达发布入口，通用发布统一走左侧「消息 → 发布信息」 -->
-                            <Grid Margin="0,0,0,12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,16,0">
-                                    <TextBlock Text="📨 信息管理" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,4"/>
-                                </StackPanel>
-                                <!-- P2 隐藏回退：通用发布按钮与下面四类直达重复，控件与事件保留，改回 Visible 即可恢复 -->
-                                <Button x:Name="BtnInfoPublish" Grid.Column="1" Content="＋ 发布信息" Padding="20,10" FontSize="15" Visibility="Collapsed"
-                                        VerticalAlignment="Center" Background="{DynamicResource PrimaryLightBrush}"
-                                        BorderBrush="{DynamicResource PrimaryBorderBrush}" Click="BtnInfoPublish_Click"
-                                        ToolTip="把一条信息发给勾选的任教班级（可多选）"/>
-                            </Grid>
+                            <!-- 标题。r79：通用「发布信息」入口回到下面工具栏首位（用户要求「放在立即检查前边」） -->
+                            <TextBlock Text="📨 信息管理" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,12"/>
 
                             <!-- 菜单栏：一行常用动作 + 状态 -->
                             <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="12,10" Margin="0,0,0,14">
                                 <DockPanel LastChildFill="True">
                                     <WrapPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                                        <Button x:Name="BtnInfoPull" Content="↻ 立即检查" Padding="12,6" FontSize="13" Margin="0,0,8,4" Click="BtnInfoPull_Click"/>
-                                        <Button x:Name="BtnInfoSnapshot" Content="👀 教室机当前内容" Padding="12,6" FontSize="13" Margin="0,0,8,4" Click="BtnInfoSnapshot_Click"/>
-                                        <Button x:Name="BtnInfoLedger" Content="📋 消息台账 / 回执" Padding="12,6" FontSize="13" Margin="0,0,8,4" Click="BtnInfoLedger_Click"/>
+                                        <Button x:Name="BtnInfoPublish" Content="＋ 发布信息" Margin="0,0,8,4"
+                                                Style="{StaticResource AppPrimarySoftButton}" Click="BtnInfoPublish_Click"
+                                                ToolTip="把一条信息发给勾选的任教班级（可多选）"/>
+                                        <Button x:Name="BtnInfoPull" Content="↻ 立即检查" Margin="0,0,8,4"
+                                                Style="{StaticResource AppGhostButton}" Click="BtnInfoPull_Click"/>
+                                        <Button x:Name="BtnInfoSnapshot" Content="👀 教室机当前内容" Margin="0,0,8,4"
+                                                Style="{StaticResource AppGhostButton}" Click="BtnInfoSnapshot_Click"/>
+                                        <Button x:Name="BtnInfoLedger" Content="📋 消息台账 / 回执" Margin="0,0,8,4"
+                                                Style="{StaticResource AppGhostButton}" Click="BtnInfoLedger_Click"/>
                                     </WrapPanel>
                                     <TextBlock x:Name="TxtInfoStatus" FontSize="12" Foreground="{DynamicResource BodyBrush}" TextWrapping="Wrap"
                                                VerticalAlignment="Center" Margin="10,0,0,4"/>
@@ -945,8 +991,8 @@
                                         <TextBlock Text="📚 作业公示" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,6"/>
                                         <TextBlock Text="按科目发布当天作业，可新增或按教室机现有条目替换。"
                                                    FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Height="36"/>
-                                        <Button x:Name="BtnInfoPublishHw" Content="发布作业公示" Padding="12,6" FontSize="13" Tag="hw"
-                                                HorizontalAlignment="Left" Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}"
+                                        <Button x:Name="BtnInfoPublishHw" Content="发布作业公示" Style="{StaticResource AppPrimarySoftButton}" Padding="12,6" FontSize="13" Tag="hw"
+                                                HorizontalAlignment="Left"
                                                 Click="BtnInfoPublishType_Click"/>
                                     </StackPanel>
                                 </Border>
@@ -955,8 +1001,8 @@
                                         <TextBlock Text="📕 缺交名单" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource DangerBrush}" Margin="0,0,0,6"/>
                                         <TextBlock Text="发布各科未交作业的学生名单，教室机确认后上墙。"
                                                    FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Height="36"/>
-                                        <Button x:Name="BtnInfoPublishMs" Content="发布缺交名单" Padding="12,6" FontSize="13" Tag="ms"
-                                                HorizontalAlignment="Left" Background="{DynamicResource DangerSoftBrush}" BorderBrush="{DynamicResource DangerBorderBrush}"
+                                        <Button x:Name="BtnInfoPublishMs" Content="发布缺交名单" Style="{StaticResource AppDangerButton}" Padding="12,6" FontSize="13" Tag="ms"
+                                                HorizontalAlignment="Left"
                                                 Click="BtnInfoPublishType_Click"/>
                                     </StackPanel>
                                 </Border>
@@ -965,8 +1011,8 @@
                                         <TextBlock Text="🧹 值日安排" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource SuccessBrush}" Margin="0,0,0,6"/>
                                         <TextBlock Text="发布某一天的值日岗位与值日生，操作和作业公示一样。"
                                                    FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Height="36"/>
-                                        <Button x:Name="BtnInfoPublishDuty" Content="发布值日安排" Padding="12,6" FontSize="13" Tag="duty"
-                                                HorizontalAlignment="Left" Background="{DynamicResource SuccessSoftBrush}" BorderBrush="{DynamicResource SuccessBorderBrush}"
+                                        <Button x:Name="BtnInfoPublishDuty" Content="发布值日安排" Style="{StaticResource AppSuccessButton}" Padding="12,6" FontSize="13" Tag="duty"
+                                                HorizontalAlignment="Left"
                                                 Click="BtnInfoPublishType_Click"/>
                                     </StackPanel>
                                 </Border>
@@ -975,8 +1021,8 @@
                                         <TextBlock Text="📢 本班通知" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,6"/>
                                         <TextBlock Text="发布只在本班显示的提醒 / 通知，不进全校数据包。"
                                                    FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Height="36"/>
-                                        <Button x:Name="BtnInfoPublishNotice" Content="发布本班通知" Padding="12,6" FontSize="13" Tag="notice"
-                                                HorizontalAlignment="Left" Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}"
+                                        <Button x:Name="BtnInfoPublishNotice" Content="发布本班通知" Style="{StaticResource AppPrimarySoftButton}" Padding="12,6" FontSize="13" Tag="notice"
+                                                HorizontalAlignment="Left"
                                                 Click="BtnInfoPublishType_Click"/>
                                     </StackPanel>
                                 </Border>

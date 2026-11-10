@@ -8,6 +8,10 @@ using ClassBulletinApp.Controls;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
+// 项目同时引用了 WPF 与 WinForms/System.Drawing（均有同名类型），此处用别名消歧义
+using WpfBrushes = System.Windows.Media.Brushes;
+using WpfColors = System.Windows.Media.Colors;
+
 namespace ClassBulletinApp;
 
 public partial class NotificationEditWindow : Window
@@ -33,6 +37,7 @@ public partial class NotificationEditWindow : Window
         DtpDue.SelectedDate = DateTime.Today;   // 默认有效期为当天
         Reload();
         ApplyScopePermission();
+        BuildAppearance();   // 便签外观色点：必须在 InitializeComponent 之后，ThemeChips 才存在
 
         // 委托取「当前草稿」：切换条目 / 重置草稿后工具条自动指向新对象，不用重绑。
         _binder = new FocusStyleBinder(this, PickStyle);
@@ -96,6 +101,123 @@ public partial class NotificationEditWindow : Window
     {
         if (UserSession.CanSendSchoolNotice) return ChkSchool.IsChecked == true;
         return existingIsSchool;
+    }
+
+    // ---------- 便签主题风格（r79d）：并进「文字格式」那一行，不另起一行 ----------
+    //
+    // 形态与 HomeworkEditWindow 的「主题风格」一致：ComboBox + 色块/名称项。
+    // 字号不在这里给：左边那条 TextStylePicker 已经管「当前这一条通知」的字号，
+    // 便签整体的字号倍率仍由「便签管理 → 风格…」那个独立窗管，两处职责别混。
+
+    /// <summary>主题下拉项：色块画刷预先解析好，XAML 里只做 Fill 绑定。</summary>
+    private sealed class ThemeOption
+    {
+        public string Key { get; init; } = "";
+        public string Name { get; init; } = "";
+        public System.Windows.Media.Brush Background { get; init; } = WpfBrushes.White;
+    }
+
+    /// <summary>待落盘的便签主题键（跟 settings.json 的 NoticeNoteTheme 同步）。</summary>
+    private string _noteTheme = "blue";
+
+    /// <summary>构造期填下拉时别把「回填选中项」当成老师改了设置，否则打开窗口就写一次盘。</summary>
+    private bool _appearanceLoading;
+
+    /// <summary>构造期调用：读出当前主题并填充下拉。</summary>
+    private void BuildAppearance()
+    {
+        try { _noteTheme = NormalizeTheme(Store.LoadSettings().NoticeNoteTheme); }
+        catch { _noteTheme = "blue"; }
+
+        _appearanceLoading = true;
+        try
+        {
+            CbNoteTheme.ItemsSource = HomeworkThemes.Presets
+                .Select(t => new ThemeOption
+                {
+                    Key = t.Key,
+                    Name = t.Name,
+                    Background = ThemeHelper.Brush(t.Background, WpfColors.White)
+                })
+                .ToList();
+            CbNoteTheme.SelectedIndex = HomeworkThemes.IndexOf(_noteTheme);
+        }
+        finally { _appearanceLoading = false; }
+    }
+
+    /// <summary>未知键一律回落到「清新蓝」（与 NoticeWindow.LoadStyle 的口径一致）。</summary>
+    private static string NormalizeTheme(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return "blue";
+        string k = key.Trim();
+        foreach (var t in HomeworkThemes.Presets)
+            if (string.Equals(t.Key, k, StringComparison.OrdinalIgnoreCase)) return t.Key;
+        return "blue";
+    }
+
+    private void CbNoteTheme_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_appearanceLoading || CbNoteTheme.SelectedItem is not ThemeOption opt) return;
+        if (string.Equals(_noteTheme, opt.Key, StringComparison.OrdinalIgnoreCase)) return;
+        _noteTheme = opt.Key;
+        CommitAppearance();
+    }
+
+    /// <summary>
+    /// 立即落盘并让背后那块真便签重绘。
+    /// <para>本窗没有「取消」按钮（只有「关闭」），所以按显示设置页的规矩做「逐项落盘」。</para>
+    /// <para>★ 只写 <c>NoticeNoteTheme</c>，<b>绝不顺手写 NoticeNoteScale</b>：字号倍率由
+    /// 「便签管理 → 风格…」那个独立窗负责，这里若拿打开窗口时的旧值回填，会把老师在别处
+    /// 刚改过的字号悄悄冲掉。</para>
+    /// </summary>
+    private void CommitAppearance()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.NoticeNoteTheme = _noteTheme;
+            if (Store.EnablePersistence) Store.SaveSettings(s);
+
+            // 让已经打开的通知公告便签立刻重绘（所见即所得）。
+            // ★ 不能只刷 Owner：从「便签管理 → 通知公告 → 编辑…」进来时 Owner 是主窗不是便签，
+            // 那块便签明明显示着却不会变，老师会以为没生效。
+            RefreshOpenNotices();
+        }
+        catch { }
+    }
+
+    /// <summary>把当前所有已开的通知公告便签重读风格并重绘。</summary>
+    private static void RefreshOpenNotices()
+    {
+        var app = System.Windows.Application.Current;
+        if (app == null) return;
+        foreach (Window w in app.Windows)
+        {
+            if (w is not NoticeWindow nw) continue;
+            try { nw.Reload(); } catch { }
+        }
+    }
+
+    // ---------- 便签主题诊断钩子（--ui-check 用） ----------
+    // 走真实的 ComboBox.SelectedIndex，连 SelectionChanged 一起验，不绕过 UI 直接调私有方法。
+    internal int DiagThemeItemCount => CbNoteTheme?.Items.Count ?? 0;
+    internal string DiagNoteTheme => _noteTheme;
+    internal void DiagPickTheme(string key) => CbNoteTheme.SelectedIndex = HomeworkThemes.IndexOf(key);
+
+    /// <summary>窗口仍是 4 行（标题 / 列表 / 表单 / 按钮），没有为外观多起一行。</summary>
+    internal int DiagRowCount => RootGrid.RowDefinitions.Count;
+
+    /// <summary>主题下拉必须和「文字格式」工具条待在同一个容器里。未 Show 的窗口可视树为空，只能走逻辑树。</summary>
+    internal bool DiagThemeInFormatBar
+    {
+        get
+        {
+            var bar = System.Windows.LogicalTreeHelper.GetParent(PickStyle);
+            var wrap = System.Windows.LogicalTreeHelper.GetParent(CbNoteTheme);
+            var grand = wrap is System.Windows.DependencyObject d
+                ? System.Windows.LogicalTreeHelper.GetParent(d) : null;
+            return bar != null && ReferenceEquals(bar, grand);
+        }
     }
 
     private void Reload()

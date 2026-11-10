@@ -256,29 +256,44 @@ public partial class WeekView : System.Windows.Controls.UserControl
         for (int p = 0; p < data.MaxPeriod; p++)
             WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        WeekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        WeekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
         for (int d = 0; d < 7; d++)
             WeekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // 星期表头
+        // 今天所在列（不在本周范围时为 -1）：表头填主色实心，远看就知道「现在是哪一列」
+        int todayCol = -1;
+        for (int d = 0; d < 7; d++)
+            if (data.Monday.AddDays(d).Date == DateTime.Today) { todayCol = d; break; }
+
+        // ★ 两处都用 SetResourceReference 而不是直接取刷子：主色由 ThemeManager 在切主题时
+        //   替换 Application.Resources 里的键，动态引用才会跟着变（直接赋值会留旧色）。
         for (int d = 0; d < 7; d++)
         {
             var h = new Border
             {
-                Background = Brush("#1E4FA3"),
-                Margin = new System.Windows.Thickness(3),
-                CornerRadius = new CornerRadius(6)
+                BorderThickness = new System.Windows.Thickness(1),
+                Margin = new System.Windows.Thickness(2, 2, 2, 4),
+                CornerRadius = new CornerRadius(8),
+                Padding = new System.Windows.Thickness(4, 5, 4, 5)
             };
-            h.Child = new TextBlock
+            bool isToday = d == todayCol;
+            h.SetResourceReference(Border.BackgroundProperty, isToday ? "PrimaryBrush" : "PrimarySoftBrush");
+            h.SetResourceReference(Border.BorderBrushProperty, isToday ? "PrimaryBrush" : "PrimarySoftBorderBrush");
+
+            var head = new TextBlock
             {
                 Text = data.DayHeaders[d],
-                Foreground = WpfBrushes.White,
                 FontSize = 13,
-                FontWeight = FontWeights.Bold,
+                FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                TextAlignment = System.Windows.TextAlignment.Center
+                TextAlignment = System.Windows.TextAlignment.Center,
+                LineHeight = 17
             };
+            if (isToday) head.Foreground = WpfBrushes.White;
+            else head.SetResourceReference(TextBlock.ForegroundProperty, "PrimaryDarkBrush");
+
+            h.Child = head;
             Grid.SetRow(h, 0);
             Grid.SetColumn(h, d + 1);
             WeekGrid.Children.Add(h);
@@ -287,22 +302,23 @@ public partial class WeekView : System.Windows.Controls.UserControl
         var cellDict = data.Cells.ToDictionary(c => (c.DayIdx, c.Period), c => c);
         for (int p = 0; p < data.MaxPeriod; p++)
         {
+            // 节次表头：不要底色块，只要一行右对齐的小字 —— 底色块会和学科淡彩抢注意力
             var ph = new Border
             {
-                Background = Brush("#E9EFF9"),
-                Margin = new System.Windows.Thickness(3),
-                CornerRadius = new CornerRadius(6)
+                Margin = new System.Windows.Thickness(2),
+                Padding = new System.Windows.Thickness(2, 4, 8, 4),
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
             };
-            ph.Child = new TextBlock
+            var phText = new TextBlock
             {
                 Text = data.PeriodHeaders[p],
-                Foreground = Brush("#1E4FA3"),
-                FontSize = 13,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                TextAlignment = System.Windows.TextAlignment.Center
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                TextAlignment = System.Windows.TextAlignment.Right
             };
+            phText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
+            ph.Child = phText;
             Grid.SetRow(ph, p + 1);
             Grid.SetColumn(ph, 0);
             WeekGrid.Children.Add(ph);
@@ -321,29 +337,37 @@ public partial class WeekView : System.Windows.Controls.UserControl
 
     private Border MakeCellBorder(WeekCell cell)
     {
+        // 整套颜色按学科取淡彩（口径见 WeekPalette.cs）：底色/描边/学科名/教师/地点同色相不同明度，
+        // 所以一个格子里只有「一种颜色」，只是深浅不同。
+        var tint = WeekPalette.For(cell.Subject);
+
         var border = new Border
         {
-            Background = cell.IsEmpty ? Brush("#F2F2F2") : WpfBrushes.White,
-            BorderBrush = Brush("#E1E6EE"),
+            Background = cell.HasLesson ? tint.Bg : WpfBrushes.Transparent,
+            BorderBrush = cell.HasLesson ? tint.Border : WpfBrushes.Transparent,
             BorderThickness = new System.Windows.Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Margin = new System.Windows.Thickness(3),
-            Padding = new System.Windows.Thickness(6),
-            Cursor = WpfCursors.Hand
+            Margin = new System.Windows.Thickness(2),
+            Padding = new System.Windows.Thickness(7, 5, 7, 5),
+            // 空格子也保留手型（管理模式下右键空格就能排调课）；教师只读视图才用箭头
+            Cursor = (cell.HasLesson || (Mode == WeekViewMode.Manage && !_isTeacher))
+                ? WpfCursors.Hand : WpfCursors.Arrow
         };
 
         var sp = new StackPanel();
         if (cell.IsOverridden)
         {
+            // 徽标改「浅底深字」的小胶囊：原来饱和底 + 白字，一个格子里就多出一块强色斑
+            var tone = WeekPalette.BadgeOf(cell.Type, cell.IsEmpty);
             var badge = new Border
             {
-                Background = Brush(cell.BadgeColor),
+                Background = tone.Bg,
                 CornerRadius = new CornerRadius(4),
-                Padding = new System.Windows.Thickness(4, 1, 4, 1),
+                Padding = new System.Windows.Thickness(5, 1, 5, 1),
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
                 Margin = new System.Windows.Thickness(0, 0, 0, 4)
             };
-            badge.Child = new TextBlock { Text = cell.BadgeText, Foreground = WpfBrushes.White, FontSize = 11 };
+            badge.Child = new TextBlock { Text = cell.BadgeText, Foreground = tone.Fg, FontSize = 11 };
             sp.Children.Add(badge);
         }
 
@@ -354,8 +378,9 @@ public partial class WeekView : System.Windows.Controls.UserControl
                 Text = cell.DisplaySubject,
                 FontWeight = FontWeights.Bold,
                 FontSize = 15,
-                Foreground = Brush(cell.SubjectColor),
-                TextWrapping = TextWrapping.Wrap
+                Foreground = tint.Subject,
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 20
             });
             if (!string.IsNullOrEmpty(cell.Teacher))
             {
@@ -365,9 +390,10 @@ public partial class WeekView : System.Windows.Controls.UserControl
                 {
                     Text = cell.Teacher,
                     FontSize = 12,
-                    Foreground = Brush("#1E4FA3"),
+                    Foreground = tint.Teacher,
                     Background = WpfBrushes.Transparent,
                     Cursor = WpfCursors.Hand,
+                    Margin = new System.Windows.Thickness(0, 2, 0, 0),
                     ToolTip = "双击切换到该" + (_isTeacher ? "班级" : "教师") + "的周课表"
                 };
                 tbName.MouseLeftButtonDown += (s, e) =>
@@ -381,16 +407,29 @@ public partial class WeekView : System.Windows.Controls.UserControl
                 sp.Children.Add(tbName);
             }
             if (!string.IsNullOrEmpty(cell.LocationText))
-                sp.Children.Add(new TextBlock { Text = cell.LocationText.Trim(), FontSize = 11, Foreground = Brush("#2E8B57") });
+                sp.Children.Add(new TextBlock
+                {
+                    Text = cell.LocationText.Trim(),
+                    FontSize = 11,
+                    Foreground = tint.Minor,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                });
         }
         else
         {
-            sp.Children.Add(new TextBlock
+            // 空格子不再铺灰底：整片灰块是「脏」的主要来源。只留一个字，让网格自然留白。
+            var empty = new TextBlock { Text = cell.IsEmpty ? "空" : "", FontSize = 11 };
+            empty.SetResourceReference(TextBlock.ForegroundProperty, "HintBrush");
+            if (cell.IsOverridden)
             {
-                Text = cell.IsEmpty ? "（空）" : "",
-                FontSize = 12,
-                Foreground = Brush("#BBBBBB")
-            });
+                empty.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+            }
+            else
+            {
+                empty.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+                empty.VerticalAlignment = System.Windows.VerticalAlignment.Center;
+            }
+            sp.Children.Add(empty);
         }
         border.Child = sp;
         border.Tag = cell;                     // 手势要靠它从命中的可视元素反查是哪个格子
@@ -798,7 +837,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
             Height = h,
             RadiusX = 8,
             RadiusY = 8,
-            Stroke = new SolidColorBrush(WpfColor.FromRgb(0x37, 0x8A, 0xDD)),
+            Stroke = Res("PrimaryBrush"),
             StrokeThickness = 2,
             StrokeDashArray = new DoubleCollection { 4, 3 },
             Fill = WpfBrushes.Transparent,
@@ -821,7 +860,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
             Height = h,
             CornerRadius = new CornerRadius(8),
             BorderThickness = new System.Windows.Thickness(2),
-            BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x37, 0x8A, 0xDD)),
+            BorderBrush = Res("PrimaryBrush"),
             Background = WpfBrushes.White,
             Opacity = 1.0,
             IsHitTestVisible = false,
@@ -902,7 +941,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         _dropBorder = b;
         _dropSavedBrush = b.BorderBrush;
         _dropSavedThick = b.BorderThickness;
-        b.BorderBrush = new SolidColorBrush(WpfColor.FromRgb(0x1E, 0x4F, 0xA3));
+        b.BorderBrush = Res("PrimaryBrush");
         b.BorderThickness = new System.Windows.Thickness(3);
     }
 
@@ -1431,4 +1470,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
         try { return new SolidColorBrush((WpfColor)WpfColorConverter.ConvertFromString(hex)!); }
         catch { return new SolidColorBrush(Colors.Black); }
     }
+
+    /// <summary>取 DesignTokens 里的刷子；动态资源随主题切换，取不到时退回灰色，不抛。</summary>
+    private SolidColorBrush Res(string key) => TryFindResource(key) as SolidColorBrush ?? new SolidColorBrush(Colors.Gray);
 }
