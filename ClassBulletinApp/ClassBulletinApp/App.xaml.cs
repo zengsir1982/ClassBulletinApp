@@ -279,6 +279,8 @@ public partial class App : System.Windows.Application
                     "schedulewin" => new ScheduleWindow(),
                     "schedulewinclass" => DiagScheduleWindowAs(UserRole.Student),
                     "dragarmed" => new ScheduleWindow(),
+                    "schedulehand" => new ScheduleWindow(),
+                    "schedulehandwide" => new ScheduleWindow(),
                     "weekdrag" => new MainWindow { InitialTabIndex = 0 },
                     "schedulewinfail" => DiagScheduleUpdateFail(),
                     "schedulewinuptodate" => DiagScheduleUpToDate(),
@@ -320,6 +322,42 @@ public partial class App : System.Windows.Application
                     "countdownedit" => new CountdownEditWindow(),
                     "dutywin" => new DutyWindow(),
                     "noticewin" => new NoticeWindow(),
+                    // 涂鸦板：便签容器（黑板绿 / 亚麻米）与手写黑板
+                    "doodle" => DiagDoodleBoard(DoodleBoardThemes.DefaultKey, DoodleModes.Notes, false),
+                    "doodlenotes" => DiagDoodleBoard("linen", DoodleModes.Notes, false),
+                    "doodleink" => DiagDoodleBoard("chalk", DoodleModes.Ink, true),
+                    "doodlewhite" => DiagDoodleBoard("white", DoodleModes.Ink, false),
+                    // 大板 + 大字号：验证板子拖到 1200 宽时便签自动变 4 列、字号放大后不溢出
+                    "doodlebig" => DiagDoodleBoard("linen", DoodleModes.Notes, false, 1200, 820, 20),
+                    // 最大字号：验证 30 号字下便签不溢出、标题正文层级还在
+                    "doodlehuge" => DiagDoodleBoard("chalk", DoodleModes.Notes, false, 760, 560, 30),
+                    // 自动便签的格式编辑窗（复用悬浮便签的编辑窗，只改格式）
+                    "autostyle" => DiagAutoStyleWindow(),
+                    // 板上一张自动便签被套用了格式（红字 + 更大 + 不加粗）
+                    "doodleformat" => DiagDoodleFormatted(),
+                    // r95：黑板管理窗（打开 / 收起 / 改名 / 删除）
+                    "doodlemanage" => DiagDoodleManager(),
+                    // r96：大字号实景 / 大屏编辑窗 / 板头格式窗
+                    "doodlebigfont" => DiagDoodleBigFont(),
+                    "doodleedit" => DiagDoodleBigScreenEdit(),
+                    // r99：作业公示多科目编辑窗（每条 = 科目 + 内容两个输入框）
+                    "doodlehwedit" => DiagDoodleHomeworkEdit(),
+                    // r101：值日便签整份编辑窗（星期 / 姓名 / 值日内容 三段）
+                    "doodleduty" => DiagDoodleDutyEdit(),
+                    // r100：课表便签一节课一行
+                    "doodleschedule" => DiagDoodleSchedule(),
+                    // r104：课表便签编辑窗 —— 内容只读，但可单独调「第N节」格式
+                    "doodlescheduleedit" => new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+                    {
+                        Module = DoodleModules.Schedule,
+                        Title = "今日课程",
+                        Body = "第1节 语文\n第2节 数学\n第3节 英语\n第4节 物理\n第5节 化学",
+                        BodyEditable = false,
+                        BodyHint = "课程来自整周课表，请到主程序「课程表」修改；这里只调格式与风格。",
+                        Style = new DoodleAutoStyle { TitleSize = 40, ContentSize = 30, SubjectSize = 36 }
+                    }),
+                    "doodleheader" => DiagDoodleHeaderStyle(),
+                    "doodlemin" => DiagDoodleBoardCollapsed(),
                     // r79：通知公告便签的风格窗（配色预设 + 字号 + 预览）
                     "noticestyle" => new NoticeStyleWindow(),
                     "noticeedit" => new NotificationEditWindow(),
@@ -372,6 +410,22 @@ public partial class App : System.Windows.Application
                     w0.UpdateLayout();
                 }
 
+                // 板书模式截图：窗口先加宽 420，再展开手写区并灌两笔，否则拍到的是一片空白纸
+                if (w0 is ScheduleWindow hsw
+                    && (string.Equals(e.Args[1], "schedulehand", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(e.Args[1], "schedulehandwide", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        hsw.DiagOpenHandForShot();
+                        // 宽板书：拖窗口左沿把手写区拉到 620 —— 用来对比「课表列宽一点没变」
+                        if (string.Equals(e.Args[1], "schedulehandwide", StringComparison.OrdinalIgnoreCase))
+                            hsw.DiagLeftResize(hsw.DiagCourseWidth + 620);
+                    }
+                    catch (Exception ex) { try { File.WriteAllText(shotLog, "HANDFAIL " + ex.Message); } catch { } }
+                    w0.UpdateLayout();
+                }
+
                 // 周课表拖动状态截图：同样要等 WeekView 在 Loaded 后 Rebuild 完才有格子
                 if (w0 is MainWindow dmw
                     && string.Equals(e.Args[1], "weekdrag", StringComparison.OrdinalIgnoreCase))
@@ -401,6 +455,8 @@ public partial class App : System.Windows.Application
 
                 // 回显实际窗口类型：只写参数名会让人误以为目标命中了，其实可能落到了默认分支
                 File.WriteAllText(shotLog, $"OK {pw0}x{ph0} ({e.Args[1]} -> {w0.GetType().Name})");
+                if (w0 is DoodleBoardWindow ddb)
+                    File.AppendAllText(shotLog, "\n" + ddb.DiagLayoutInfo());
             }
             catch (Exception ex)
             {
@@ -1450,8 +1506,109 @@ public partial class App : System.Windows.Application
             });
             Check("LoginWindow", () => new LoginWindow());
             Check("RetrievePasswordWindow", () => new RetrievePasswordWindow());
-            Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });
-            // 通知条默认「置顶常驻 + 穿透 + 移上去变透明」：少一个勾选框用户就没法改回去
+            // r105：板书模式 —— 悬浮课表左边那块手写区能开、能写、能收，笔迹保留 7 天
+            Check("悬浮课表 板书模式", () =>
+            {
+                var w = new ScheduleWindow();
+                w.DiagSetHandMode(true);
+                if (!w.DiagHandModeActive) throw new Exception("切到板书模式后手写区没有展开");
+                if (w.DiagHandWidth < 280) throw new Exception("手写区宽度过窄：" + w.DiagHandWidth.ToString("0"));
+                if (w.DiagHandKeepDays != 7) throw new Exception("笔迹保留天数应为 7，实际 " + w.DiagHandKeepDays);
+                if (w.DiagDrawHandSample() < 2) throw new Exception("手写区写不进笔迹");
+                w.DiagSetHandMode(false);
+                if (w.DiagHandModeActive) throw new Exception("收起后手写区还在");
+                return w;
+            });
+            // r107：拖两区中间那条缝 = 改【课表】宽度（手写区宽度一丝不变、窗口右边界钉死）
+            Check("悬浮课表 板书拖缝只改课表", () =>
+            {
+                var w = new ScheduleWindow();
+                w.DiagSetHandMode(true);
+                double hand0 = w.DiagHandWidth;
+                double course0 = w.DiagCourseWidth;
+                double right0 = (double.IsNaN(w.Left) ? 0 : w.Left) + course0 + hand0;
+
+                w.DiagDragCourseTo(course0 - 160);            // 往窄里拖
+                double hand1 = w.DiagHandWidth;
+                double course1 = w.DiagCourseWidth;
+                double right1 = (double.IsNaN(w.Left) ? 0 : w.Left) + w.Width;
+
+                if (Math.Abs(hand1 - hand0) > 0.5)
+                    throw new Exception("拖缝把手写区宽度改了（应保持 " + hand0.ToString("0")
+                                        + "，实际 " + hand1.ToString("0") + "）");
+                if (course1 > course0 - 100)
+                    throw new Exception("课表宽度没有跟着变窄：" + course1.ToString("0"));
+                if (Math.Abs(right1 - right0) > 1)
+                    throw new Exception("窗口右边界没有钉住：" + right0.ToString("0")
+                                        + " → " + right1.ToString("0"));
+                return w;
+            });
+            // r107：拖窗口左沿 = 改【手写区】宽度（课表列宽一丝不变）—— 旧实现正好反了
+            Check("悬浮课表 板书拖左沿只动手写区", () =>
+            {
+                var w = new ScheduleWindow();
+                w.DiagSetHandMode(true);
+                double hand0 = w.DiagHandWidth;
+                double course0 = w.DiagCourseWidth;
+
+                w.DiagLeftResize(hand0 + course0 + 180);      // 窗口宽 +180 = 左沿往左拖
+                double hand1 = w.DiagHandWidth;
+                double course1 = w.DiagCourseWidth;
+
+                if (Math.Abs(course1 - course0) > 0.5)
+                    throw new Exception("拖左沿把课表列宽改了（应保持 " + course0.ToString("0")
+                                        + "，实际 " + course1.ToString("0") + "）");
+                if (hand1 < hand0 + 120)
+                    throw new Exception("拖左沿没有把手写区拉宽：" + hand0.ToString("0")
+                                        + " → " + hand1.ToString("0"));
+                return w;
+            });
+            // r107：板书工具条要在教室大屏上用（按钮 ≥44 高、四个按钮都带图标 + 文字）
+            Check("悬浮课表 板书工具条放大带图标", () =>
+            {
+                var w = new ScheduleWindow();
+                w.DiagSetHandMode(true);
+                if (w.DiagHandToolSize < 44)
+                    throw new Exception("工具条按钮太小：" + w.DiagHandToolSize.ToString("0"));
+                if (w.DiagHandToolIconCount != 4)
+                    throw new Exception("工具条图标不全：" + w.DiagHandToolIconCount + "/4");
+                return w;
+            });
+            // r106：进板书模式 = 常驻 + 不置顶（自动隐藏时窗口会缩到屏幕边上，板书根本没法写）
+            Check("悬浮课表 板书模式常驻不置顶", () =>
+            {
+                var w = new ScheduleWindow { Topmost = true };
+                w.DiagToggleHand();
+                if (!w.DiagHandModeActive) throw new Exception("板书模式没打开");
+                if (!w.DiagResidentNoTop) throw new Exception("板书模式没有切成常驻 + 不置顶");
+                w.DiagToggleHand();
+                if (w.DiagHandModeActive) throw new Exception("再点一次没有收起手写区");
+                return w;
+            });
+            // r106：显示设置页的黑板开关与两个启动选项
+            Check("显示设置 黑板开关与启动选项", () =>
+            {
+                var fresh = new ScheduleCore.Models.AppSettings();
+                if (!fresh.DoodleRestoreOnStart || fresh.DoodleStartCollapsed)
+                    throw new Exception("黑板启动选项默认值不对（应为 自动打开 / 不先收起）");
+
+                var w = new MainWindow { InitialTabIndex = 2 };
+                if (w.BtnToggleBoard == null || w.BtnBoardManager == null
+                    || w.ChkBoardRestore == null || w.ChkBoardStartMin == null)
+                    throw new Exception("显示设置页缺少黑板开关 / 黑板管理 / 启动选项");
+
+                // 未 Show 时 Loaded 不触发，手动回显一次（与真机走同一个方法）
+                w.DiagSyncBoardStartOptions();
+                var st = ScheduleCore.Services.Store.LoadSettings();
+                if (w.ChkBoardRestore.IsChecked != st.DoodleRestoreOnStart)
+                    throw new Exception("「启动时自动打开黑板」没有反映当前设置");
+                if (w.ChkBoardStartMin.IsChecked != st.DoodleStartCollapsed)
+                    throw new Exception("「启动时先收成板名条」没有反映当前设置");
+                if (w.ChkBoardStartMin.IsEnabled != st.DoodleRestoreOnStart)
+                    throw new Exception("「先收成板名条」应与「自动打开」联动");
+                return w;
+            });
+            Check("LayoutWindow", () => new LayoutWindow { InitialTabIndex = 2 });            // 通知条默认「置顶常驻 + 穿透 + 移上去变透明」：少一个勾选框用户就没法改回去
             Check("LayoutWindow 通知条开关", () =>
             {
                 var w = new LayoutWindow { InitialTabIndex = 1 };
@@ -2349,6 +2506,1117 @@ public partial class App : System.Windows.Application
 
         // 诊断：--board-check [log] —— 一期「数据底座」自检（稳定 Id / 确定性迁移 / 墓碑 / 原子写）。
         // ★ 会写盘并做迁移前自动备份，因此强制 CB_DATA_DIR 指向数据副本，绝不碰老师真实数据。
+        // 诊断：--doodle-dragtest 用真实系统鼠标拖右下角 / 拖板头，验缩放与移动真的生效
+        // （r81 的教训：只验纯逻辑会得到"诊断全绿但真机拖不动"，所以这里必须发真鼠标消息）
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--doodle-dragtest", StringComparison.OrdinalIgnoreCase))
+        {
+            string dlog = e.Args.Length >= 2 ? e.Args[1]
+                : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.doodledrag.log");
+            var sb = new System.Text.StringBuilder();
+            int pass = 0, fail = 0;
+            int CheckCount = 0;
+            // ★ 每步即时落盘：这条诊断会真的摆窗口、发鼠标消息，一旦某步卡死，
+            // 只在末尾写 RESULT 会让人读到上一轮的旧日志、误判成"运行正常"。
+            void Flush() { try { File.WriteAllText(dlog, sb.ToString()); } catch { } }
+            void Check(string name, bool ok, string detail = "")
+            {
+                CheckCount++;
+                sb.AppendLine((ok ? "PASS " : "FAIL ") + name
+                              + (string.IsNullOrEmpty(detail) ? "" : "  " + detail));
+                if (ok) pass++; else fail++;
+                Flush();
+            }
+
+            sb.AppendLine("START " + DateTime.Now.ToString("HH:mm:ss"));
+            Flush();
+
+            try
+            {
+                string cbDir = (Environment.GetEnvironmentVariable("CB_DATA_DIR") ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(cbDir))
+                {
+                    sb.AppendLine("拒绝：请用 CB_DATA_DIR 指向数据副本后再运行（本诊断会模拟鼠标并可能落盘）。");
+                    sb.AppendLine("RESULT FAIL  0/1");
+                    try { File.WriteAllText(dlog, sb.ToString()); } catch { }
+                    Shutdown(1);
+                    return;
+                }
+
+                Store.SuppressWrites = true;   // 绝不动真实设置，连副本都不写
+
+                var cfg = new DoodleBoardConfig
+                {
+                    Name = "拖动测试",
+                    ThemeKey = DoodleBoardThemes.DefaultKey,
+                    Mode = DoodleModes.Notes,
+                    // ★ 不能太窄：否则第一张便签的手柄正好落在窗口右侧 14 DIP 缩放命中区里，
+                    // 系统会把鼠标当"拖窗口"，看起来卡片变宽其实是整块板变宽，永远验不到便签缩放。
+                    Width = 620,
+                    Height = 420,
+                    Left = 180,
+                    Top = 150
+                };
+
+                var w = new DoodleBoardWindow(cfg)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+                    {
+                        new()
+                        {
+                            Source = "通知", Module = DoodleModules.Notice, Id = "grip-1",
+                            Title = "缩放测试", Body = "双击能改内容"
+                        }
+                    }
+                };
+                w.DiagRebuildNotes();
+                w.Left = 180;
+                w.Top = 150;
+                w.Show();
+                PumpMs(900);
+                w.UpdateLayout();
+
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(w);
+                double sx = dpi.DpiScaleX, sy = dpi.DpiScaleY;
+                double w0 = w.Width, h0 = w.Height;
+
+                Check("板已显示且尺寸正确", w.IsVisible && w0 > 400 && h0 > 300,
+                      $"{(int)w0}x{(int)h0} dpi={sx:0.##}");
+
+                int px = (int)Math.Round((w.Left + w0 - 8) * sx);
+                int py = (int)Math.Round((w.Top + h0 - 8) * sy);
+
+                // ★ 板是「桌面底层」，跑诊断的机器上很容易被前台程序（浏览器等）压住，
+                // 那时点击根本落不到板上 —— 那是"被遮挡当然点不到"，不是拖动链路的错。
+                // 所以拖动这一段先把板临时置顶，只验"拖得动"；压底另用遮挡探针单独验。
+                w.Topmost = true;
+                w.Activate();
+                PumpMs(400);
+                IntPtr atCorner = WindowFromPoint(new DPOINT { X = px, Y = py });
+                Check("拖动起点位于板自身（临时置顶后无遮挡）",
+                      atCorner == w.DiagHandle,
+                      $"under={DescribeHwnd(atCorner)} board={DescribeHwnd(w.DiagHandle)}");
+
+                RealDrag(px, py, (int)Math.Round(520 * sx), (int)Math.Round(320 * sy));
+                PumpMs(700);
+
+                double w1 = w.Width, h1 = w.Height;
+
+                // 程序刚 Show 完那几百毫秒里，系统偶尔不接这次按下（真机人手不会有这种竞争）。
+                // 探针重试一次，避免把时序抖动记成"拖不动"。
+                if (w1 - w0 < 200 || h1 - h0 < 120)
+                {
+                    PumpMs(500);
+                    RealDrag(px, py, (int)Math.Round(520 * sx), (int)Math.Round(320 * sy));
+                    PumpMs(700);
+                    w1 = w.Width; h1 = w.Height;
+                }
+                // 拖到多少受系统 modal resize loop 丢消息影响，只要确实明显变大就算过
+                Check("真实鼠标拖右下角：宽度变大", w1 - w0 > 200, $"{(int)w0} → {(int)w1}");
+                Check("真实鼠标拖右下角：高度变大", h1 - h0 > 120, $"{(int)h0} → {(int)h1}");
+
+                // ---- r94：真实系统鼠标拖便签右下角 ----
+                // ★ 放在窗口缩放之后：小板上第一张卡的手柄贴着窗口右边，会被系统Resize吃掉；
+                // 板放大后手柄才远离窗口边缘，探针验的才是"便签缩放"而不是"窗口缩放"。
+                var gripPt = w.DiagFirstNoteGripCenter;
+                var noteSize0 = w.DiagFirstNoteSize;
+                Check("便签缩放手柄可见且命中区 ≥ 44",
+                      gripPt.X > 0 && w.DiagFirstNoteGripHit >= 43.5,
+                      $"hit={w.DiagFirstNoteGripHit:0.#} at=({gripPt.X:0},{gripPt.Y:0})");
+                Check("便签有稳定拖动键用于记忆摆放", !string.IsNullOrWhiteSpace(w.DiagFirstNoteKey),
+                      w.DiagFirstNoteKey);
+
+                RealDrag((int)Math.Round(gripPt.X), (int)Math.Round(gripPt.Y),
+                         (int)Math.Round(86 * sx), (int)Math.Round(54 * sy), 8);
+                PumpMs(600);
+                if (w.DiagFirstNoteSize.Width - noteSize0.Width < 50)
+                {
+                    PumpMs(400);
+                    gripPt = w.DiagFirstNoteGripCenter;
+                    RealDrag((int)Math.Round(gripPt.X), (int)Math.Round(gripPt.Y),
+                             (int)Math.Round(86 * sx), (int)Math.Round(54 * sy), 8);
+                    PumpMs(600);
+                }
+                var noteSize1 = w.DiagFirstNoteSize;
+                Check("真实鼠标拖便签角：卡片变大",
+                      noteSize1.Width - noteSize0.Width > 50 && noteSize1.Height - noteSize0.Height > 30,
+                      $"{(int)noteSize0.Width}x{(int)noteSize0.Height} → {(int)noteSize1.Width}x{(int)noteSize1.Height}");
+                var remembered = w.DiagFirstPlacement;
+                Check("缩放结果写回当前板面的摆放记忆",
+                      remembered?.Width is double rw && Math.Abs(rw - noteSize1.Width) < 2,
+                      remembered?.Width is double rw2
+                          ? $"{rw2:0}x{remembered.Height:0}" : "null");
+
+                Check("便签模式工具按钮命中区 ≥ 44", w.DiagMinToolHit >= 43.5,
+                      w.DiagMinToolHit.ToString("0.#"));
+                w.SetMode(DoodleModes.Ink);
+                PumpMs(400);
+                Check("手写模式工具按钮命中区 ≥ 44", w.DiagMinToolHit >= 43.5,
+                      w.DiagMinToolHit.ToString("0.#"));
+                Check("手写模式工具带含笔/橡皮/清空图标", w.DiagToolIconCount >= 3,
+                      w.DiagToolIconCount.ToString());
+                w.SetMode(DoodleModes.Notes);
+                PumpMs(300);
+
+                double l0 = w.Left, t0 = w.Top;
+                int hx = (int)Math.Round((w.Left + 70) * sx);
+                int hy = (int)Math.Round((w.Top + 16) * sy);
+                RealDrag(hx, hy, (int)Math.Round(-70 * sx), (int)Math.Round(-52 * sy), 6);
+                PumpMs(600);
+
+                if (Math.Abs(w.Left - l0) < 30 && Math.Abs(w.Top - t0) < 20)
+                {
+                    PumpMs(400);
+                    RealDrag(hx, hy, (int)Math.Round(-70 * sx), (int)Math.Round(-52 * sy), 6);
+                    PumpMs(600);
+                }
+                Check("真实鼠标拖板头：窗口移动",
+                      Math.Abs(w.Left - l0) > 30 || Math.Abs(w.Top - t0) > 20,
+                      $"({(int)l0},{(int)t0}) → ({(int)w.Left},{(int)w.Top})");
+
+                Check("板头按钮区域仍可点击（关闭未被 HTCAPTION 吃掉）",
+                      w.DiagCloseUsable);
+
+                // ★ 尺寸上限单独验：直接设一个大尺寸，证明不再被 900×620 卡住。
+                // 目标尺寸按工作区算 —— 窗口本来就不能大过工作区，写死 1400×900 在
+                // 1080p + 125% 缩放的机器上一定会被系统夹到 816 高，那属于环境限制不是代码问题。
+                var wa = SystemParameters.WorkArea;
+                double tw = Math.Min(1200, wa.Width - 60);
+                double th = Math.Min(720, wa.Height - 60);
+                w.ApplyPreset(tw, th);
+                PumpMs(400);
+                Check("尺寸能设到 900×620 以上（不再有硬上限）",
+                      Math.Abs(w.Width - tw) < 2 && Math.Abs(w.Height - th) < 2,
+                      $"目标 {(int)tw}x{(int)th} 实得 {(int)w.Width}x{(int)w.Height}");
+
+                // ---- 桌面底层：不能遮挡其他窗口 ----
+                w.Topmost = false;          // 撤销"为了拖动而临时置顶"
+                PumpMs(300);
+                Check("板不在最前（WPF 与 WS_EX_TOPMOST 均为否）", w.DiagIsBottomMost);
+
+                // 只有"改样式"是查不出遮挡的：必须真摆一个窗口压在板上，再用 WindowFromPoint
+                // 问系统"这个点上最上层是谁"。r81 的教训就是光看代码全绿、真机上盖不住/点不动。
+                var probe = new Window
+                {
+                    Title = "遮挡探针",
+                    Width = 320,
+                    Height = 220,
+                    Left = w.Left + 80,
+                    Top = w.Top + 80,
+                    WindowStyle = WindowStyle.None,
+                    Background = System.Windows.Media.Brushes.White,
+                    ShowInTaskbar = false,
+                    Topmost = false,
+                    WindowStartupLocation = WindowStartupLocation.Manual
+                };
+                probe.Show();
+                probe.Activate();
+                PumpMs(600);
+
+                IntPtr probeHwnd = new System.Windows.Interop.WindowInteropHelper(probe).Handle;
+                IntPtr boardHwnd = w.DiagHandle;
+
+                var pp = probe.PointToScreen(new System.Windows.Point(probe.Width / 2, probe.Height / 2));
+                IntPtr under = WindowFromPoint(new DPOINT { X = (int)Math.Round(pp.X), Y = (int)Math.Round(pp.Y) });
+                Check("普通窗口能压在板上面（板不遮挡其他窗口）",
+                      under == probeHwnd,
+                      $"under={DescribeHwnd(under)} probe={DescribeHwnd(probeHwnd)}");
+
+                try { probe.Close(); } catch { }
+
+                // ---- r96：真实鼠标在便签上方写字。只查 IsHitTestVisible 会是"诊断全绿、
+                // 真机写不出字"，所以这里必须发真鼠标消息并数笔迹条数 ----
+                w.Topmost = true;   // 临时提到最前，确保光标落点在板上而不是别的窗口
+                PumpMs(300);
+                w.DiagSetInkActive(true);
+                PumpMs(250);
+                int strokes0 = w.DiagInkStrokeCount;
+                var sp = w.PointToScreen(new System.Windows.Point(w.Width * 0.22, 175));
+                RealDrag((int)Math.Round(sp.X), (int)Math.Round(sp.Y),
+                         (int)Math.Round(110 * sx), (int)Math.Round(34 * sy), 8);
+                PumpMs(500);
+                Check("真实鼠标在便签上方写出笔迹（手写层收到输入）",
+                      w.DiagInkStrokeCount > strokes0,
+                      $"{strokes0} → {w.DiagInkStrokeCount}");
+                w.DiagSetInkActive(false);
+                Check("取消手写工具后回到便签层",
+                      w.DiagNotesHitTest && !w.DiagInkHitTest && !w.DiagInkActive);
+
+                w.Close();
+            }
+            catch (Exception ex) { Check("诊断自身异常", false, ex.GetType().Name + ": " + ex.Message); }
+
+            sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
+            try { File.WriteAllText(dlog, sb.ToString()); } catch { }
+            Shutdown(fail == 0 ? 0 : 1);
+            return;
+        }
+
+        // 诊断：--doodle-check 涂鸦板的配置持久化 / 主题回落 / 尺寸夹取 / 笔迹 ISF 往返
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--doodle-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string dlog = e.Args.Length >= 2 ? e.Args[1]
+                : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.doodlecheck.log");
+            var sb = new System.Text.StringBuilder();
+            int pass = 0, fail = 0;
+            void Check(string name, bool ok, string detail = "")
+            {
+                sb.AppendLine((ok ? "PASS " : "FAIL ") + name
+                              + (string.IsNullOrEmpty(detail) ? "" : "  " + detail));
+                if (ok) pass++; else fail++;
+            }
+
+            try
+            {
+                string cbDir = (Environment.GetEnvironmentVariable("CB_DATA_DIR") ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(cbDir))
+                {
+                    sb.AppendLine("拒绝：请用 CB_DATA_DIR 指向数据副本后再运行（本诊断会写盘）。");
+                    sb.AppendLine("RESULT FAIL  0/1");
+                    try { File.WriteAllText(dlog, sb.ToString()); } catch { }
+                    Shutdown(1);
+                    return;
+                }
+
+                // 起始状态清空，避免上一轮残留影响计数
+                var s0 = Store.LoadSettings();
+                s0.DoodleBoards ??= new System.Collections.Generic.List<DoodleBoardConfig>();
+                s0.DoodleBoards.Clear();
+                Store.SaveSettings(s0);
+
+                Check("初始状态 0 块板", (Store.LoadSettings().DoodleBoards?.Count ?? -1) == 0);
+
+                var cfg = new DoodleBoardConfig
+                {
+                    Name = "测试板",
+                    ThemeKey = "chalk",
+                    Mode = DoodleModes.Notes,
+                    Left = 120,
+                    Top = 80,
+                    Width = 560,
+                    Height = 400
+                };
+                cfg.EnsurePage();   // 笔迹现在按「板 + 页」存，诊断也要拿到稳定的页 Id
+                DoodleBoardService.SaveConfig(cfg);
+                var s1 = Store.LoadSettings();
+                Check("新建后设置里出现 1 块板", s1.DoodleBoards.Count == 1);
+                Check("位置尺寸原样存回",
+                      s1.DoodleBoards[0].Left == 120 && s1.DoodleBoards[0].Top == 80 &&
+                      s1.DoodleBoards[0].Width == 560 && s1.DoodleBoards[0].Height == 400);
+
+                cfg.ThemeKey = "linen";
+                cfg.Mode = DoodleModes.Ink;
+                DoodleBoardService.SaveConfig(cfg);
+                var s2 = Store.LoadSettings();
+                Check("换主题与用途能存进设置",
+                      s2.DoodleBoards[0].ThemeKey == "linen" && s2.DoodleBoards[0].Mode == DoodleModes.Ink);
+                Check("重复保存不会长出第二块板", s2.DoodleBoards.Count == 1);
+
+                cfg.Notes.Add(new DoodleNote { Title = "收作业本", Body = "课前交" });
+                DoodleBoardService.SaveConfig(cfg);
+                var s3 = Store.LoadSettings();
+                Check("手动便签能存回", s3.DoodleBoards[0].Notes.Count == 1 &&
+                                        s3.DoodleBoards[0].Notes[0].Title == "收作业本");
+
+                cfg.Notes.Clear();
+                DoodleBoardService.SaveConfig(cfg);
+                Check("删掉便签后设置里也没了",
+                      (Store.LoadSettings().DoodleBoards[0].Notes?.Count ?? -1) == 0);
+
+                // 可调样式：字号 / 字色 / 笔宽 / 笔色 / 橡皮都必须原样存回，
+                // 否则用户调完一重启就复位，等于没做
+                cfg.FontSize = 21;
+                cfg.TextColor = "#C0392B";
+                cfg.PenWidth = 14;
+                cfg.PenColor = "#F09595";
+                cfg.EraserSize = 40;
+                DoodleBoardService.SaveConfig(cfg);
+                var sty = Store.LoadSettings().DoodleBoards[0];
+                Check("字号/字色/笔宽/笔色/橡皮能存回",
+                      sty.FontSize == 21 && sty.TextColor == "#C0392B" && sty.PenWidth == 14 &&
+                      sty.PenColor == "#F09595" && sty.EraserSize == 40);
+                Check("样式参数走同一套夹取",
+                      Math.Abs(DoodleStyle.ClampFont(99) - DoodleStyle.MaxFontSize) < 0.01 &&
+                      Math.Abs(DoodleStyle.ClampFont(1) - DoodleStyle.MinFontSize) < 0.01 &&
+                      Math.Abs(DoodleStyle.ClampPen(0) - DoodleStyle.MinPenWidth) < 0.01 &&
+                      Math.Abs(DoodleStyle.ClampEraser(999) - DoodleStyle.MaxEraser) < 0.01);
+
+                Check("未知主题键回落到黑板绿", DoodleBoardThemes.Get("不存在的主题").Key == "chalk");
+                Check("空主题键回落到黑板绿", DoodleBoardThemes.Get(null).Key == "chalk");
+                Check("尺寸下限夹到 300", Math.Abs(DoodleBoardMetrics.ClampWidth(10) - 300) < 0.01);
+                // ★ 上限不再是 900×620：用户想拖多大就多大，只剩"手改 json 到离谱值"的绝对兜底
+                Check("宽度不再被 900 卡住", Math.Abs(DoodleBoardMetrics.ClampWidth(1500) - 1500) < 0.01);
+                Check("高度不再被 620 卡住", Math.Abs(DoodleBoardMetrics.ClampHeight(1500) - 1500) < 0.01);
+                Check("离谱宽度回落到绝对兜底",
+                      Math.Abs(DoodleBoardMetrics.ClampWidth(90000) - DoodleBoardMetrics.HardMaxWidth) < 0.01);
+                Check("离谱高度回落到绝对兜底",
+                      Math.Abs(DoodleBoardMetrics.ClampHeight(90000) - DoodleBoardMetrics.HardMaxHeight) < 0.01);
+                Check("按工作区夹取（打开时别超出屏幕）",
+                      Math.Abs(DoodleBoardMetrics.ClampWidthTo(2000, 1366) - 1366) < 0.01 &&
+                      Math.Abs(DoodleBoardMetrics.ClampHeightTo(2000, 728) - 728) < 0.01);
+                Check("高度下限夹到 220", Math.Abs(DoodleBoardMetrics.ClampHeight(5) - 220) < 0.01);
+
+                var src = new DoodleBoardConfig { Name = "A" };
+                src.Notes.Add(new DoodleNote { Title = "原标题" });
+                var copy = src.Clone();
+                copy.Name = "B";
+                copy.Notes[0].Title = "改过";
+                Check("Clone 深拷贝便签，不污染原对象",
+                      src.Name == "A" && src.Notes[0].Title == "原标题");
+
+                // 样式字段漏在 Clone 外面 = 界面上改了、存回去还是旧值，且极难发现
+                var src2 = new DoodleBoardConfig
+                {
+                    FontSize = 22, TextColor = "#1F7A4D", PenWidth = 18,
+                    PenColor = "#9FC4F0", EraserSize = 48
+                };
+                var copy2 = src2.Clone();
+                Check("Clone 带上字号/字色/笔宽/笔色/橡皮",
+                      copy2.FontSize == 22 && copy2.TextColor == "#1F7A4D" && copy2.PenWidth == 18 &&
+                      copy2.PenColor == "#9FC4F0" && copy2.EraserSize == 48);
+
+                // ---- 自动便签的字体格式（双击套用「悬浮便签」编辑窗）----
+                // ★ r94 起键用模块键而不是中文来源：不同模块可能出现同名条目，且双击要靠它分派编辑窗
+                Check("自动便签格式键 = 模块:条目Id",
+                      new AutoNote { Source = "通知", Module = DoodleModules.Notice, Id = "abc123",
+                                     Title = "明日大扫除" }.Key == "notice:abc123");
+                Check("没有 Id 时退回模块:标题",
+                      new AutoNote { Source = "作业", Module = DoodleModules.Homework,
+                                     Title = "数学" }.Key == "homework:数学");
+
+                cfg.EnsurePage();
+                cfg.Pages[0].AutoStyles["notice:abc123"] = new DoodleAutoStyle
+                {
+                    Title = new TextStyle { Bold = false, Color = "#1E4FA3", SizeLevel = 5 },
+                    Content = new TextStyle { Bold = true, Color = "#C0392B", SizeLevel = 1 }
+                };
+                DoodleBoardService.SaveConfig(cfg);
+
+                var savedAuto = Store.LoadSettings().DoodleBoards[0];
+                savedAuto.EnsurePage();
+                DoodleAutoStyle? st1 = null;
+                savedAuto.Pages[0].AutoStyles?.TryGetValue("notice:abc123", out st1);
+                Check("单张自动便签的格式能存回当前板面",
+                      st1?.Title?.Bold == false && st1?.Title?.Color == "#1E4FA3" &&
+                      st1?.Title?.SizeLevel == 5 &&
+                      st1?.Content?.Bold == true && st1?.Content?.Color == "#C0392B" &&
+                      st1?.Content?.SizeLevel == 1);
+
+                // 深拷贝：改副本不能污染原对象，否则「取消」形同虚设
+                var copyAuto = savedAuto.Clone();
+                copyAuto.Pages[0].AutoStyles["notice:abc123"].Title!.Bold = true;
+                bool srcBoldAfter = savedAuto.Pages[0].AutoStyles["notice:abc123"].Title?.Bold ?? true;
+                Check("AutoStyles 深拷贝（改副本不污染原对象）", srcBoldAfter == false);
+
+                // ---- r94：多板面 / 自选模块 / 自定义模块 / 摆放记忆 ----
+                var paged = new DoodleBoardConfig { Name = "多页测试" };
+                var p1 = paged.EnsurePage();
+                p1.Name = "上午";
+                p1.Modules = new List<string> { DoodleModules.Notice, DoodleModules.Countdown };
+                p1.Placements["notice:n1"] = new DoodleNotePlacement
+                {
+                    X = 24, Y = 36, Width = 320, Height = 180
+                };
+                var p2 = new DoodleBoardPage { Name = "下午" };
+                p2.Modules = new List<string> { DoodleModules.Duty, DoodleModules.Custom };
+                p2.CustomModules.Add(new DoodleCustomModule
+                {
+                    Id = "custom-1", Title = "班级公约", Body = "按时到校"
+                });
+                paged.Pages.Add(p2);
+                paged.ActivePage = 1;
+                DoodleBoardService.SaveConfig(paged);
+
+                var savedPaged = Store.LoadSettings().DoodleBoards.First(x => x.Name == "多页测试");
+                Check("多板面与当前页索引能存回",
+                      savedPaged.Pages.Count == 2 && savedPaged.ActivePage == 1 &&
+                      savedPaged.Pages[0].Name == "上午" && savedPaged.Pages[1].Name == "下午");
+                Check("每页独立记住模块与自定义内容",
+                      savedPaged.Pages[0].Modules.Contains(DoodleModules.Countdown) &&
+                      savedPaged.Pages[1].Modules.Contains(DoodleModules.Duty) &&
+                      savedPaged.Pages[1].CustomModules.Count == 1 &&
+                      savedPaged.Pages[1].CustomModules[0].Id == "custom-1");
+                var savedPlace = savedPaged.Pages[0].Placements["notice:n1"];
+                Check("每张便签的位置尺寸按板面记住",
+                      savedPlace.X == 24 && savedPlace.Y == 36 &&
+                      savedPlace.Width == 320 && savedPlace.Height == 180);
+                var pagedCopy = savedPaged.Clone();
+                pagedCopy.Pages[0].Placements["notice:n1"].Width = 999;
+                Check("Clone 深拷贝板面摆放（改副本不污染原对象）",
+                      savedPaged.Pages[0].Placements["notice:n1"].Width == 320);
+
+                var customNotes = DoodleAutoNotes.Load(
+                    new List<string> { DoodleModules.Custom },
+                    new List<DoodleCustomModule>
+                    {
+                        new() { Id = "c-9", Title = "今日提醒", Body = "带跳绳" }
+                    });
+                Check("自定义文字模块能折成自动便签",
+                      customNotes.Count == 1 && customNotes[0].Module == DoodleModules.Custom &&
+                      customNotes[0].Key == "custom:c-9" && customNotes[0].Body == "带跳绳");
+
+                // 档位 → 倍率：基准档必须是 1.0，否则一打开编辑窗便签就跳号
+                Check("字号倍率基准档（特大）= 1.0",
+                      Math.Abs(DoodleBoardWindow.DiagScaleForLevel(HwTextStyle.ExtraLargeLevel) - 1.0) < 0.01);
+                Check("更大档位倍率 > 1（能放大）",
+                      DoodleBoardWindow.DiagScaleForLevel(6) > 1.01,
+                      DoodleBoardWindow.DiagScaleForLevel(6).ToString("0.##"));
+                Check("更小档位倍率 < 1（能缩小）",
+                      DoodleBoardWindow.DiagScaleForLevel(4) < 0.99,
+                      DoodleBoardWindow.DiagScaleForLevel(4).ToString("0.##"));
+
+                // 渲染级：格式必须真的画到卡片上，而不只是存进 json
+                {
+                    var rw = new DoodleBoardWindow(new DoodleBoardConfig
+                    {
+                        Name = "格式测试",
+                        ThemeKey = "chalk",
+                        Mode = DoodleModes.Notes,
+                        Width = 560,
+                        Height = 460
+                    });
+                    rw.DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+                    {
+                        new() { Source = "通知", Id = "abc123", Title = "明日大扫除", Body = "上午 8:00" }
+                    };
+                    rw.DiagRebuildNotes();
+                    double baseSize = rw.DiagAutoTitleFontSize;
+                    Check("默认格式：标题加粗、基准字号",
+                          rw.DiagAutoTitleBold && baseSize > 10, baseSize.ToString("0.#"));
+
+                    rw.DiagApplyAutoStyle("notice:abc123", bold: false, color: "#1E4FA3", sizeLevel: 6);
+                    Check("单张格式真的画到卡片上（不加粗 + 放大 + 变蓝）",
+                          !rw.DiagAutoTitleBold &&
+                          rw.DiagAutoTitleFontSize > baseSize + 0.5 &&
+                          string.Equals(rw.DiagAutoTitleColor, "#FF1E4FA3", StringComparison.OrdinalIgnoreCase),
+                          $"{rw.DiagAutoTitleFontSize:0.#} {rw.DiagAutoTitleColor}");
+
+                    Check("格式覆盖只记了被改的那一张", rw.DiagAutoStyledCount == 1,
+                          rw.DiagAutoStyledCount.ToString());
+
+                    // 共用悬浮便签的编辑窗，但绝不能顺手在桌面多造一张自定义便签
+                    int notesBefore = Store.LoadSettings().CustomNotes?.Count ?? 0;
+                    var dlg = new CustomNoteEditWindow(new CustomNote
+                    {
+                        Id = "doodle:diag",
+                        Title = "明日大扫除",
+                        Content = "上午 8:00 各班组织",
+                        TitleStyle = new TextStyle { Bold = false, Color = "#C0392B", SizeLevel = 5 },
+                        ContentStyle = new TextStyle { Bold = true, Color = "#1F7A4D", SizeLevel = 1 }
+                    }, formatOnly: true, boardTitleFont: 13, boardBodyFont: 11.5);
+                    dlg.DiagCommitAsOk();
+
+                    Check("格式模式下能带回两份格式",
+                          dlg.ResultTitleStyle?.Bold == false && dlg.ResultTitleStyle?.Color == "#C0392B" &&
+                          dlg.ResultTitleStyle?.SizeLevel == 5 &&
+                          dlg.ResultContentStyle?.Bold == true && dlg.ResultContentStyle?.Color == "#1F7A4D");
+                    Check("格式模式不会往自定义便签列表里塞东西",
+                          (Store.LoadSettings().CustomNotes?.Count ?? 0) == notesBefore,
+                          $"{notesBefore} → {Store.LoadSettings().CustomNotes?.Count ?? 0}");
+                    dlg.Close();
+
+                    rw.Close();
+
+                    // 窗口关掉后把这块临时板从设置里摘掉，别影响后面「清空后 0 块板」
+                    var cleanup = Store.LoadSettings();
+                    cleanup.DoodleBoards?.RemoveAll(b => b.Name == "格式测试");
+                    Store.SaveSettings(cleanup);
+                }
+
+                // ---- r94：真实窗口的板头 / 菜单 / 多板面 / 拖角手柄 / 双击分派 ----
+                {
+                    var uiCfg = new DoodleBoardConfig
+                    {
+                        Name = "r94诊断板",
+                        ThemeKey = "chalk",
+                        Mode = DoodleModes.Notes,
+                        Width = 620,
+                        Height = 500
+                    };
+                    uiCfg.Notes.Add(new DoodleNote { Title = "拖动测试", Body = "双击改内容" });
+                    uiCfg.EnsurePage();
+                    uiCfg.Pages.Add(new DoodleBoardPage
+                    {
+                        Name = "板面 2",
+                        Modules = new List<string> { DoodleModules.Duty }
+                    });
+
+                    var ui = new DoodleBoardWindow(uiCfg);
+                    string head = ui.DiagHeaderInfo;
+                    Check("板头同时有板名、日期时间、页面码",
+                          head.StartsWith("r94诊断板|") && head.Split('|').Length == 4 &&
+                          head.Split('|')[2].Length >= 11 && head.EndsWith("页面 1/2"), head);
+
+                    var menu = ui.DiagTopMenuHeaders;
+                    Check("菜单含便签管理/黑板风格/新建板（页面已迁到板头）",
+                          menu.Contains("便签管理") && menu.Contains("黑板风格") &&
+                          menu.Contains("＋ 新建一块板") && !menu.Contains("板面"),
+                          string.Join("/", menu));
+
+                    var headBtns = ui.DiagHeadTextButtons;
+                    Check("板头直达：便签管理 / 页面下拉",
+                          headBtns.Contains("便签管理") && headBtns.Any(b => b.StartsWith("页面")),
+                          string.Join("/", headBtns));
+
+                    var noteMenu = ui.DiagNoteManageHeaders;
+                    Check("便签管理含六类内容模块",
+                          noteMenu.Contains("通知") && noteMenu.Contains("作业") &&
+                          noteMenu.Contains("缺交") && noteMenu.Contains("课表") &&
+                          noteMenu.Contains("倒计时") && noteMenu.Contains("值日"),
+                          string.Join("/", noteMenu));
+                    Check("便签管理含自定义/导入/清空/手动便签",
+                          noteMenu.Any(h => h.Contains("新增手动便签")) &&
+                          noteMenu.Any(h => h.Contains("自定义文字模块")) &&
+                          noteMenu.Any(h => h.Contains("导入模块设置")) &&
+                          noteMenu.Any(h => h.Contains("本页不放任何便签")),
+                          string.Join("/", noteMenu));
+
+                    Check("板头时间带年份",
+                          System.Text.RegularExpressions.Regex.IsMatch(head.Split('|')[2], @"^\d{4}-\d{2}-\d{2}"),
+                          head.Split('|')[2]);
+
+                    // r98：便签正文 / 标题自动换行，去掉两行截断
+                    Check("便签正文自动换行且无两行截断", ui.DiagAutoBodyWraps);
+                    Check("便签标题也自动换行", ui.DiagAutoTitleWraps);
+
+                    ui.DiagSetInkTool(eraser: false);
+                    Check("手写笔模式只显示笔粗滑块 + 颜色胶囊",
+                          ui.DiagHasPenSlider && !ui.DiagHasEraserSlider && ui.DiagHasColorCapsule);
+                    ui.DiagSetInkTool(eraser: true);
+                    Check("橡皮模式只显示橡皮范围滑块 + 颜色胶囊",
+                          !ui.DiagHasPenSlider && ui.DiagHasEraserSlider && ui.DiagHasColorCapsule);
+                    ui.DiagSetInkActive(false);
+                    Check("便签层字色也收成颜色胶囊", ui.DiagHasColorCapsule);
+
+                    // r108：锁定按钮挪进工具带（切换按钮左边）—— 锁住也一眼看得见，不会再卡死
+                    ui.DiagSetLocked(true);
+                    Check("工具带锁定按钮状态同步", ui.DiagLocked && ui.DiagLockText == "已锁定", ui.DiagLockText);
+                    ui.DiagSetLocked(false);
+                    Check("解锁后按钮恢复", !ui.DiagLocked && ui.DiagLockText == "锁定", ui.DiagLockText);
+                    Check("锁定按钮在「手写/便签」切换按钮左边", ui.DiagLockBeforeModeButton);
+                    Check("板名钉在工具带最右边（板的最右下角）",
+                          ui.DiagTitleInToolBar && ui.DiagCornerTitle == "r94诊断板", ui.DiagCornerTitle);
+                    // r99：切换按钮改回文字，避免与画笔图标并排成「两支笔」
+                    Check("手写/便签切换按钮在工具带最前面且是文字", ui.DiagModeSwitchIsText);
+                    Check("板头班级/时间贴着上沿（不再空一行）", ui.DiagHeadTopGap <= 12,
+                          ui.DiagHeadTopGap.ToString("0"));
+                    // r103：十套板面统一木色包边
+                    Check("所有板面都有木色包边", ui.DiagWoodFrameIsWood,
+                          ui.DiagWoodFrameWidth.ToString("0"));
+                    // r103：卡片左上角不再有浅色模块名（标题即小标题）
+                    Check("便签不再重复显示模块名", ui.DiagNoteHasNoSourceLabel);
+                    // r104：行首科目单独一套字体格式（作业 / 缺交的科目名、课表的第N节）
+                    Check("科目与内容字号默认就分开、科目加粗",
+                          ui.DiagFirstNoteSubjectFontSize > ui.DiagFirstNoteBodyFontSize &&
+                          ui.DiagFirstNoteSubjectBold,
+                          $"{ui.DiagFirstNoteSubjectFontSize:0.#} / {ui.DiagFirstNoteBodyFontSize:0.#}");
+                    ui.DiagSetSubjectStyle(30, "#C0392B", true);
+                    Check("改科目格式后卡片上的科目真的跟着变",
+                          Math.Abs(ui.DiagFirstNoteSubjectFontSize - 30) < 0.6 &&
+                          ui.DiagFirstNoteSubjectColor.Contains("C0392B", StringComparison.OrdinalIgnoreCase),
+                          $"{ui.DiagFirstNoteSubjectFontSize:0.#} {ui.DiagFirstNoteSubjectColor}");
+                    // r102：板头并成一行 —— 班级/时间在左、菜单按钮在右，两者垂直居中
+                    Check("板头只有一行（班级时间与菜单栏同一行）", ui.DiagHeadSingleRow);
+                    Check("板头班级时间与菜单栏纵向对齐", ui.DiagHeadAlignDelta <= 6,
+                          ui.DiagHeadAlignDelta.ToString("0.0"));
+
+                    // r105：最小化 = 收成一条板名条（不能用 WindowState.Minimized，板没有任务栏按钮）
+                    Check("板头有最小化按钮", ui.DiagHasMinimizeButton);
+                    Check("收起高度正好一条板名条", ui.DiagCollapseIsCompact,
+                          ui.DiagCollapsedHeight.ToString("0"));
+                    ui.DiagCollapse(true);
+                    Check("收起后板面整块隐藏、仍处于收起态", ui.DiagCollapsed && ui.DiagBodyHidden);
+                    Check("收起后窗口真的变矮（只剩板名条）",
+                          Math.Abs(ui.Height - ui.DiagCollapsedHeight) < 6, ui.Height.ToString("0"));
+                    double expandedBefore = ui.DiagCollapsedHeight;
+                    ui.DiagCollapse(false);
+                    Check("再展开后板面回来、收起态清除", !ui.DiagCollapsed && !ui.DiagBodyHidden);
+                    Check("展开后窗口高度回到展开态（不是板名条的高度）", ui.Height > expandedBefore + 100,
+                          ui.Height.ToString("0"));
+                    // r107：收起后点「展开」必须真的展开 —— r105 的按钮点击写死 SetCollapsed(true)
+                    ui.DiagCollapse(true);
+                    Check("收起后点「展开」按钮真的能展开", ui.DiagClickMinButtonAndReturns());
+
+                    // r99：便签风格只作用于这一张卡，不改整块黑板材质
+                    string boardThemeBefore = ui.DiagBoardThemeKey;
+                    ui.DiagSetFirstAutoNoteTheme("blue");
+                    Check("便签各自风格真的画到卡片底色（清新蓝）",
+                          ui.DiagFirstNoteBackground.IndexOf("E3F2FD", StringComparison.OrdinalIgnoreCase) >= 0,
+                          ui.DiagFirstNoteBackground);
+                    Check("便签风格不改黑板材质（ThemeKey 不变）",
+                          ui.DiagBoardThemeKey == boardThemeBefore, ui.DiagBoardThemeKey);
+
+                    Check("每张便签都有右下角缩放手柄", ui.DiagGripCount >= 1,
+                          ui.DiagGripCount.ToString());
+                    Check("第一张便签有稳定拖动键", !string.IsNullOrWhiteSpace(ui.DiagFirstNoteKey),
+                          ui.DiagFirstNoteKey);
+
+                    ui.DiagToggleModule(DoodleModules.Schedule, on: true);
+                    Check("菜单勾选后当前页真的加入展示模块",
+                          ui.DiagModules.Contains(DoodleModules.Schedule));
+                    ui.DiagToggleModule(DoodleModules.Schedule, on: false);
+                    Check("取消勾选后模块从当前页移除",
+                          !ui.DiagModules.Contains(DoodleModules.Schedule));
+
+                    ui.DiagSwitchPage(1);
+                    Check("切换页面后页码与模块一起换",
+                          ui.DiagActivePage == 1 && ui.DiagPageLabel == "页面 2/2" &&
+                          ui.DiagModules.Contains(DoodleModules.Duty), ui.DiagPageLabel);
+
+                    // r97：清空曾经"点了没反应"，根因是空模块表被当成默认三类又填回来
+                    ui.DiagClearPage();
+                    Check("清空这一页后真的零模块零便签",
+                          ui.DiagModules.Count == 0 && ui.DiagRenderedNoteCount == 0,
+                          $"模块 {ui.DiagModules.Count} / 卡片 {ui.DiagRenderedNoteCount}");
+                    ui.DiagAddPage();
+                    Check("新建板面默认空白（便签只在第一板面）",
+                          ui.DiagActivePage == 2 && ui.DiagModules.Count == 0 &&
+                          ui.DiagRenderedNoteCount == 0,
+                          $"第 {ui.DiagActivePage + 1} 页 / 模块 {ui.DiagModules.Count}");
+
+                    Check("大屏窗的写回目标能定位到各类正式公示",
+                          ui.DiagEditorFor(DoodleModules.Notice) == "NoticeEditor" &&
+                          ui.DiagEditorFor(DoodleModules.Homework) == "HomeworkEditor" &&
+                          ui.DiagEditorFor(DoodleModules.Missing) == "MissingEditor" &&
+                          ui.DiagEditorFor(DoodleModules.Countdown) == "CountdownEditor" &&
+                          ui.DiagEditorFor(DoodleModules.Duty) == "DutyEditor" &&
+                          ui.DiagEditorFor(DoodleModules.Custom) == "CustomModuleEditor");
+                    Check("课表没有单条可改内容，如实提示",
+                          ui.DiagEditorFor(DoodleModules.Schedule) == "ScheduleHint");
+
+                    ui.Close();
+                    var cleanup2 = Store.LoadSettings();
+                    cleanup2.DoodleBoards?.RemoveAll(b => b.Name == "r94诊断板");
+                    Store.SaveSettings(cleanup2);
+                }
+
+                // 笔迹 ISF 往返
+                string inkPath = DoodleBoardService.InkPath(cfg.Id, cfg.Pages[0].Id);
+                Check("笔迹路径在 doodle 目录下且是 .isf",
+                      inkPath.Replace('\\', '/').Contains("/doodle/") && inkPath.EndsWith(".isf"));
+
+                var inkDir = Path.GetDirectoryName(inkPath);
+                if (!string.IsNullOrEmpty(inkDir)) Directory.CreateDirectory(inkDir);
+
+                var strokes = new System.Windows.Ink.StrokeCollection();
+                var pts = new System.Windows.Input.StylusPointCollection(new[]
+                {
+                    new System.Windows.Input.StylusPoint(10, 10),
+                    new System.Windows.Input.StylusPoint(40, 26),
+                    new System.Windows.Input.StylusPoint(80, 18)
+                });
+                strokes.Add(new System.Windows.Ink.Stroke(pts));
+
+                using (var fs = File.Create(inkPath)) strokes.Save(fs);
+                Check("笔迹文件已落盘", File.Exists(inkPath) && new FileInfo(inkPath).Length > 0);
+
+                int backCount = -1;
+                using (var fs = File.OpenRead(inkPath))
+                    backCount = new System.Windows.Ink.StrokeCollection(fs).Count;
+                Check("笔迹 ISF 往返条数一致", backCount == 1, "读回 " + backCount);
+
+                // ---- r95：收起 ≠ 删除；已收起的板必须能从管理入口找回来 ----
+                var liveCfg = Store.LoadSettings().DoodleBoards.FirstOrDefault(b => b.Id == cfg.Id);
+                Check("诊断板仍在设置里", liveCfg != null);
+                if (liveCfg != null)
+                {
+                    var win = DoodleBoardService.Show(liveCfg);
+                    Check("打开后登记为已显示", ReferenceEquals(DoodleBoardService.FindOpen(cfg.Id), win));
+
+                    DoodleBoardService.CloseBoard(win, removeConfig: false);
+                    Check("收起后配置仍在", Store.LoadSettings().DoodleBoards.Any(b => b.Id == cfg.Id));
+                    Check("收起后笔迹仍在", File.Exists(inkPath));
+                    Check("收起后不再登记为已显示", DoodleBoardService.FindOpen(cfg.Id) == null);
+
+                    var again = DoodleBoardService.OpenOrActivate(cfg.Id);
+                    Check("管理入口能重新打开收起的板",
+                          again != null && ReferenceEquals(DoodleBoardService.FindOpen(cfg.Id), again));
+                    var again2 = DoodleBoardService.OpenOrActivate(cfg.Id);
+                    Check("重复打开不会长出第二块板",
+                          ReferenceEquals(again, again2) &&
+                          Store.LoadSettings().DoodleBoards.Count(b => b.Id == cfg.Id) == 1);
+
+                    Check("改名成功", DoodleBoardService.RenameConfig(cfg.Id, "改名测试板"));
+                    Check("改名写回设置",
+                          Store.LoadSettings().DoodleBoards.First(b => b.Id == cfg.Id).Name == "改名测试板");
+                    Check("改名同步到已打开窗口的板头", again!.Title == "改名测试板");
+
+                    // 截图入口会往这两个静态字段塞假列表；这里必须读真实设置
+                    DoodleBoardManagerWindow.DiagConfigsOverride = null;
+                    DoodleBoardManagerWindow.DiagOpenIds = null;
+                    var mgr = new DoodleBoardManagerWindow();
+                    mgr.DiagRefresh();
+                    Check("管理窗列出全部板",
+                          mgr.DiagRowCount == Store.LoadSettings().DoodleBoards.Count,
+                          mgr.DiagRowCount + " 行");
+                    Check("管理窗汇总显示正在显示的板",
+                          mgr.DiagSummary.Contains("正在显示"), mgr.DiagSummary);
+                    mgr.Close();
+
+                    // ★ 删除顺序：必须关完窗口（Closing 会写回配置）再删，否则板永远删不掉
+                    DoodleBoardService.DeleteById(cfg.Id);
+                    Check("删除后设置里没有这块板",
+                          !Store.LoadSettings().DoodleBoards.Any(b => b.Id == cfg.Id));
+                    Check("删除后笔迹一起清掉", !File.Exists(inkPath));
+                    Check("删除后不再是已显示", DoodleBoardService.FindOpen(cfg.Id) == null);
+                }
+
+                // ---- r96：大字号 / 同页双层 / 按页笔迹 / 板头样式 / 更多主题 ----
+                Check("黑板主题扩到 10 套以上",
+                      DoodleBoardThemes.All.Count >= 10, DoodleBoardThemes.All.Count + " 套");
+
+                // r102：每套板面都要「能写字 + 贴上去看得出卡片」，不能只有黑板绿能用
+                {
+                    static double Lum(string hex)
+                    {
+                        try
+                        {
+                            var c = (System.Windows.Media.Color)System.Windows.Media
+                                .ColorConverter.ConvertFromString(hex);
+                            static double Ch(double v)
+                            {
+                                v /= 255.0;
+                                return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+                            }
+                            return 0.2126 * Ch(c.R) + 0.7152 * Ch(c.G) + 0.0722 * Ch(c.B);
+                        }
+                        catch { return 0.5; }
+                    }
+                    static double Ratio(string a, string b)
+                    {
+                        double la = Lum(a), lb = Lum(b);
+                        return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
+                    }
+
+                    bool inkOk = true, noteOk = true;
+                    int chalkCount = 0;
+                    string worst = "";
+                    foreach (var t in DoodleBoardThemes.All)
+                    {
+                        double r = Ratio(t.Ink, t.Background);
+                        if (r < 4.5) { inkOk = false; worst = t.Name + " " + r.ToString("0.0"); }
+                        // 便签底色与板面至少差一个明度带（白板靠边框，阈值放到 0.05）
+                        if (Math.Abs(Lum(t.NoteBackground) - Lum(t.Background)) < 0.05)
+                        { noteOk = false; worst = t.Name + " 便签太接近板面"; }
+                        if (t.Chalk) chalkCount++;
+                    }
+                    Check("每套板面墨色对比 ≥ 4.5:1（黑板上写字看得清）", inkOk, worst);
+                    Check("每套板面的便签都与板面明显区分（贴上去有卡片感）", noteOk, worst);
+                    Check("深色板都标记了粉笔模式（手写默认浅色笔）", chalkCount >= 4,
+                          chalkCount + " 套");
+                    Check("黑板绿仍是默认主题", DoodleBoardThemes.DefaultKey == "chalk",
+                          DoodleBoardThemes.DefaultKey);
+                }
+                Check("大屏字号上限到 88",
+                      Math.Abs(DoodleStyle.BigSizeOf(DoodleStyle.BigFontSizes.Length - 1) - 88) < 0.01);
+                Check("字号夹取上限同步到 88",
+                      Math.Abs(DoodleStyle.ClampFont(200) - 88) < 0.01);
+
+                {
+                    var big = new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+                    {
+                        Title = "后排也看得清",
+                        Body = "这是一段教室大屏正文",
+                        Style = new DoodleAutoStyle { TitleSize = 88 }
+                    });
+                    Check("大屏编辑窗默认读到超大字号", big.Draft.TitleSize >= 87.99,
+                          big.Draft.TitleSize.ToString("0"));
+                    Check("大屏编辑窗正文字号随标题放大",
+                          big.Draft.ContentSize > 40, big.Draft.ContentSize.ToString("0"));
+                    big.Close();
+                }
+
+                // ---- r99：焦点格式条 / 便签风格 / 双输入框 / 强制换行 / 橡皮图标 ----
+                string cutKept = DoodleAutoNotes.Cut("第一行\n第二行\n第三行", 60);
+                Check("自动便签正文保留回车强制换行（Cut 不再压平）",
+                      cutKept == "第一行\n第二行\n第三行", cutKept.Replace("\n", "\\n"));
+                Check("Cut 仍按长度截断且不丢换行",
+                      DoodleAutoNotes.Cut("甲\n乙", 3).Contains("\n"));
+
+                {
+                    var ed = new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+                    {
+                        Title = "明日大扫除",
+                        Body = "甲行\r\n乙行",
+                        Style = new DoodleAutoStyle { TitleSize = 56 }
+                    });
+                    Check("编辑窗文字格式条启用大屏档位", ed.DiagPickerIsBigScreen);
+                    Check("编辑窗文字格式条按焦点切换作用对象", ed.DiagPickerFollowsFocus);
+                    Check("编辑窗主题风格来自悬浮便签主题表",
+                          ed.DiagNoteThemeCount == HomeworkThemes.Presets.Count,
+                          ed.DiagNoteThemeCount.ToString());
+                    Check("编辑窗风格不再改整块黑板", ed.DiagThemeDoesNotTouchBoard);
+                    ed.DiagSetSingleBody("第一段\n第二段");
+                    ed.DiagCommit();
+                    Check("单文本编辑窗保存回车强制换行",
+                          ed.Draft.Body == "第一段\n第二段", ed.Draft.Body.Replace("\n", "\\n"));
+                    Check("单文本编辑窗主题写入便签而非黑板",
+                          ed.Draft.SaveNoteTheme && !ed.Draft.SaveTheme);
+                    ed.Close();
+                }
+
+                {
+                    // ★ 整份模式：条目来自真实公示数据（每条一个科目），不按正文换行拆
+                    var hw = new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+                    {
+                        Title = "各科作业公示",
+                        Module = DoodleModules.Homework,
+                        MultiEntry = true,
+                        WholeBoard = true,
+                        BoardTitle = "各科作业公示",
+                        Entries = new List<DoodleBigEditEntry>
+                        {
+                            new() { Id = "hwA", Title = "数学", Body = "课本 P32 第 1-8 题" },
+                            new() { Id = "hwB", Title = "语文", Body = "背诵课文\n默写古诗" }
+                        }
+                    });
+                    Check("作业公示走「整份各科记录」模式", hw.DiagIsWholeBoard);
+                    Check("作业公示用「添加科目」而不是增加条目",
+                          hw.DiagAddButtonText.Contains("添加科目"), hw.DiagAddButtonText);
+                    Check("每条记录 = 科目 + 内容两个输入框",
+                          hw.DiagEntryFieldCount >= 5, hw.DiagEntryFieldCount.ToString());
+                    Check("整份模式一条记录对应一条数据（不按正文换行拆）",
+                          hw.DiagEntryCount == 2, hw.DiagEntryCount.ToString());
+                    Check("整份模式带回公示条目的稳定 Id",
+                          hw.DiagEntryId(0) == "hwA" && hw.DiagEntryId(1) == "hwB",
+                          hw.DiagEntryId(0) + "/" + hw.DiagEntryId(1));
+                    hw.DiagSetSubject(0, "数学", "课本 P32 第 1-8 题");
+                    hw.DiagCommit();
+                    Check("整份保存交出结构化条目（不是「科目：内容」拼接文本）",
+                          hw.Draft.Entries.Count == 2 &&
+                          hw.Draft.Entries[0].Id == "hwA" &&
+                          hw.Draft.Entries[0].Title == "数学" &&
+                          !hw.Draft.Entries[0].Body.Contains("语文"),
+                          hw.Draft.Entries.Count.ToString());
+                    Check("内容里的回车只影响排版、保留在字段内",
+                          hw.Draft.Entries[1].Body.Contains("\n"));
+                    hw.Close();
+                }
+
+                {
+                    // ★ 整份落回：改一条、加一条、删一条 → 数据逐条对应，删除只打墓碑
+                    var hb = new HomeworkBoard
+                    {
+                        Title = "各科作业公示",
+                        Items = new List<HomeworkItem>
+                        {
+                            new() { Id = "d1", Subject = "数学", Content = "课本 P32" },
+                            new() { Id = "d2", Subject = "语文", Content = "背诵课文" }
+                        }
+                    };
+                    DoodleBoardWindow.ApplyHomeworkEntries(hb, new List<DoodleBigEditEntry>
+                    {
+                        new() { Id = "d1", Title = "数学", Body = "课本 P32 第 1-8 题" },
+                        new() { Id = "", Title = "英语", Body = "单词表" }
+                    });
+                    Check("整份落回：改的改、加的新加、删的打墓碑",
+                          hb.LiveCount == 2 &&
+                          hb.Items.Any(x => !x.Deleted && x.Subject == "数学" && x.Content == "课本 P32 第 1-8 题") &&
+                          hb.Items.Any(x => !x.Deleted && x.Subject == "英语") &&
+                          hb.Items.Any(x => x.Id == "d2" && x.Deleted),
+                          $"live={hb.LiveCount} total={hb.Items.Count}");
+                    Check("删除只打墓碑、不物理移除（防对端旧变更单复活）",
+                          hb.Items.Any(x => x.Id == "d2"));
+                }
+
+                {
+                    var mb = new MissingBoard
+                    {
+                        Title = "缺交作业名单",
+                        Items = new List<MissingHomeworkItem>
+                        {
+                            new() { Id = "m1", Subject = "数学", Students = "张三" }
+                        }
+                    };
+                    DoodleBoardWindow.ApplyMissingEntries(mb, new List<DoodleBigEditEntry>
+                    {
+                        new() { Id = "m1", Title = "数学", Body = "张三、李四" },
+                        new() { Id = "", Title = "英语", Body = "王五" }
+                    });
+                    Check("缺交名单也是一条记录一条数据",
+                          mb.LiveCount == 2 &&
+                          mb.Items.Any(x => !x.Deleted && x.Students == "张三、李四") &&
+                          mb.Items.Any(x => !x.Deleted && x.Subject == "英语"),
+                          $"live={mb.LiveCount}");
+                }
+
+                {
+                    // ★ 值日：整份值日表（星期 / 姓名 / 值日内容），不再当成单条「今日值日」
+                    var db = new DutyBoard
+                    {
+                        Title = "值日生名单",
+                        Items = new List<DutyItem>
+                        {
+                            new() { Id = "dy1", Day = "周一", Names = "张三", Duty = "扫地" },
+                            new() { Id = "dy2", Day = "周二", Names = "李四", Duty = "拖地" }
+                        }
+                    };
+                    DoodleBoardWindow.ApplyDutyEntries(db, new List<DoodleBigEditEntry>
+                    {
+                        new() { Id = "dy1", Title = "周一", Body = "张三、王五", Extra = "扫地" },
+                        new() { Id = "", Title = "周三", Body = "赵六", Extra = "擦窗" }
+                    });
+                    Check("值日表逐条落回：改的改、加的新加、删的打墓碑",
+                          db.LiveCount == 2 &&
+                          db.Items.Any(x => !x.Deleted && x.Day == "周一" &&
+                                            x.Names == "张三、王五" && x.Duty == "扫地") &&
+                          db.Items.Any(x => !x.Deleted && x.Day == "周三") &&
+                          db.Items.Any(x => x.Id == "dy2" && x.Deleted),
+                          $"live={db.LiveCount} total={db.Items.Count}");
+                    Check("值日保存不再往岗位名 / 姓名里塞「今日值日」",
+                          db.Items.All(x => x.Duty != "今日值日" && x.Names != "今日值日"));
+                }
+
+                {
+                    // ★ 值日编辑窗：整份模式 + 三个字段（星期 / 姓名 / 值日内容）
+                    var dw = new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+                    {
+                        Module = DoodleModules.Duty,
+                        MultiEntry = true,
+                        WholeBoard = true,
+                        BoardTitle = "值日生名单",
+                        Entries = new List<DoodleBigEditEntry>
+                        {
+                            new() { Id = "dw1", Title = "周一", Body = "张三", Extra = "扫地" },
+                            new() { Id = "dw2", Title = "周二", Body = "李四", Extra = "拖地" }
+                        }
+                    });
+                    Check("值日编辑窗走「整份值日表」而不是单条",
+                          dw.DiagIsWholeBoard && dw.DiagIsDuty);
+                    Check("值日每条带稳定 Id 和「值日内容」第三字段",
+                          dw.DiagEntryId(0) == "dw1" && dw.DiagEntryExtra(0) == "扫地",
+                          dw.DiagEntryId(0) + "/" + dw.DiagEntryExtra(0));
+                    dw.DiagSetDuty(0, "周一", "张三、王五", "扫地");
+                    dw.DiagCommit();
+                    Check("值日保存带的是整份标题（不是「今日值日」）且字段没串",
+                          dw.Draft.Title == "值日生名单" &&
+                          dw.Draft.Entries[0].Body == "张三、王五" &&
+                          dw.Draft.Entries[0].Extra == "扫地",
+                          dw.Draft.Title + "/" + dw.Draft.Entries[0].Extra);
+                    dw.Close();
+                }
+
+                {
+                    // ★ 勾「自定义」但一条都没建过 → 自动补一张空白卡，否则板上什么都不出
+                    var pg = new DoodleBoardPage();
+                    bool added = DoodleBoardWindow.EnsureCustomModule(pg);
+                    var cn = DoodleAutoNotes.Load(new[] { DoodleModules.Custom }, pg.CustomModules);
+                    Check("勾选「自定义」自动补一张空白卡，板上真的出现卡片",
+                          added && pg.CustomModules.Count == 1 && cn.Count == 1,
+                          $"added={added} modules={pg.CustomModules.Count} notes={cn.Count}");
+                    Check("自动补的自定义卡有标题、可双击编辑",
+                          cn.Count == 1 && cn[0].Title.Length > 0 && cn[0].Id.Length > 0,
+                          cn.Count == 1 ? cn[0].Title : "");
+                }
+
+                {
+                    // ★ 全部科目合成一张卡（与悬浮便签同形态）：正文一科一行。
+                    //   走纯函数断言，不依赖写盘（诊断是游客模式，写盘不生效）。
+                    var mn = DoodleAutoNotes.FromMissing(new MissingBoard
+                    {
+                        Title = "缺交作业名单",
+                        Items = new List<MissingHomeworkItem>
+                        {
+                            new() { Id = "diagm1", Subject = "数学", Students = "甲" },
+                            new() { Id = "diagm2", Subject = "语文", Students = "乙" },
+                            new() { Id = "diagm3", Subject = "英语", Students = "丙" }
+                        }
+                    });
+                    Check("缺交多科目合成一张卡（不再一科一张）", mn.Count == 1, "cards=" + mn.Count);
+                    Check("缺交正文一科一行、科目与内容都在",
+                          mn.Count == 1 && mn[0].Body.Split('\n').Length == 3 &&
+                          mn[0].Body.Contains("数学：甲") && mn[0].Body.Contains("英语：丙"),
+                          mn.Count == 1 ? mn[0].Body.Replace("\n", "\\n") : "");
+                    Check("缺交合并卡是宽卡、标题用整份公示标题",
+                          mn.Count == 1 && mn[0].Wide && mn[0].Title == "缺交作业名单",
+                          mn.Count == 1 ? mn[0].Title : "");
+
+                    var hn = DoodleAutoNotes.FromHomework(new HomeworkBoard
+                    {
+                        Items = new List<HomeworkItem>
+                        {
+                            new() { Id = "diagh1", Subject = "数学", Content = "P32" },
+                            new() { Id = "diagh2", Subject = "语文", Content = "背诵" },
+                            new() { Id = "diagh3", Subject = "英语", Content = "单词" }
+                        }
+                    });
+                    Check("作业多科目合成一张卡", hn.Count == 1, "cards=" + hn.Count);
+                    Check("作业正文一科一行且是宽卡",
+                          hn.Count == 1 && hn[0].Wide &&
+                          hn[0].Body.Split('\n').Length == 3 && hn[0].Body.Contains("数学：P32"),
+                          hn.Count == 1 ? hn[0].Body.Replace("\n", "\\n") : "");
+                }
+
+                {
+                    string sch = DoodleAutoNotes.BuildScheduleBody(
+                        new[] { "第1节 语文", "第2节 数学", "第3节 英语" });
+                    Check("今日课程一节课一行（不再「 · 」挤成一行）",
+                          sch.Split('\n').Length == 3 && !sch.Contains("·"),
+                          sch.Replace("\n", "\\n"));
+                }
+
+                {
+                    // r104：课表卡拖高（诊断里固定 320）后，各行按卡片高度平均分布
+                    var scw = DiagDoodleSchedule() as DoodleBoardWindow;
+                    Check("课表卡拖高后各行平均分布（Star 行）", scw?.DiagScheduleRowsAreStar == true);
+                }
+
+                Check("橡皮图标换成参考图粗线稿",
+                      DoodleIcons.Eraser(System.Windows.Media.Brushes.Black).StrokeThickness >= 2.2);
+
+                {
+                    var rcfg = new DoodleBoardConfig { Name = "r96诊断板" };
+                    var rw = new DoodleBoardWindow(rcfg);
+                    rw.DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+                    {
+                        new() { Source = "通知", Module = DoodleModules.Notice,
+                                Id = "abc123", Title = "明日大扫除", Body = "上午 8:00" }
+                    };
+                    rw.DiagRebuildNotes();
+                    double before = rw.DiagFirstNoteTitleFontSize;
+                    rw.DiagApplyBigFont(88);
+                    Check("大字号真的画到卡片上",
+                          rw.DiagFirstNoteTitleFontSize > before + 20,
+                          $"{before:0} → {rw.DiagFirstNoteTitleFontSize:0}");
+
+                    Check("初始在便签层：便签可点、笔迹穿透",
+                          rw.DiagNotesHitTest && !rw.DiagInkHitTest);
+                    rw.DiagSetInkActive(true);
+                    Check("选手写工具切到笔迹层：能写、便签只读",
+                          rw.DiagInkActive && rw.DiagInkHitTest && !rw.DiagNotesHitTest);
+                    rw.DiagSetInkActive(false);
+                    Check("取消工具回到便签层", !rw.DiagInkActive && rw.DiagNotesHitTest);
+
+                    rw.DiagApplyHeaderStyle(new DoodleHeaderStyle
+                    {
+                        TitleSize = 64, InfoSize = 42, Bold = true
+                    });
+                    Check("板头字号真的套到文字上",
+                          Math.Abs(rw.DiagHeaderTitleFontSize - 64) < 0.01,
+                          rw.DiagHeaderTitleFontSize.ToString("0"));
+                    Check("板头样式深拷贝",
+                          rcfg.Clone().HeaderStyle?.TitleSize == 64);
+
+                    string ink1 = DoodleBoardService.InkPath(rcfg.Id, "p1");
+                    string ink2 = DoodleBoardService.InkPath(rcfg.Id, "p2");
+                    Check("不同页的笔迹文件互相独立", ink1 != ink2);
+                    rw.Close();
+                }
+
+                // 兜底清空，诊断退出时副本回到 0 块（用户真实设置从不参与诊断）
+                var s4 = Store.LoadSettings();
+                s4.DoodleBoards?.Clear();
+                Store.SaveSettings(s4);
+                Check("兜底清空后 0 块板", (Store.LoadSettings().DoodleBoards?.Count ?? -1) == 0);
+            }
+            catch (Exception ex) { Check("诊断自身异常", false, ex.GetType().Name + ": " + ex.Message); }
+
+            sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
+            try { File.WriteAllText(dlog, sb.ToString()); } catch { }
+            Shutdown(fail == 0 ? 0 : 1);
+            return;
+        }
+
         if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--board-check", StringComparison.OrdinalIgnoreCase))
         {
             string log = e.Args.Length >= 2 ? e.Args[1]
@@ -2808,6 +4076,388 @@ public partial class App : System.Windows.Application
     /// （正常情况要等真的更新失败才能看到，截图流程里没法触发）。
     /// </summary>
     /// <summary>诊断：提醒小窗（按当前存档的位置与大小显示，便于核对缩放效果）。</summary>
+    // ===== 真实输入探针用（--doodle-dragtest）=====
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(DPOINT pt);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buf, int max);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder buf, int max);
+
+    /// <summary>诊断：把句柄描述成「类名/标题」，方便判断遮挡者到底是谁。</summary>
+    private static string DescribeHwnd(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return "0";
+        var cls = new System.Text.StringBuilder(256);
+        var txt = new System.Text.StringBuilder(256);
+        GetClassName(h, cls, cls.Capacity);
+        GetWindowText(h, txt, txt.Capacity);
+        return $"{cls}|{txt}";
+    }
+
+    /// <summary>Win32 POINT（物理像素）。★ 不要用 System.Windows.Point 顶替：那个是 double 且是 DIP。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DPOINT { public int X; public int Y; }
+    private const uint MouseDownFlag = 0x0002;
+    private const uint MouseUpFlag = 0x0004;
+
+    /// <summary>跑消息泵指定毫秒。诊断里要等窗口布局 / 事件回调，不能 Thread.Sleep。</summary>
+    private static void PumpMs(int ms)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms) };
+        timer.Tick += (_, _) => { timer.Stop(); frame.Continue = false; };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
+    /// <summary>
+    /// 真实鼠标拖拽：从 <paramref name="fromPx"/> 按下，分几步移到 <paramref name="deltaPx"/>。
+    /// <para>★ 必须在后台线程发消息：返回 HTCAPTION / HTBOTTOMRIGHT 后系统会进 modal resize/move loop，
+    /// 主线程的 Dispatcher 被占住，同步发消息会自己把自己锁死。</para>
+    /// </summary>
+    private static void RealDrag(int fromPx, int fromPy, int deltaDx, int deltaDy, int steps = 10)
+    {
+        var worker = new System.Threading.Thread(() =>
+        {
+            System.Threading.Thread.Sleep(260);
+            SetCursorPos(fromPx, fromPy);
+            System.Threading.Thread.Sleep(90);
+            mouse_event(MouseDownFlag, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(90);
+
+            for (int i = 1; i <= steps; i++)
+            {
+                SetCursorPos(fromPx + deltaDx * i / steps, fromPy + deltaDy * i / steps);
+                System.Threading.Thread.Sleep(55);
+            }
+
+            mouse_event(MouseUpFlag, 0, 0, 0, IntPtr.Zero);
+            System.Threading.Thread.Sleep(160);
+        })
+        { IsBackground = true };
+
+        worker.Start();
+
+        // ★ 不能 Join：主线程被阻塞时，系统根本没机会处理"按下"这条消息，
+        // 10 条移动消息会全挤在队列里被合并/丢弃，实测只生效 20% 左右（拖 520 只涨 119）。
+        // 改成边发边泵消息，这样按下→拖动→松手是逐帧真实发生的，和老师用手拖一样。
+        int waited = 0;
+        while (worker.IsAlive && waited < 6000)
+        {
+            PumpMs(40);
+            waited += 40;
+        }
+    }
+
+
+    /// <para>自动便签走 <see cref="DoodleBoardWindow.DiagAutoOverride"/> 注入，
+    /// 因为诊断副本里本来就没有今天的通知作业，直接读只会拍到空态、看不出卡片长什么样。</para>
+    /// </summary>
+    /// <summary>诊断：便签板上有一张自动便签套用了自定义格式（验证格式真的落到卡片上）。</summary>
+    private static Window DiagDoodleFormatted()
+    {
+        var cfg = new DoodleBoardConfig
+        {
+            Name = "班级公告",
+            ThemeKey = "chalk",
+            Mode = DoodleModes.Notes,
+            Width = 560,
+            Height = 460
+        };
+        cfg.Notes.Add(new DoodleNote { Title = "收作业本", Body = "下午第一节课前" });
+        cfg.EnsurePage();
+        cfg.Pages[0].AutoStyles["notice:abc"] = new DoodleAutoStyle
+        {
+            Title = new TextStyle { Bold = false, Color = "#C0392B", SizeLevel = 5 },
+            Content = new TextStyle { Bold = true, Color = "#1E4FA3", SizeLevel = 5 }
+        };
+
+        var w = new DoodleBoardWindow(cfg)
+        {
+            DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+            {
+                new() { Source = "通知", Module = DoodleModules.Notice, Id = "abc",
+                        Title = "明日大扫除", Body = "上午 8:00 各班组织" },
+                new() { Source = "作业", Module = DoodleModules.Homework, Id = "all", Wide = true,
+                        Title = "各科作业公示",
+                        Body = "数学：练习册 P32–P35\n语文：背诵课文第二段\n英语：单词表 Unit 3\n物理：实验报告" },
+                new() { Source = "缺交", Module = DoodleModules.Missing, Id = "all", Wide = true,
+                        Title = "缺交作业名单",
+                        Body = "数学：王芳、李明\n英语：陈昊" }
+            }
+        };
+        // 构造时已按真实数据画过一遍，注入假数据后必须重画一次，否则截到的是副本里的真通知
+        w.DiagRebuildNotes();
+        return w;
+    }
+
+    /// <summary>诊断：黑板管理窗；注入三块假板，一次看到「正在显示 / 已收起」两种状态。</summary>
+    private static Window DiagDoodleManager()
+    {
+        var a = new DoodleBoardConfig
+        {
+            Id = "diag-mgr-a",
+            Name = "高三(2)班 · 今日公示",
+            ThemeKey = "chalk",
+            Mode = DoodleModes.Notes,
+            Width = 900,
+            Height = 520
+        };
+        a.Pages.Add(new DoodleBoardPage
+        {
+            Name = "上午",
+            Notes = new System.Collections.Generic.List<DoodleNote>
+            {
+                new() { Title = "收作业本", Body = "第一节课前" },
+                new() { Title = "大扫除", Body = "下午第三节课" }
+            }
+        });
+
+        var b = new DoodleBoardConfig
+        {
+            Id = "diag-mgr-b",
+            Name = "数学作业手写板",
+            ThemeKey = "brand",
+            Mode = DoodleModes.Ink,
+            Width = 760,
+            Height = 560
+        };
+
+        var c = new DoodleBoardConfig
+        {
+            Id = "diag-mgr-c",
+            Name = "值日安排",
+            ThemeKey = "linen",
+            Mode = DoodleModes.Notes,
+            Width = 640,
+            Height = 480
+        };
+        c.Pages.Add(new DoodleBoardPage
+        {
+            Name = "值日",
+            Notes = new System.Collections.Generic.List<DoodleNote>
+            {
+                new() { Title = "值日生", Body = "李明、王芳" }
+            }
+        });
+
+        DoodleBoardManagerWindow.DiagConfigsOverride =
+            new System.Collections.Generic.List<DoodleBoardConfig> { a, b, c };
+        DoodleBoardManagerWindow.DiagOpenIds =
+            new System.Collections.Generic.HashSet<string> { a.Id, b.Id };
+        return new DoodleBoardManagerWindow();
+    }
+
+    /// <summary>诊断：大字号实景（高对比主题 + 56 号标题 + 放大板头）。</summary>
+    private static Window DiagDoodleBigFont()
+    {
+        var cfg = new DoodleBoardConfig
+        {
+            Name = "教室大屏公示",
+            ThemeKey = "contrast",
+            Mode = DoodleModes.Notes,
+            Width = 1200,
+            Height = 820
+        };
+        cfg.HeaderStyle = new DoodleHeaderStyle { TitleSize = 32, InfoSize = 22, Bold = true };
+        cfg.EnsurePage();
+        cfg.Pages[0].Modules = new List<string> { DoodleModules.Notice, DoodleModules.Homework, DoodleModules.Missing };
+        cfg.Pages[0].AutoStyles["notice:abc"] = new DoodleAutoStyle
+        {
+            TitleSize = 56,
+            ContentSize = 36,
+            Title = new TextStyle { Color = "#FFE081" }
+        };
+        return new DoodleBoardWindow(cfg)
+        {
+            DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+            {
+                new() { Source = "通知", Module = DoodleModules.Notice, Id = "abc",
+                        Title = "明日大扫除", Body = "上午 8:00 各班组织，请提前五分钟到场" },
+                new() { Source = "作业", Module = DoodleModules.Homework, Id = "all", Wide = true,
+                        Title = "各科作业公示",
+                        Body = "数学：练习册 P32–P35\n语文：背诵课文第二段\n英语：单词表 Unit 3\n物理：实验报告" },
+                new() { Source = "缺交", Module = DoodleModules.Missing, Id = "all", Wide = true,
+                        Title = "缺交作业名单",
+                        Body = "数学：王芳、李明\n英语：陈昊" }
+            }
+        };
+    }
+
+    /// <summary>诊断：独立的大屏编辑窗（字号 / 颜色 / 主题一个窗口里改）。</summary>
+    private static Window DiagDoodleBigScreenEdit() =>
+        new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+        {
+            Title = "明日大扫除",
+            Body = "上午 8:00 各班在操场集合，请班主任提前五分钟到场。",
+            Style = new DoodleAutoStyle { TitleSize = 56, ContentSize = 40 }
+        });
+
+    /// <summary>r100 诊断：课表便签 —— 验证一节课一行，不再把所有课用「 · 」挤成一行。</summary>
+    private static Window DiagDoodleSchedule()
+    {
+        var cfg = new DoodleBoardConfig
+        {
+            Name = "今日课程",
+            ThemeKey = DoodleBoardThemes.DefaultKey,
+            Mode = DoodleModes.Notes,
+            Width = DoodleBoardMetrics.DefaultWidth,
+            Height = DoodleBoardMetrics.DefaultHeight
+        };
+        cfg.EnsurePage();
+        cfg.Pages[0].Modules = new System.Collections.Generic.List<string> { DoodleModules.Schedule };
+
+        // 优先用真实课表折出来的便签；诊断副本里没课表时退回 8 节样例，保证截图有意义
+        var auto = DoodleAutoNotes.Load(new[] { DoodleModules.Schedule });
+        if (auto.Count == 0)
+        {
+            var periods = new[]
+            {
+                ("第1节", "语文"), ("第2节", "数学"), ("第3节", "英语"), ("第4节", "物理"),
+                ("第5节", "化学"), ("第6节", "体育"), ("第7节", "历史"), ("第8节", "自习")
+            };
+            auto.Add(new AutoNote
+            {
+                Source = "今日", Module = DoodleModules.Schedule, Id = "今日", Title = "今日课程",
+                Body = DoodleAutoNotes.BuildScheduleBody(
+                    periods.Select(p => p.Item1 + " " + p.Item2)),
+                Lines = periods.Select(p => new AutoLine
+                {
+                    Subject = p.Item1, Text = p.Item2, Separator = " "
+                }).ToList()
+            });
+        }
+
+        // r104：把课表卡放到 320 高 —— 验证「拖高后各行按卡片高度平均分布」
+        foreach (var n in auto)
+        {
+            cfg.Pages[0].Placements[n.Key] = new DoodleNotePlacement
+            {
+                X = 12, Y = 12,
+                Width = DoodleBoardMetrics.DefaultWidth - 40, Height = 320
+            };
+        }
+
+        var w = new DoodleBoardWindow(cfg) { DiagAutoOverride = auto };
+        w.DiagRebuildNotes();
+        return w;
+    }
+
+    /// <summary>r99 诊断：作业公示编辑窗，验「+ 添加科目」与每条两个输入框的版式。</summary>
+    private static Window DiagDoodleHomeworkEdit() =>
+        new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+        {
+            Title = "各科作业公示",
+            Module = DoodleModules.Homework,
+            MultiEntry = true,
+            WholeBoard = true,
+            BoardTitle = "各科作业公示",
+            Entries = new List<DoodleBigEditEntry>
+            {
+                new() { Id = "hw1", Title = "数学", Body = "课本 P32 第 1-8 题" },
+                new() { Id = "hw2", Title = "语文", Body = "背诵课文第二段\n默写古诗两首" },
+                new() { Id = "hw3", Title = "英语", Body = "抄写单词表 Unit 3" }
+            },
+            Style = new DoodleAutoStyle { TitleSize = 42, ContentSize = 32 }
+        });
+
+    /// <summary>r101 诊断：值日整份编辑窗，验「星期 / 值日生姓名 / 值日内容」三段与整周记录。</summary>
+    private static Window DiagDoodleDutyEdit() =>
+        new DoodleBigScreenEditWindow(new DoodleBigEditTarget
+        {
+            Module = DoodleModules.Duty,
+            MultiEntry = true,
+            WholeBoard = true,
+            BoardTitle = "值日生名单",
+            Entries = new List<DoodleBigEditEntry>
+            {
+                new() { Id = "dy1", Title = "周一", Body = "小天，小地，小朱", Extra = "扫地" },
+                new() { Id = "dy2", Title = "周二", Body = "小东，小王，小明", Extra = "拖地" },
+                new() { Id = "dy3", Title = "周三", Body = "小小，大大，小张", Extra = "擦窗" },
+                new() { Id = "dy4", Title = "周四", Body = "小一，小二，小古", Extra = "倒垃圾" },
+                new() { Id = "dy5", Title = "周五", Body = "一一，三三，四四", Extra = "扫地" }
+            },
+            Style = new DoodleAutoStyle { TitleSize = 42, ContentSize = 32 }
+        });
+
+    /// <summary>诊断：板头文字格式窗。</summary>
+    private static Window DiagDoodleHeaderStyle() =>
+        new DoodleHeaderStyleWindow(new DoodleHeaderStyle
+        {
+            TitleSize = 50, InfoSize = 32, Bold = true
+        });
+
+    /// <summary>诊断：自动便签的「只改格式」编辑窗（来自涂鸦板双击）。</summary>
+    private static Window DiagAutoStyleWindow()
+    {
+        var draft = new CustomNote
+        {
+            Id = "doodle:diag:通知:abc123",
+            Title = "明日大扫除",
+            Content = "上午 8:00 各班组织，班主任到场",
+            TitleStyle = new TextStyle { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel },
+            ContentStyle = new TextStyle { Bold = false, Color = "#1E4FA3", SizeLevel = 5 }
+        };
+        return new CustomNoteEditWindow(draft, formatOnly: true,
+            boardTitleFont: 13, boardBodyFont: 11.5);
+    }
+
+    private static Window DiagDoodleBoard(string theme, string mode, bool seedInk,
+        double? width = null, double? height = null, double? fontSize = null)
+    {
+        var cfg = new DoodleBoardConfig
+        {
+            Name = "班级公告",
+            ThemeKey = theme,
+            Mode = mode,
+            FontSize = fontSize,
+            // 手写模式底部有"工具 + 颜色"两条带，按手写默认尺寸截才能看出真实手感
+            Width = width ?? (mode == DoodleModes.Ink ? DoodleBoardMetrics.InkDefaultWidth : DoodleBoardMetrics.DefaultWidth),
+            Height = height ?? (mode == DoodleModes.Ink ? DoodleBoardMetrics.InkDefaultHeight : DoodleBoardMetrics.DefaultHeight)
+        };
+        cfg.Notes.Add(new DoodleNote { Title = "收作业本", Body = "下午第一节课前" });
+        cfg.Notes.Add(new DoodleNote { Title = "家长会 周四", Body = "19:00 三楼会议室" });
+
+        var w = new DoodleBoardWindow(cfg)
+        {
+            DiagAutoOverride = new System.Collections.Generic.List<AutoNote>
+            {
+                new() { Source = "通知", Module = DoodleModules.Notice, Id = "n1",
+                        Title = "明日大扫除", Body = "上午 8:00 各班组织" },
+                // r102：作业 / 缺交全部科目合成一张卡（一科一行），与悬浮便签同形态
+                // r104：样例也带结构化 Lines —— 否则截图里科目那一段还是和内容同一种字，看不出格式
+                new() { Source = "作业", Module = DoodleModules.Homework, Id = "all", Wide = true,
+                        Title = "各科作业公示",
+                        Body = "数学：练习册 P32–P35\n语文：背诵课文第二段\n英语：单词表 Unit 3",
+                        Lines = new List<AutoLine>
+                        {
+                            new() { Subject = "数学", Text = "练习册 P32–P35" },
+                            new() { Subject = "语文", Text = "背诵课文第二段" },
+                            new() { Subject = "英语", Text = "单词表 Unit 3" }
+                        } },
+                new() { Source = "缺交", Module = DoodleModules.Missing, Id = "all", Wide = true,
+                        Title = "缺交作业名单",
+                        Body = "数学：王芳、李明\n语文：张强",
+                        Lines = new List<AutoLine>
+                        {
+                            new() { Subject = "数学", Text = "王芳、李明" },
+                            new() { Subject = "语文", Text = "张强" }
+                        } }
+            }
+        };
+        w.DiagRebuildNotes();
+        if (seedInk) w.DiagSeedInk();
+        return w;
+    }
+
+    /// <summary>收起态截图：只看那一条板名条长什么样。</summary>
+    private static Window DiagDoodleBoardCollapsed()
+    {
+        var w = (DoodleBoardWindow)DiagDoodleBoard(DoodleBoardThemes.DefaultKey, DoodleModes.Notes, false);
+        w.DiagCollapse(true);
+        return w;
+    }
+
     private static Window DiagReminderPopup()
     {
         var w = new ReminderPopup();

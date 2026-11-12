@@ -33,7 +33,7 @@
         </Border>
 
         <!-- ② 便签选择 / 新建 / 删除 + 主题风格 + 锁定（按用户要求放在同一行，窄窗口由 WrapPanel 自动换行） -->
-        <Border Grid.Row="1" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+        <Border x:Name="RowPicker" Grid.Row="1" Background="White" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
             <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="便签" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <ComboBox x:Name="CbNote" Width="180" FontSize="14" VerticalAlignment="Center"
@@ -84,8 +84,8 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="便签内容（支持多行，可写教师寄语、温馨提示等自由内容）"
-                       FontSize="14" Foreground="{DynamicResource BodyBrush}" Margin="0,0,0,6"/>
+            <TextBlock x:Name="TxtHint" Grid.Row="0" Text="便签内容（支持多行，可写教师寄语、温馨提示等自由内容）"
+                       FontSize="14" Foreground="{DynamicResource BodyBrush}" Margin="0,0,0,6" TextWrapping="Wrap"/>
             <TextBox Grid.Row="1" x:Name="TxtContent" FontSize="15" Padding="10" TextWrapping="Wrap"
                      AcceptsReturn="True" VerticalScrollBarVisibility="Auto" Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                      TextAlignment="Left"/>

@@ -26,6 +26,17 @@ public partial class CustomNoteEditWindow : Window
     private bool _loading;
     private FocusStyleBinder? _binder;
 
+    // ---- 只改格式（供涂鸦板的自动便签复用本窗） ----
+    private readonly bool _formatOnly;
+    private readonly double _boardTitleFont;
+    private readonly double _boardBodyFont;
+
+    /// <summary>确定后带回的标题格式（仅格式模式有意义）。</summary>
+    public TextStyle? ResultTitleStyle { get; private set; }
+
+    /// <summary>确定后带回的正文格式（仅格式模式有意义）。</summary>
+    public TextStyle? ResultContentStyle { get; private set; }
+
     /// <summary>诊断用：验证「焦点 → 样式对象」映射（<c>--ui-check</c>）。</summary>
     internal FocusStyleBinder? DiagBinder => _binder;
 
@@ -37,13 +48,29 @@ public partial class CustomNoteEditWindow : Window
     }
 
     /// <summary>编辑指定便签（已知便签对象时用此构造）。</summary>
-    public CustomNoteEditWindow(CustomNote note)
+    public CustomNoteEditWindow(CustomNote note) : this(note, false, 0, 0) { }
+
+    /// <summary>
+    /// <paramref name="formatOnly"/> = true 时只改字体格式：便签选择 / 新建 / 删除 / 主题 / 锁定整行隐藏，
+    /// 标题与内容变成只读，确定时不写 settings.json，只把两份 <see cref="TextStyle"/> 带回。
+    /// <para>给涂鸦板的「自动便签双击改格式」用：老师要的是同一个熟悉的编辑窗和同一条格式条，
+    /// 但自动便签的文字属于通知 / 作业，不能在这个窗里被改掉。</para>
+    /// <para><paramref name="boardTitleFont"/> / <paramref name="boardBodyFont"/> 是预览用的基准字号：
+    /// 传 0 就用本窗原来的固定预览字号。</para>
+    /// </summary>
+    public CustomNoteEditWindow(CustomNote note, bool formatOnly,
+        double boardTitleFont = 0, double boardBodyFont = 0)
     {
         _src = note;
+        _formatOnly = formatOnly;
+        _boardTitleFont = boardTitleFont;
+        _boardBodyFont = boardBodyFont;
+
         InitializeComponent();
         InitCommon();
         LoadNote(note);
-    
+        if (_formatOnly) ApplyFormatOnlyMode();
+
         GlassChrome.Prepare(this);}
 
     /// <summary>按便签 Id 编辑（控制面板入口：自动带出全部便签供选择）。</summary>
@@ -105,6 +132,38 @@ public partial class CustomNoteEditWindow : Window
         ApplyFormatToEditor();
     }
 
+    /// <summary>
+    /// 「只改格式」模式的界面收窄：去掉便签切换 / 新建 / 删除 / 主题 / 锁定，
+    /// 文字改成只读，标题与提示改成说明当前这张便签是从哪来的。
+    /// </summary>
+    private void ApplyFormatOnlyMode()
+    {
+        Title = "自动便签 · 文字格式";
+
+        // 主题、锁定、切换便签对一个"从通知拉来的只读便签"全都不成立
+        RowPicker.Visibility = Visibility.Collapsed;
+        if (CbNote != null) CbNote.Visibility = Visibility.Collapsed;
+
+        TxtTitle.IsReadOnly = true;
+        TxtContent.IsReadOnly = true;
+        TxtTitle.ToolTip = TxtContent.ToolTip = "自动便签的文字来自通知 / 作业，请到对应条目去改";
+        TxtTitle.Background = TxtContent.Background = new SolidColorBrush(Color.FromRgb(0xF7, 0xF8, 0xFA));
+
+        TxtHint.Text = "文字来自通知 / 作业 / 缺交，这里只改格式：点标题或内容，上面的格式条就改那一栏。";
+
+        // 打开即可改：默认把格式条挂到正文（最常改的就是正文的粗细和颜色）。
+        // 不这么做的话格式条是灰的，老师会以为"这个窗不能改格式"。
+        _binder?.Activate(_src?.ContentStyle, "便签内容");
+
+        // ★ 光调 Activate 不够：窗口一显示、焦点若落到别的元素上，binder 会立刻判"焦点丢失"再置灰。
+        // 真正的解法是让正文框真拿到键盘焦点（只读 TextBox 也能拿焦点，只是不能改字）。
+        Loaded += (_, _) =>
+        {
+            TxtContent.Focus();
+            TxtContent.CaretIndex = 0;
+        };
+    }
+
     private void ReloadNoteList()
     {
         if (CbNote == null) return;
@@ -140,6 +199,11 @@ public partial class CustomNoteEditWindow : Window
     private void CommitCurrent()
     {
         if (_src == null) return;
+
+        // ★ 格式模式下绝不落盘：这张"便签"是涂鸦板临时构造的，写进 CustomNotes
+        // 会在桌面上凭空多出一张重复的悬浮便签。
+        if (_formatOnly) return;
+
         try
         {
             var saved = BuildNote();
@@ -192,13 +256,62 @@ public partial class CustomNoteEditWindow : Window
 
         var cs = _src?.ContentStyle ?? new TextStyle();
         TxtContent.FontWeight = cs.Bold ? FontWeights.Bold : FontWeights.Normal;
-        TxtContent.FontSize = Math.Max(10, HwTextStyle.SizeOf(cs.SizeLevel) - 4);   // 输入框比便签略小一点，便于排版
+
+        // ★ 字号按"在这个宿主里实际显示多大"来定：
+        //   悬浮便签宿主（默认）＝档位绝对值减 4（输入框比便签略小，便于排版）；
+        //   涂鸦板宿主（格式模式）＝板的正文字号 × 档位倍率 —— 否则板上 13 号字，
+        //   编辑窗里却按 32 号显示，老师会以为"我在板上看到的和这里不一样，是不是没生效"。
+        if (_boardBodyFont > 0)
+        {
+            double refSize = HwTextStyle.SizeOf(HwTextStyle.ExtraLargeLevel);
+            double scale = refSize > 0 ? HwTextStyle.SizeOf(cs.SizeLevel) / refSize : 1;
+            TxtContent.FontSize = Math.Clamp(_boardBodyFont * scale, 10, 34);
+        }
+        else
+        {
+            TxtContent.FontSize = Math.Max(10, HwTextStyle.SizeOf(cs.SizeLevel) - 4);
+        }
 
         var theme = HomeworkThemes.Find(_theme);
         var def = ThemeHelper.Brush(theme.Foreground, Color.FromRgb(0x33, 0x3B, 0x47));
         TxtContent.Foreground = string.IsNullOrWhiteSpace(cs.Color)
             ? def
             : ThemeHelper.Brush(cs.Color, Color.FromRgb(0x33, 0x3B, 0x47));
+
+        ApplyFormatToPreview(def);
+    }
+
+    /// <summary>
+    /// 预览块也套用当前格式。
+    /// <para>★ 原来预览只跟着文字变、不跟着格式变，老师在格式条上改半天，上面的"便签预览"
+    /// 一点反应都没有 —— 那等于没有预览。字号按调用方给的基准字号缩放，
+    /// 这样板上的 13 号字和悬浮便签的 27 号字都能在同一块小预览里如实体现。</para>
+    /// </summary>
+    private void ApplyFormatToPreview(SolidColorBrush themeForeground)
+    {
+        if (PreviewTitle == null || PreviewBody == null) return;
+
+        double baseSize = _boardTitleFont > 0 ? _boardTitleFont : 16;
+        double baseBody = _boardBodyFont > 0 ? _boardBodyFont : 13;
+        double refSize = HwTextStyle.SizeOf(HwTextStyle.ExtraLargeLevel);
+
+        var ts = _src?.TitleStyle;
+        var cs = _src?.ContentStyle;
+
+        double titleScale = ts == null || refSize <= 0 ? 1 : HwTextStyle.SizeOf(ts.SizeLevel) / refSize;
+        double bodyScale = cs == null || refSize <= 0 ? 1 : HwTextStyle.SizeOf(cs.SizeLevel) / refSize;
+
+        PreviewTitle.FontSize = Math.Clamp(baseSize * titleScale, 10, 40);
+        PreviewTitle.FontWeight = (ts?.Bold ?? true) ? FontWeights.Bold : FontWeights.Normal;
+        PreviewTitle.Foreground = string.IsNullOrWhiteSpace(ts?.Color)
+            ? themeForeground
+            : ThemeHelper.Brush(ts!.Color, Color.FromRgb(0x33, 0x3B, 0x47));
+
+        PreviewBody.FontSize = Math.Clamp(baseBody * bodyScale, 9, 34);
+        PreviewBody.FontWeight = (cs?.Bold ?? false) ? FontWeights.Bold : FontWeights.Normal;
+        PreviewBody.Foreground = string.IsNullOrWhiteSpace(cs?.Color)
+            ? themeForeground
+            : ThemeHelper.Brush(cs!.Color, Color.FromRgb(0x33, 0x3B, 0x47));
     }
 
     private void CbNote_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -276,10 +389,28 @@ public partial class CustomNoteEditWindow : Window
 
     private void BtnOk_Click(object sender, RoutedEventArgs e)
     {
+        if (_formatOnly)
+        {
+            ResultTitleStyle = (_src?.TitleStyle ?? new TextStyle()).Clone();
+            ResultContentStyle = (_src?.ContentStyle ?? new TextStyle()).Clone();
+            DialogResult = true;
+            return;
+        }
+
         CommitCurrent();
         AppEvents.RaiseCustomNoteChanged(_src?.Id);
         DialogResult = true;
     }
 
     private void BtnCancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    /// <summary>
+    /// 诊断用：走一遍「确定」的处理（不回 DialogResult —— 非模态窗口上设它会抛异常）。
+    /// 用来验证两件事：格式能带回，且<b>没有</b>往 settings.CustomNotes 里塞一条假便签。
+    /// </summary>
+    internal void DiagCommitAsOk()
+    {
+        ResultTitleStyle = (_src?.TitleStyle ?? new TextStyle()).Clone();
+        ResultContentStyle = (_src?.ContentStyle ?? new TextStyle()).Clone();
+    }
 }

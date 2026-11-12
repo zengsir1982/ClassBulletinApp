@@ -473,6 +473,8 @@ public partial class MainWindow : Window
             ChkMaxHide.IsChecked = settings.AutoHideOnMaxWindow;
             if (ChkTouchKb != null) ChkTouchKb.IsChecked = settings.TouchKeyboardAutoShow;
             if (ChkHandBall != null) ChkHandBall.IsChecked = settings.ShowHandwritingBall;
+            // 黑板启动选项：勾选状态如实反映设置，两个勾选有从属关系（不自动打开就谈不上先收起）
+            SyncBoardStartOptions(settings);
             if (ChkBothWeeks != null) ChkBothWeeks.IsChecked = settings.ShowAlternateWeekLessons;
             if (ChkTwoFinger != null) ChkTwoFinger.IsChecked = settings.TwoFingerScroll;
             TouchInputBinder.RefreshSetting();
@@ -541,7 +543,15 @@ public partial class MainWindow : Window
             if (settings.AutoShowHomework) ShowHomeworkWin();
             if (settings.AutoShowMissing) ShowMissingWin();
             // 事项便签默认显示：它才是通知的完整清单，跑马灯只滚最新两条
-            if (settings.AutoShowNotice) ShowNoticeWin();
+            // ★ 事项便签（通知公告）按「上次实际是显示还是收起」恢复：
+            //   以前只看 AutoShowNotice（默认 true，而且没人写回），所以每次开机都自己弹出来，
+            //   用户关掉也没用。现在读 Placement.Visible —— Show/Hide 时都会记这个值；
+            //   只有「从没记录过」的老配置才退回旧的默认开关。
+            bool noticeEverSet = settings.NoteWindows?.ContainsKey(NoticeWindow.PlacementKey) == true;
+            bool noticeVisible = noticeEverSet
+                ? settings.PlacementOf(NoticeWindow.PlacementKey).Visible
+                : settings.AutoShowNotice;
+            if (noticeVisible) ShowNoticeWin();
             // 自定义便签：每张各自记住 Visible 开关，启动即恢复显示中的便签
             foreach (var cn in settings.CustomNotes)
                 if (cn.Visible) ShowCustomNote(cn.Id);
@@ -582,6 +592,18 @@ public partial class MainWindow : Window
 
         Dispatcher.BeginInvoke(new Action(WarmUpForFirstDrag),
             System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+        // 上次留着的涂鸦板：等主窗立起来再恢复，否则它们会先于主窗抢到焦点。
+        // 诊断/截图模式（SuppressWrites）不恢复，免得一堆板盖住被测窗口。
+        try
+        {
+            // 「显示设置 → 黑板」里的两个启动选项：不勾「启动时自动打开」就保持关闭；
+            // 勾了「先收成板名条」则这次启动只露出板头那一条。
+            var boardStart = Store.LoadSettings();
+            if (!Store.SuppressWrites && boardStart.DoodleRestoreOnStart)
+                DoodleBoardService.RestoreAll(boardStart.DoodleStartCollapsed);
+        }
+        catch (Exception ex) { TxtStatus.Text += " [涂鸦板恢复失败：" + ex.Message + "]"; }
     }
 
     /// <summary>空闲时把课表 / 覆盖表 / 今日看板读一遍，消除首次调课时的冷启动卡顿。</summary>
@@ -726,6 +748,7 @@ public partial class MainWindow : Window
         }
         _notifWin.Show();
         _notOn = true;
+        SetNotificationVisible(true);
         UpdateToggleLabels();
     }
 
@@ -733,7 +756,28 @@ public partial class MainWindow : Window
     {
         _notifWin?.Hide();
         _notOn = false;
+        SetNotificationVisible(false);
         UpdateToggleLabels();
+    }
+
+    /// <summary>
+    /// 记住通知条「上次是显示还是收起」。
+    /// <para>★ 只写 <c>AutoShowNotification</c> 还不够：老配置里的
+    /// <c>NotificationShowDefaultsRev</c> 若还是 0，下次启动 <c>UpgradeNotificationShowDefaults</c>
+    /// 会把它强行改回 true，用户关掉的条子又自己回来了。所以顺手把代次压成 1（= 升级已跑过），
+    /// 之后这个开关就完全由用户决定。</para>
+    /// </summary>
+    private static void SetNotificationVisible(bool visible)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            bool changed = s.AutoShowNotification != visible || s.NotificationShowDefaultsRev < 1;
+            if (s.NotificationShowDefaultsRev < 1) s.NotificationShowDefaultsRev = 1;
+            s.AutoShowNotification = visible;
+            if (changed) Store.SaveSettings(s);
+        }
+        catch { }
     }
 
     private void ShowHomeworkWin()
@@ -1063,6 +1107,8 @@ public partial class MainWindow : Window
     {
         BtnToggleSch.Content = _schOn ? "课表悬浮：开" : "课表悬浮：关";
         BtnToggleNot.Content = _notOn ? "通知悬浮：开" : "通知悬浮：关";
+        if (BtnToggleBoard != null)
+            BtnToggleBoard.Content = DoodleBoardService.AnyOpen ? "黑板：开" : "黑板：关";
         // 作业 / 缺交便签的开关只在「作业公示」标签页里（显示设置页已不再重复放一套）
         if (BtnToggleHw2 != null) BtnToggleHw2.Content = _hwOn ? "隐藏作业便签" : "显示作业便签";
         if (BtnToggleMs2 != null) BtnToggleMs2.Content = _msOn ? "隐藏缺交便签" : "显示缺交便签";
@@ -1670,6 +1716,91 @@ public partial class MainWindow : Window
         if (_notOn) HideNotificationWin(); else ShowNotificationWin();
     }
 
+    /// <summary>
+    /// 「显示设置 → 黑板」的开关：一键把全部黑板打开 / 收起。
+    /// <para>★ 收起只是关窗口，配置与笔迹都留着 —— 这是黑板一贯的语义（同窗口上的 ✕），
+    /// 真正的「删掉这块板」在「黑板管理…」里。</para>
+    /// </summary>
+    private void BtnToggleBoard_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (DoodleBoardService.AnyOpen)
+            {
+                DoodleBoardService.HideAllOpen();
+                TxtStatus.Text = "已收起黑板（内容与笔迹都留着，下次点「黑板：开」就回来）。";
+            }
+            else
+            {
+                DoodleBoardService.ShowAll();
+                TxtStatus.Text = "已打开黑板，共 " + DoodleBoardService.Open.Count + " 块。";
+            }
+            UpdateToggleLabels();
+            RefreshDoodleTrayMenu();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "切换黑板失败：" + ex.Message;
+        }
+    }
+
+    private void BtnBoardManager_Click(object sender, RoutedEventArgs e)
+    {
+        OpenDoodleManager();
+        UpdateToggleLabels();
+    }
+
+    /// <summary>
+    /// 「显示设置 → 黑板」这几个控件的回显（Window_Loaded 与诊断共用一条）。
+    /// <para>★ 两个勾选有从属关系：不「自动打开」就谈不上「先收成板名条」，后者置灰。</para>
+    /// </summary>
+    private void SyncBoardStartOptions(AppSettings settings)
+    {
+        if (ChkBoardRestore != null) ChkBoardRestore.IsChecked = settings.DoodleRestoreOnStart;
+        if (ChkBoardStartMin != null)
+        {
+            ChkBoardStartMin.IsChecked = settings.DoodleStartCollapsed;
+            ChkBoardStartMin.IsEnabled = settings.DoodleRestoreOnStart;
+        }
+        if (BtnToggleBoard != null)
+            BtnToggleBoard.Content = DoodleBoardService.AnyOpen ? "黑板：开" : "黑板：关";
+    }
+
+    /// <summary>诊断用：窗口没 Show 时 Loaded 不会触发，这里手动回显一次（与真机同一份代码）。</summary>
+    internal void DiagSyncBoardStartOptions() => SyncBoardStartOptions(Store.LoadSettings());
+
+    /// <summary>启动时是否自动打开黑板（写进 DoodleRestoreOnStart）。</summary>
+    private void ChkBoardRestore_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.DoodleRestoreOnStart = ChkBoardRestore.IsChecked == true;
+            Store.SaveSettings(s);
+
+            if (ChkBoardStartMin != null) ChkBoardStartMin.IsEnabled = s.DoodleRestoreOnStart;
+            TxtStatus.Text = s.DoodleRestoreOnStart
+                ? "下次启动会自动打开上次没关的黑板。"
+                : "下次启动黑板保持关闭，要用时在这里点「黑板：开」。";
+        }
+        catch { /* 存不上就下次再设 */ }
+    }
+
+    /// <summary>启动时是否先收成板名条（写进 DoodleStartCollapsed）。</summary>
+    private void ChkBoardStartMin_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.DoodleStartCollapsed = ChkBoardStartMin.IsChecked == true;
+            Store.SaveSettings(s);
+            TxtStatus.Text = s.DoodleStartCollapsed
+                ? "下次启动黑板只露出板名条，点「展开」才铺满。"
+                : "下次启动黑板按上次的大小铺开。";
+        }
+        catch { }
+    }
+
     private void BtnToggleHw_Click(object sender, RoutedEventArgs e)
     {
         if (_hwOn) HideHomeworkWin(); else ShowHomeworkWin();
@@ -2077,6 +2208,8 @@ public partial class MainWindow : Window
 
     // ---------- 托盘 ----------
     private System.Windows.Forms.ContextMenuStrip? _trayMenu;
+    /// <summary>托盘里的「涂鸦板 ▸」子菜单；内容每次菜单弹出时重建（板可能刚被关掉 / 新建）。</summary>
+    private System.Windows.Forms.ToolStripMenuItem? _doodleMenu;
 
     private void SetupTray()
     {
@@ -2138,6 +2271,17 @@ public partial class MainWindow : Window
             });
         }
 
+        // 涂鸦板：固定子菜单，不进 AppSettings.TrayMenuItems ——
+        // 那条配置是用户自己在「任务栏菜单…」里排的，程序往里塞东西会打乱他的顺序。
+        // ★ 旧版这里只有一个「新建」，板一关就没入口找回；现在列出全部已创建的板。
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        _doodleMenu = new System.Windows.Forms.ToolStripMenuItem("涂鸦板")
+        {
+            Tag = "doodle_root",
+            ToolTipText = "已创建的黑板都在这里，点一下重新打开或切到前面"
+        };
+        menu.Items.Add(_doodleMenu);
+
         menu.Opening += (_, _) => UpdateTrayMenuState();
 
         var old = _tray.ContextMenuStrip;
@@ -2175,11 +2319,83 @@ public partial class MainWindow : Window
     }
 
     /// <summary>同步托盘菜单里各开关项的勾选状态（当前开着的打勾）。</summary>
+    /// <summary>托盘「新建涂鸦板」。失败必须说出来 —— 点了没反应比报错更难查。</summary>
+    private void NewDoodleBoard()
+    {
+        try
+        {
+            DoodleBoardService.CreateNew();
+            RefreshDoodleTrayMenu();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "新建涂鸦板失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// 重建托盘「涂鸦板 ▸」的子菜单：每块已创建的板一行，开着的标 ●、收起的标 ○。
+    /// <para>★ 每次菜单弹出都重画：板可能在别处被新建、收起或删除，缓存一份就会点空。</para>
+    /// </summary>
+    private void RefreshDoodleTrayMenu()
+    {
+        if (_doodleMenu == null) return;
+
+        var items = _doodleMenu.DropDownItems;
+        var olds = new List<System.Windows.Forms.ToolStripItem>();
+        foreach (System.Windows.Forms.ToolStripItem item in items) olds.Add(item);
+        items.Clear();
+        foreach (var old in olds) old.Dispose();
+
+        var cfgs = DoodleBoardService.AllConfigs;
+        if (cfgs.Count == 0)
+        {
+            items.Add(new System.Windows.Forms.ToolStripMenuItem("（还没有黑板，点下面新建）") { Enabled = false });
+        }
+        else
+        {
+            foreach (var cfg in cfgs)
+            {
+                bool open = DoodleBoardService.FindOpen(cfg.Id) != null;
+                string id = cfg.Id;
+                string name = string.IsNullOrWhiteSpace(cfg.Name) ? "涂鸦板" : cfg.Name;
+                items.Add(new System.Windows.Forms.ToolStripMenuItem((open ? "● " : "○ ") + name, null, (_, _) =>
+                {
+                    try { DoodleBoardService.OpenOrActivate(id); }
+                    catch (Exception ex) { TxtStatus.Text = "打开黑板失败：" + ex.Message; }
+                })
+                {
+                    ToolTipText = open ? "已打开，点一下切到前面" : "已收起，点一下重新打开"
+                });
+            }
+        }
+
+        items.Add(new System.Windows.Forms.ToolStripSeparator());
+        items.Add(new System.Windows.Forms.ToolStripMenuItem("新建黑板…", null, (_, _) => NewDoodleBoard()));
+        items.Add(new System.Windows.Forms.ToolStripMenuItem("管理所有黑板…", null, (_, _) => OpenDoodleManager()));
+    }
+
+    /// <summary>打开独立的黑板管理窗（打开 / 收起 / 改名 / 删除）。</summary>
+    private void OpenDoodleManager()
+    {
+        try
+        {
+            var w = new DoodleBoardManagerWindow { Owner = this };
+            w.ShowDialog();
+            RefreshDoodleTrayMenu();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "打开黑板管理失败：" + ex.Message;
+        }
+    }
+
     private void UpdateTrayMenuState()
     {
         try
         {
             if (_trayMenu == null) return;
+            RefreshDoodleTrayMenu();
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             foreach (System.Windows.Forms.ToolStripItem item in _trayMenu.Items)
             {

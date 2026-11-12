@@ -179,6 +179,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
     {
         InitializeComponent();
         TodayPanel.ItemsSource = new System.Collections.ObjectModel.ObservableCollection<PeriodRow>();
+        InitHandChrome();      // 板书工具条：放大按钮 + 图标 + 窗口几何监听（见 HandInk.cs）
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _timer.Tick += (_, _) => Refresh();
@@ -486,10 +487,12 @@ public partial class ScheduleWindow : Window, IGlassSurface
 
             // 仅当窗口位置确实发生移动时才据「是否贴边」自动切换自动隐藏，
             // 避免单纯改大小（位置不变）时误触发。
+            // ★ 板书模式一律不动这两项：拖宽手写区一定会移动左边界，贴边就把「常驻」判成
+            //   「自动隐藏」，手写区会缩到屏幕外 —— 那是这个功能最怕的结果。
             bool moved = !l.Left.HasValue || !l.Top.HasValue
                 || Math.Abs(l.Left.Value - clamped.X) > 8
                 || Math.Abs(l.Top.Value - clamped.Y) > 8;
-            if (moved)
+            if (moved && !_handMode)
             {
                 bool near = FloatingHelper.IsNearEdge(this);
                 l.AutoHide = near;
@@ -522,6 +525,20 @@ public partial class ScheduleWindow : Window, IGlassSurface
         UpdateLockButton();
         UpdateTopButton();
         LoadQaFailureState();       // 上次更新失败的话，状态栏继续显示红字提示（按钮不受影响）
+
+        // 板书模式：宽度已经在布局里（含手写区），这里只把开关恢复成上次的样子。
+        // ★ expandWindow=false —— 再加减一次宽度会让窗口整体跑偏。
+        try
+        {
+            var st = Store.LoadSettings();
+            if (st.ScheduleHandWidth is double hw && hw > 100)
+                _handWidth = Math.Clamp(hw, HandMinWidth, HandMaxWidth);
+            if (st.ScheduleHandMode) SetHandMode(true, expandWindow: false);
+        }
+        catch { /* 设置读不出来就按简洁模式开 */ }
+
+        // 蓝条等高：窗口一改大小（按钮换行与否）就重新对一次
+        SizeChanged += (_, _) => SyncHandHeaderHeight();
 
         AppEvents.ScheduleChanged += Refresh;
         AppEvents.QuickActionsChanged += ApplyQuickActionPermissions;
@@ -562,6 +579,12 @@ public partial class ScheduleWindow : Window, IGlassSurface
                     ? "当天课表已在桌面背景显示（壁纸层，不遮挡操作）；点右下「还原背景」可取消"
                     : "点右下「设为背景」可按当前大小位置一键画到桌面壁纸";
             }
+
+            // ★ 板书模式下不给「设为背景」：桌面背景是静态壁纸，手写区写的东西烤不进去，
+            //   而且烤完之后那块区域点不动、写不了字 —— 等于把板书废了。
+            BtnWp.IsEnabled = !_handMode;
+            if (_handMode)
+                BtnWp.ToolTip = "板书模式下不能设为背景（手写内容画不进壁纸）；先点「收起板书」回到简洁模式";
         }
         catch { }
     }
@@ -1046,7 +1069,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
         }
         finally { _applyingLayout = false; }
         if (_clickThrough)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnQaUpdate, BtnWp, BtnTop, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel);
+            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnQaUpdate, BtnWp, BtnTop, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel, BtnHandToggle);
         else
             FloatingHelper.SetClickThrough(this, false);
 
@@ -1059,9 +1082,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
         ApplyGlass();
     }
 
-    /// <summary>IGlassSurface：只改根 Border 底色，不动 Window.Opacity / DragLayer / 触屏结构。</summary>
+    /// <summary>IGlassSurface：只改主框（课表那半边）底色，不动 Window.Opacity / DragLayer / 触屏结构。</summary>
     public void ApplyGlass(ScheduleCore.Models.AppSettings? settings = null)
-        => GlassBrush.Apply(this.Content as System.Windows.Controls.Border, settings);
+        => GlassBrush.Apply(MainFrame, settings);
 
     private void OnLayoutChanged(PanelLayout? schedule, PanelLayout? notification)
     {
@@ -1324,6 +1347,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
 
     private void Window_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // ★ 手写区里的一律不接管：那个处理器会把按下位置当成「准备拖这一节课」，
+        //   在板书上写字时手指一划就变成拖课表 / 弹换课窗。
+        if (IsWithinHandArea(e.OriginalSource as DependencyObject)) return;
         if (IsWithinButton(e.OriginalSource as DependencyObject)) return;
 
         // 抓手上的触摸按下已经在 TouchDown 里就地浮起了（为了赶在手指移动之前，见那里注释）。
@@ -2603,6 +2629,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
 
     private void Window_PreviewTouchDown(object sender, TouchEventArgs e)
     {
+        // 手写区自己收笔：这里再登记触摸点的话，就会把它算进「单指滑动手势」里
+        if (IsWithinHandArea(e.OriginalSource as DependencyObject)) return;
+
         var pt = e.GetTouchPoint(this).Position;
         _touchPoints[e.TouchDevice] = pt;
         _lastTouchDownTick = Environment.TickCount;    // 供 MouseDown 判断"这次按下是手指还是鼠标"

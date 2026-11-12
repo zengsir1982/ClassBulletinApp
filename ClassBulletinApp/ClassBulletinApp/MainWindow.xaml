@@ -291,6 +291,31 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- 黑板（涂鸦板）：开关 + 启动行为（r106）。
+                                 黑板是全屏挂在桌面底层的一块板，平时不用它的班可以直接关掉，
+                                 并用下面两个勾选决定「下次开程序它自己出不出来」。 -->
+                            <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="黑板（涂鸦板）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
+                                    <TextBlock Text="贴在桌面底层的一块大板：便签、作业公示、课表、手写都能往上摆。教室大屏上课时挂着，不用时一键收起。"
+                                               FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                    <WrapPanel Orientation="Horizontal" Margin="0,12,0,2">
+                                        <Button x:Name="BtnToggleBoard" Content="黑板：关" Style="{StaticResource TabBtn}" Click="BtnToggleBoard_Click"
+                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                                ToolTip="一键打开 / 收起全部黑板（收起只关窗口，板上的内容与笔迹都留着）"/>
+                                        <Button x:Name="BtnBoardManager" Content="黑板管理…" Style="{StaticResource TabBtn}" Click="BtnBoardManager_Click"
+                                                ToolTip="新建 / 改名 / 换主题 / 删除某一块板"/>
+                                    </WrapPanel>
+                                    <CheckBox x:Name="ChkBoardRestore" Content="启动程序时自动打开上次没关的黑板"
+                                              FontSize="14" Foreground="{DynamicResource InkBrush}" Margin="2,6,0,0"
+                                              Click="ChkBoardRestore_Click"
+                                              ToolTip="不勾选则每次启动黑板都是关的，要用时在左边点一下「黑板：开」"/>
+                                    <CheckBox x:Name="ChkBoardStartMin" Content="启动时黑板先收成一条板名条（不铺开挡视线，点「展开」才铺满）"
+                                              FontSize="14" Foreground="{DynamicResource InkBrush}" Margin="22,6,0,0"
+                                              Click="ChkBoardStartMin_Click"/>
+                                </StackPanel>
+                            </Border>
+
                             <!-- 界面主题 -->
                             <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="16,14" Margin="0,12,0,0">
                                 <StackPanel>

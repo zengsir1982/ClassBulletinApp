@@ -139,8 +139,191 @@
                 </DockPanel>
             </Border>
         </DataTemplate>
+        <!--
+            板书工具条按钮（r107）：原先是 7,2 内边距 + 11 号字的「小方块」，
+            教室里 3~4 米外根本看不清，手指也点不准。
+            ★ 不写死 Background/BorderBrush 的触发器，选中态由代码给 Tag="on" —— 见 UpdateHandToolVisual()。
+        -->
+        <Style x:Key="HandToolButton" TargetType="Button">
+            <Setter Property="Height" Value="52"/>
+            <Setter Property="MinWidth" Value="52"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#D7DEE8"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#2B3A4A"/>
+            <Setter Property="FontSize" Value="11.5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10" SnapsToDevicePixels="True">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="on">
+                                <Setter TargetName="Bd" Property="Background" Value="#E6F1FB"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#8FB8DF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 日期翻页：比工具按钮更轻，只在悬停时才显形 -->
+        <Style x:Key="HandNavButton" TargetType="Button" BasedOn="{StaticResource HandToolButton}">
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="MinWidth" Value="40"/>
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
     </Window.Resources>
-    <Border Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
+    <Grid x:Name="Shell">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="HandCol" Width="0"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!--
+            板书模式的手写区（r105）。
+            ★ 默认整块 Collapsed、列宽 0：简洁模式下窗口宽度与改造前一模一样，
+              不会凭空多出一条边，也不会让「设为背景」的旧坐标对不上。
+            ★ 这里是独立的 InkCanvas，和涂鸦板各自存笔迹：按日期一天一个 ISF 文件，
+              只保留最近 7 天（见 ScheduleWindow.HandInk.cs）。
+        -->
+        <Border x:Name="HandPanel" Grid.Column="0" Visibility="Collapsed"
+                Background="#FDFDFB" CornerRadius="14,0,0,14"
+                BorderBrush="#D8DEE9" BorderThickness="1,1,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Border x:Name="HandHeader" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" Padding="12,8">
+                    <Grid>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,96,0">
+                            <TextBlock x:Name="TxtHandClass" FontSize="16" FontWeight="Bold" Foreground="White"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock x:Name="TxtHandSub" FontSize="12" Foreground="#B9CBEA" Margin="0,2,0,0"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                        <Button x:Name="BtnHandCollapse" Content="收起" HorizontalAlignment="Right"
+                                VerticalAlignment="Center" Click="BtnHandCollapse_Click"
+                                Style="{StaticResource FloatScheduleButton}"
+                                Height="34" MinWidth="76" FontSize="13.5" Padding="12,0"
+                                ToolTip="收起左边这块板书，回到简洁模式（笔迹每天一份，7 天内都在）"/>
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="1" ClipToBounds="True">
+                    <!-- 淡横线：像备忘纸，写满也一眼能对齐；用平铺绘图刷，不用逐个 Canvas 画线 -->
+                    <Border>
+                        <Border.Background>
+                            <DrawingBrush TileMode="Tile" Stretch="None"
+                                          Viewport="0,0,1000,44" ViewportUnits="Absolute"
+                                          Viewbox="0,0,1000,44" ViewboxUnits="Absolute">
+                                <DrawingBrush.Drawing>
+                                    <GeometryDrawing>
+                                        <GeometryDrawing.Pen>
+                                            <Pen Brush="#EDF0F4" Thickness="1"/>
+                                        </GeometryDrawing.Pen>
+                                        <GeometryDrawing.Geometry>
+                                            <LineGeometry StartPoint="0,43.5" EndPoint="1000,43.5"/>
+                                        </GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                </DrawingBrush.Drawing>
+                            </DrawingBrush>
+                        </Border.Background>
+                    </Border>
+                    <InkCanvas x:Name="HandInk" Background="Transparent" Focusable="True"
+                               Stylus.IsPressAndHoldEnabled="False" Stylus.IsFlicksEnabled="False"
+                               StrokeCollected="HandInk_StrokeCollected"
+                               StrokeErased="HandInk_StrokeErased"/>
+                </Grid>
+
+                <!--
+                    板书工具条（r107 放大）：原先 11 号字 + 7,2 内边距的小按钮，
+                    教室里 3~4 米外看不清、手指也点不准。现在 48 高、图标 + 文字，
+                    图标由 StyleHandToolBar() 在代码里装配（Path 跟着主题换色）。
+                -->
+                <Border x:Name="HandBar" Grid.Row="2" Background="#F8FAFC" BorderBrush="#E2E8F0"
+                        BorderThickness="0,1,0,0" Padding="10,7">
+                    <DockPanel LastChildFill="False">
+                        <!-- 右：笔 / 橡皮 / 撤销 / 清空。
+                             ★ 先停靠右边：DockPanel 按加入顺序排，日期那组在后面能拿到的余量才不会被工具组吃掉。
+                             ★ 竖排「图标 + 小字」：手写区最窄时（约 420）也放得下四个 52 宽的大按钮。 -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnHandClear" Style="{StaticResource HandToolButton}"
+                                    Click="BtnHandClear_Click" ToolTip="清空这一天的板书（会先问一次）"/>
+                            <Button x:Name="BtnHandUndo" Style="{StaticResource HandToolButton}"
+                                    Click="BtnHandUndo_Click" ToolTip="撤销刚才写的那一笔"/>
+                            <Button x:Name="BtnHandEraser" Style="{StaticResource HandToolButton}"
+                                    Click="BtnHandEraser_Click" ToolTip="橡皮：擦掉写错的地方"/>
+                            <Button x:Name="BtnHandPen" Style="{StaticResource HandToolButton}"
+                                    Click="BtnHandPen_Click" ToolTip="点一下选中笔，再点一次换颜色与粗细"/>
+                        </StackPanel>
+                        <!-- 左：日期翻页 ‹ 日期 › -->
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="BtnHandPrev" Style="{StaticResource HandNavButton}"
+                                    Click="BtnHandPrev_Click" ToolTip="前一天"/>
+                            <TextBlock x:Name="TxtHandDate" VerticalAlignment="Center" FontSize="15" FontWeight="Bold"
+                                       Margin="6,0" Cursor="Hand" TextTrimming="CharacterEllipsis"
+                                       MouseLeftButtonDown="TxtHandDate_MouseLeftButtonDown"
+                                       ToolTip="点一下回到今天"/>
+                            <Button x:Name="BtnHandNext" Style="{StaticResource HandNavButton}"
+                                    Click="BtnHandNext_Click" ToolTip="后一天"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!--
+            两区中间这条缝（r107 改语义）。
+            ★ 拖它 = 改「课表」宽度：手写区宽度一个像素都不动，整块跟着缝左右平移，
+              窗口右边界钉在原处（跟拖窗口左边框一个手感）。
+              手写区自己的宽度由窗口左沿控制 —— 见 OnHandWindowGeometryChanged()。
+            ★ 不能用 GridSplitter：它只会在固定窗口宽里把两列此消彼长。
+        -->
+        <Border x:Name="HandSplitter" Grid.Column="0" Visibility="Collapsed"
+                HorizontalAlignment="Right" Width="9" Background="Transparent"
+                Cursor="SizeWE"
+                MouseLeftButtonDown="HandSplitter_MouseLeftButtonDown"
+                MouseMove="HandSplitter_MouseMove"
+                MouseLeftButtonUp="HandSplitter_MouseLeftButtonUp"
+                MouseEnter="HandSplitter_MouseEnter" MouseLeave="HandSplitter_MouseLeave"
+                ToolTip="拖动可调整课表宽度（手写区宽度不变）">
+            <Border x:Name="HandSplitterLine" Width="2" HorizontalAlignment="Center"
+                    Background="#DCE3EC" CornerRadius="1" Margin="0,10"/>
+        </Border>
+
+        <!-- 手写区左沿的抓手提示：真正的拖动是系统窗口缩放（左沿改变手写区宽度） -->
+        <Border x:Name="HandLeftHint" Grid.Column="0" Visibility="Collapsed"
+                HorizontalAlignment="Left" VerticalAlignment="Center"
+                Height="58" Width="9" IsHitTestVisible="False" Background="Transparent">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Border Width="3" Height="3" CornerRadius="1.5" Background="#C2CEDC" Margin="0,2.5"/>
+                <Border Width="3" Height="3" CornerRadius="1.5" Background="#C2CEDC" Margin="0,2.5"/>
+                <Border Width="3" Height="3" CornerRadius="1.5" Background="#C2CEDC" Margin="0,2.5"/>
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="MainFrame" Grid.Column="1" Background="#FFFFFF" CornerRadius="14" BorderBrush="#D8DEE9" BorderThickness="1"
             Margin="0" Padding="0">
         <Grid>
             <Grid.RowDefinitions>
@@ -190,6 +373,11 @@
                     </StackPanel>
                     <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼 -->
                     <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Right">
+                        <!-- 板书模式开关：点一下在左边多长出一块手写区，再点收起。
+                             放在这一组最上面，与「自动隐藏 / 更新课表」同一套白底按钮样式。 -->
+                        <Button x:Name="BtnHandToggle" Content="板书" Click="BtnHandToggle_Click"
+                                VerticalAlignment="Top" Margin="0,0,0,4" Style="{StaticResource FloatScheduleButton}"
+                                ToolTip="在旁边多开一块手写板（板书），可以随手写；再点一次收起"/>
                         <Button x:Name="BtnHide" Content="自动隐藏" Click="BtnHide_Click"
                                 VerticalAlignment="Top" Margin="0,0,0,4" Style="{StaticResource FloatScheduleButton}"
                                 ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
@@ -380,5 +568,6 @@
             <Canvas x:Name="DragLayer" Grid.RowSpan="5" IsHitTestVisible="False"
                     ClipToBounds="False" Panel.ZIndex="80"/>
         </Grid>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

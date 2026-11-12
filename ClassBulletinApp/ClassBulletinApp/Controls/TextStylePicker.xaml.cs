@@ -24,8 +24,11 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
     private bool _syncing;
     private TextStyle? _hooked;
 
-    /// <summary>字号选项只构造一次（静态数据，反复重建会让下拉的选择状态闪一下）。</summary>
-    private static List<SizeOption>? _sizes;
+    /// <summary>
+    /// 字号选项按<b>实例</b>缓存一次（反复重建会让下拉的选择状态闪一下）。
+    /// ★ r99 起不能是 static：默认档位表与黑板大屏档位表并存，静态缓存会让两个窗口串表。
+    /// </summary>
+    private List<SizeOption>? _sizes;
 
     public TextStylePicker()
     {
@@ -107,6 +110,71 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
         set => SetValue(PreviewTextProperty, value);
     }
 
+    /// <summary>
+    /// r99：黑板大屏编辑窗专用。false（默认）= 沿用公示共用的 <see cref="HwTextStyle"/> 档位
+    /// （14~38 号，持久化下标不可动）；true = 改用 <see cref="DoodleStyle.BigFontSizes"/>
+    /// 的 8 档大屏字号（13~88）。<b>只影响这一条工具条的档位表与步进口径，
+    /// 其它六个编辑窗完全走原路径，行为一字不变。</b>
+    /// </summary>
+    public static readonly DependencyProperty BigScreenProperty = DependencyProperty.Register(
+        nameof(BigScreen), typeof(bool), typeof(TextStylePicker),
+        new PropertyMetadata(false, OnBigScreenChanged));
+
+    public bool BigScreen
+    {
+        get => (bool)GetValue(BigScreenProperty);
+        set => SetValue(BigScreenProperty, value);
+    }
+
+    private static void OnBigScreenChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not TextStylePicker p) return;
+        p._sizes = null;
+        // ★ 控件还没 Loaded 时不能 RefreshAll：RefreshSwatches 会 FindResource("BarSwatchStyle")，
+        //   资源还没上树会抛 ResourceReferenceKeyNotFoundException。Loaded 里本来就会刷一次。
+        if (p.IsLoaded) p.RefreshAll();
+    }
+
+    // ---- 档位口径：默认表 / 大屏表，两者只在这里分叉 ----
+
+    private int LevelCount => BigScreen
+        ? DoodleStyle.BigFontSizes.Length
+        : HwTextStyle.SizeOrder.Length;
+
+    private int DefaultLevel => BigScreen ? 3 : HwTextStyle.ExtraLargeLevel;
+
+    private double SizeOf(int level) => BigScreen
+        ? DoodleStyle.BigSizeOf(level)
+        : HwTextStyle.SizeOf(level);
+
+    private int ClampLevel(int level) => Math.Clamp(level, 0,
+        (BigScreen ? DoodleStyle.BigFontSizes.Length : HwTextStyle.Sizes.Length) - 1);
+
+    private List<SizeOption> SizeOptions()
+    {
+        if (BigScreen)
+        {
+            var list = new List<SizeOption>();
+            for (int i = 0; i < DoodleStyle.BigFontSizes.Length; i++)
+                list.Add(new SizeOption
+                {
+                    Level = i,
+                    Name = DoodleStyle.BigLevelNames[i],
+                    Size = DoodleStyle.BigFontSizes[i]
+                });
+            return list;
+        }
+        return EditorStyleOptions.Sizes();
+    }
+
+    private int OrderPos(int level) => BigScreen
+        ? ClampLevel(level)
+        : HwTextStyle.OrderIndexOf(level);
+
+    private int LevelAt(int pos) => BigScreen
+        ? Math.Clamp(pos, 0, DoodleStyle.BigFontSizes.Length - 1)
+        : HwTextStyle.SizeOrder[Math.Clamp(pos, 0, HwTextStyle.SizeOrder.Length - 1)];
+
     /// <summary>样式被用户改动时触发（宿主可据此刷新预览 / 标记为已修改）。</summary>
     public event EventHandler? StyleChanged;
 
@@ -179,8 +247,8 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
 
             TglBold.IsChecked = s?.Bold ?? false;
 
-            CbSize.ItemsSource = _sizes ??= EditorStyleOptions.Sizes();
-            CbSize.SelectedValue = s?.SizeLevel ?? HwTextStyle.ExtraLargeLevel;
+            CbSize.ItemsSource = _sizes ??= SizeOptions();
+            CbSize.SelectedValue = ClampLevel(s?.SizeLevel ?? DefaultLevel);
         }
         finally
         {
@@ -262,17 +330,17 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
     private void UpdateMeta()
     {
         var s = StyleData;
-        int level = s?.SizeLevel ?? HwTextStyle.ExtraLargeLevel;
-        TxtPreviewMeta.Text = HwTextStyle.SizeOf(level).ToString("0") + " 号"
+        int level = s?.SizeLevel ?? DefaultLevel;
+        TxtPreviewMeta.Text = SizeOf(level).ToString("0") + " 号"
                               + ((s?.Bold ?? false) ? " · 加粗" : "");
     }
 
     /// <summary>字号已到两端时把对应的 A± 置灰（避免点了没反应）。</summary>
     private void UpdateStepButtons()
     {
-        int pos = HwTextStyle.OrderIndexOf(StyleData?.SizeLevel ?? 0);
+        int pos = OrderPos(StyleData?.SizeLevel ?? DefaultLevel);
         BtnSizeDown.IsEnabled = pos > 0;
-        BtnSizeUp.IsEnabled = pos < HwTextStyle.SizeOrder.Length - 1;
+        BtnSizeUp.IsEnabled = pos < LevelCount - 1;
     }
 
     // ---------- 用户操作 ----------
@@ -295,15 +363,15 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
         StyleChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>按「显示顺序」而不是下标顺序步进 —— 下标顺序是 19,16,23,27… 乱序的。</summary>
+    /// <summary>按「显示顺序」而不是下标顺序步进 —— 默认档位下标是 19,16,23,27… 乱序的；
+    /// 大屏档位本身已按字号升序，直接按下标步进即可。</summary>
     private void StepSize(int delta)
     {
         var s = StyleData;
         if (s == null) return;
 
-        int pos = Math.Clamp(HwTextStyle.OrderIndexOf(s.SizeLevel) + delta,
-                             0, HwTextStyle.SizeOrder.Length - 1);
-        int level = HwTextStyle.SizeOrder[pos];
+        int pos = Math.Clamp(OrderPos(s.SizeLevel) + delta, 0, LevelCount - 1);
+        int level = LevelAt(pos);
         if (level == s.SizeLevel) return;
 
         s.SizeLevel = level;
@@ -334,14 +402,14 @@ public partial class TextStylePicker : System.Windows.Controls.UserControl
 
         // r69：默认全部「特大 + 默认墨色」，清除格式就回到这个默认，而不是回到「标准」。
         s.Bold = false;
-        s.SizeLevel = HwTextStyle.ExtraLargeLevel;
+        s.SizeLevel = DefaultLevel;
         s.Color = "";
 
         _syncing = true;
         try
         {
             TglBold.IsChecked = false;
-            CbSize.SelectedValue = HwTextStyle.ExtraLargeLevel;
+            CbSize.SelectedValue = DefaultLevel;
         }
         finally
         {

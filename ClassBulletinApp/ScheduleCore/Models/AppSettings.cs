@@ -439,6 +439,14 @@ public class AppSettings
     /// </summary>
     public System.Collections.Generic.Dictionary<string, NoteWindowPlacement> NoteWindows { get; set; } = new();
 
+    /// <summary>
+    /// 桌面涂鸦板（可多块）的配置：位置 / 尺寸 / 主题 / 用途 / 手动便签。
+    /// <para>★ 只存本机，绝不进班级同步包 —— 板上是老师随手写的东西，
+    /// 跟「通知 / 作业」那种正式发布内容不是一回事。</para>
+    /// <para>手写笔迹不在这里，按板 Id 单独存 ISF 文件（见 DoodleBoardService.InkPath）。</para>
+    /// </summary>
+    public System.Collections.Generic.List<DoodleBoardConfig> DoodleBoards { get; set; } = new();
+
     /// <summary>取某个便签窗口的摆放设置；没有就补一个默认对象（由调用方决定何时保存）。</summary>
     public NoteWindowPlacement PlacementOf(string key)
     {
@@ -473,6 +481,29 @@ public class AppSettings
         AutoHide = false,
         AutoHideDuringClass = false
     };
+
+    /// <summary>
+    /// 悬浮课表是否处于「板书模式」（左边多一块手写区）。
+    /// <para>★ 只记开关与手写区宽度，不记日期 —— 每次打开都从今天开始写，
+    /// 昨天写了什么交给日期翻页去看。</para>
+    /// </summary>
+    public bool ScheduleHandMode { get; set; }
+
+    /// <summary>手写区宽度（DIP）；null = 用默认 420。</summary>
+    public double? ScheduleHandWidth { get; set; }
+
+    /// <summary>
+    /// 启动时是否自动打开上次没关的黑板。
+    /// <para>默认 true（保持老行为）。关掉之后每次启动黑板都是关的，
+    /// 要在控制面板「显示设置 → 黑板」里点一下「黑板：开」才出来 —— 给「平时不用黑板」的班用。</para>
+    /// </summary>
+    public bool DoodleRestoreOnStart { get; set; } = true;
+
+    /// <summary>
+    /// 启动时把黑板先收成一条板名条（不铺开占地方）。
+    /// <para>只影响启动那一瞬间；用户点「展开」后照常记进各自的板配置。</para>
+    /// </summary>
+    public bool DoodleStartCollapsed { get; set; }
 
     /// <summary>
     /// 通知悬浮窗布局（顶部 / 底部字幕条）。
