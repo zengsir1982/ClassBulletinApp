@@ -33,6 +33,13 @@ public interface IFeedSource
     /// <summary>发布：上传数据包与 manifest。<b>先传包、后传 manifest</b>，避免别人读到"新清单 + 旧数据"。</summary>
     void Upload(string localPackagePath, string manifestJson);
 
+    /// <summary>
+    /// <b>只</b>上传 manifest，不动 data.cbpack。
+    /// <para>供「独立设置下发」通道使用：manifest 不参与整包摘要，只改它能做到
+    /// "下发设置但教室机不重下课表包"。</para>
+    /// </summary>
+    void UploadManifestOnly(string manifestJson);
+
     /// <summary>连通性测试（不抛异常）。</summary>
     (bool Ok, string Message) Test();
 }
@@ -102,6 +109,15 @@ public class FolderFeedSource : IFeedSource
         File.Copy(localPackagePath, pkgTmp, true);
         File.Move(pkgTmp, Path.Combine(_dir, FeedSourceFactory.PackageName), true);
 
+        var manTmp = Path.Combine(_dir, FeedSourceFactory.ManifestName + ".tmp");
+        File.WriteAllText(manTmp, manifestJson, new UTF8Encoding(false));
+        File.Move(manTmp, Path.Combine(_dir, FeedSourceFactory.ManifestName), true);
+    }
+
+    public void UploadManifestOnly(string manifestJson)
+    {
+        Directory.CreateDirectory(_dir);
+        // .tmp 再改名：别人永远读不到写了一半的清单
         var manTmp = Path.Combine(_dir, FeedSourceFactory.ManifestName + ".tmp");
         File.WriteAllText(manTmp, manifestJson, new UTF8Encoding(false));
         File.Move(manTmp, Path.Combine(_dir, FeedSourceFactory.ManifestName), true);
@@ -220,6 +236,9 @@ public class FtpFeedSource : IFeedSource
         }
         using var resp = (FtpWebResponse)req.GetResponse();
     }
+
+    public void UploadManifestOnly(string manifestJson)
+        => UploadBytes(FeedSourceFactory.ManifestName, new UTF8Encoding(false).GetBytes(manifestJson));
 
     public (bool Ok, string Message) Test()
     {

@@ -55,6 +55,12 @@ public partial class MainWindow : Window
     /// <summary>提醒设置控件是否已就绪（避免 XAML 加载期 TextChanged 触发保存）。</summary>
     private bool _remindReady;
 
+    // ★ r115：界面"上次装载时的 settings.json 戳"。
+    //   下发设置 / 随包应用 / 手动导入 / 外部手工改文件都会推高戳，但控件不会自己变。
+    //   切页时比对一次，只有真的被外部改过才重新装载 —— 既不显示旧值，也不会冲掉用户正在输入的内容。
+    private DateTime _stampReminder = DateTime.MinValue;
+    private DateTime _stampInfo = DateTime.MinValue;
+
     public ObservableCollection<string> ClassNames { get; } = new();
     public ObservableCollection<Notification> Notifications { get; } = new();
 
@@ -1161,6 +1167,8 @@ public partial class MainWindow : Window
         //   否则教室机改了共享文件夹就再也收不到更新（需求三）。
         Set(BtnUpdateSettings, UserSession.CanManageUpdate, UserSession.DenyManageUpdate);
         Set(BtnPublishNow, canPublish, UserSession.DenyPublish);
+        // 设置下发会覆盖所有教室机的显示 / 同步 / 数据源，等同发布级操作 → 仅管理员
+        Set(BtnPushSettings, canPublish, UserSession.DenyPublish);
         Set(BtnManageUsers, UserSession.CanManageUsers, "只有管理员可以管理用户。");
 
         // 发全校通知的勾选框：无权限时禁用并强制本班（需求一）。
@@ -1364,6 +1372,7 @@ public partial class MainWindow : Window
         ReloadPopupStyleUi(r);
 
         _remindReady = true;
+        _stampReminder = Store.SettingsStamp;   // 记下本次装载对应的设置文件戳（切页时用来判断是否需要重载）
     }
 
     /// <summary>P4：三组提醒字段同构，收敛成一套读写 + 三次调用。
@@ -2723,7 +2732,28 @@ public partial class MainWindow : Window
     {
         if (!ReferenceEquals(e.OriginalSource, MainTabs)) return;
         if (TabAbout != null && ReferenceEquals(MainTabs.SelectedItem, TabAbout)) RefreshAboutTab();
+        RefreshStaleSettingsPages();
         SyncNavFromTab(MainTabs.SelectedIndex);
+    }
+
+    /// <summary>
+    /// 切页时把「设置文件已经被改过、但界面还没跟上」的那一页重新装载（r115）。
+    /// <para>覆盖所有改动来源：独立下发、随包应用、手动导入，甚至别人直接改 settings.json。
+    /// 只在文件戳真的变过时才重载 —— 用户自己在该页填了一半、还没保存的输入不会被冲掉。</para>
+    /// </summary>
+    private void RefreshStaleSettingsPages()
+    {
+        try
+        {
+            var stamp = Store.SettingsStamp;
+            if (TabReminder != null && ReferenceEquals(MainTabs.SelectedItem, TabReminder)
+                && stamp != _stampReminder)
+                ReloadReminderUi();
+            if (TabInfoManage != null && ReferenceEquals(MainTabs.SelectedItem, TabInfoManage)
+                && stamp != _stampInfo)
+                LoadInfoSettings();
+        }
+        catch { /* 刷新失败不能挡住切页 */ }
     }
 
     // ---------------- P1 新导航（侧栏 5 组 + 二级分段条） ----------------
@@ -3763,16 +3793,22 @@ public partial class MainWindow : Window
             dlg.InitialDirectory = packDir;
         if (dlg.ShowDialog() != true) return;
 
+        bool carrySettings = ChkExportSettings?.IsChecked == true;
+        var exportSettings = Store.LoadSettings();
+        int revBefore = exportSettings.SettingsPublishRev;
         var r = SchedulePackage.Export(
             dlg.FileName, sf, Store.LoadOverrides(), Store.LoadNotifications(),
-            Store.LoadSettings(), Environment.MachineName,
-            userBook: Store.LoadUsers());
+            exportSettings, Environment.MachineName,
+            userBook: Store.LoadUsers(), includeSettings: carrySettings);
 
         if (!r.Ok)
         {
             TxtStatus.Text = "导出失败：" + r.Error;
             return;
         }
+
+        // 设置代次自增要落盘，否则下次导出还是同一个代次
+        if (carrySettings) Store.SaveSettings(exportSettings);
 
         // 导出成功就把这次用的目录记下来，下次对话框直接落在这儿（用户手动换了地方也不用再选一遍）
         try
@@ -3788,9 +3824,15 @@ public partial class MainWindow : Window
         }
         catch { }
 
+        bool revBumped = exportSettings.SettingsPublishRev != revBefore;
         TxtStatus.Text = $"已导出数据包：{r.ClassCount} 个班、调代 {r.OverrideCount} 条" +
             (string.IsNullOrEmpty(r.OverrideRange) ? "" : $"（{r.OverrideRange}）") +
             $"、全校通知 {r.NoticeCount} 条；文件 {r.Size / 1024.0:0.#} KB。" +
+            (carrySettings
+                ? $"携带观感设置（显示 / 同步开关，代次 {exportSettings.SettingsPublishRev}"
+                  + (revBumped ? "，内容有变" : "，内容与上次相同，教室机不会重刷") + "）；"
+                  + "提醒 / 数据源路径 / 密码 / 布局不进包（提醒请用「下发设置到教室机」）。"
+                : "未携带设置。") +
             "本机的手工调课、作业、缺交、布局、密码都不会被打包。";
     }
 
@@ -3828,7 +3870,7 @@ public partial class MainWindow : Window
             (m.OverrideAuthoritative
                 ? "全部导入来源的调代课（包里没覆盖到的周也会取消、还原成底表原课程）"
                 : "该时间段内的调代课") +
-            "、全校通知、开学周 / 主题。\n" +
+            "、全校通知、开学周 / 主题；若包里携带了设置，也会一并覆盖本机的显示 / 提醒 / 更新 / 同步开关。\n" +
             "会保留：本机手工调课、长期改课、本班通知、显示班级、窗口布局、密码、作业、缺交、自定义便签。\n\n" +
             "导入前会自动备份当前数据。确定导入吗？";
 
@@ -3855,6 +3897,7 @@ public partial class MainWindow : Window
         sb.Append($"；教师表 {tc} 位。");
         if (!string.IsNullOrEmpty(r.BackupDir)) sb.Append("　原数据已备份。");
         if (r.UserCount > 0) sb.Append($"　用户表 {r.UserCount} 个账号已同步。");
+        if (r.SettingsApplied) sb.Append($"　包内设置已覆盖本机（{r.SettingsReason}）。");
         foreach (var w in r.Warnings) sb.Append("　⚠ " + w);
         TxtStatus.Text = sb.ToString();
 
@@ -4156,6 +4199,22 @@ public partial class MainWindow : Window
         _ = CheckAndApplyAsync(src, st, silent: true);
     }
 
+    /// <summary>
+    /// 设置被「独立下发通道」改过之后给个轻提示。
+    /// <para>★ 只在真的应用了设置时才调用：教室屏无人值守，气泡 3 秒自动消失、不阻塞操作；
+    /// 同时状态行已经写了文字，即使托盘被系统隐藏也不会漏掉信息。</para>
+    /// </summary>
+    void ShowAppliedSettingsToast(string msg)
+    {
+        try
+        {
+            if (_tray is { Visible: true })
+                _tray.ShowBalloonTip(3000, "设置已更新", msg,
+                    System.Windows.Forms.ToolTipIcon.Info);
+        }
+        catch { /* 托盘不可用时静默，状态行已有提示 */ }
+    }
+
     /// <summary>把数据源与上次检查结果回显到「数据管理」页。</summary>
     private void RefreshUpdateStatus()
     {
@@ -4192,9 +4251,13 @@ public partial class MainWindow : Window
                 + (string.IsNullOrWhiteSpace(st.PublishSourcePath) ? "（未指定源目录）" : "　" + st.PublishSourcePath);
         }
 
+        string settingsInfo = string.IsNullOrWhiteSpace(st.LastAppliedSettingsInfo)
+            ? ""
+            : "\n设置下发：" + st.LastAppliedSettingsInfo;
+
         TxtUpdateStatus.Text =
             $"自动更新：每 {mins} 分钟检查　数据源：{UpdateService.DescribeSource(st)}\n" +
-            $"上次：{last}{applied}" + pub;
+            $"上次：{last}{applied}" + pub + settingsInfo;
     }
 
     private void BtnUpdateSettings_Click(object sender, RoutedEventArgs e)
@@ -4272,10 +4335,54 @@ public partial class MainWindow : Window
             RefreshUpdateStatus();
 
             if (!silent) TxtStatus.Text = chk.Message;
-            if (!chk.Ok || !chk.HasUpdate)
+
+            if (!chk.Ok)
             {
-                ok = chk.Ok;
+                ok = false;
                 report = chk.Message;
+                return;
+            }
+
+            // ★ 独立设置下发通道：只看 PushId，与"课表有没有更新"完全无关。
+            //   **必须在课表包应用之后调用**：包内的设置白名单会整套写本机设置，
+            //   先下发再应用包 = 下发被包踩掉（r112 现场：提醒改成"关"、教室机回执"已应用"，
+            //   实际被包里的旧值改回"开"，教室里照响）。
+            //   返回本次真正写入的说明；没写入（没有下发 / 同一 PushId）返回空串，不动状态行。
+            async Task<string> ApplyPushAsync()
+            {
+                var pr = await Task.Run(() => SettingsPushService.ApplyFromManifest(chk.Manifest));
+                if (!pr.Applied) return "";
+                st = Store.LoadSettings();     // 重新取一次，后续流程按新设置走
+                ApplyPermissions();
+                // ★ r114/r115：下发只写磁盘，界面控件不会自己变。按"真的变了哪一组"精确重载：
+                //   提醒 → 提醒设置页；同步开关 / 同步根目录 → 信息管理页。
+                //   整页重载会冲掉正在输入的内容，所以不能见谁刷谁。
+                //   两组 Reload 内部都会把"就绪"标志置 false，控件事件触发的保存全被拦住，
+                //   因此重载绝不会把界面值回写、覆盖刚下发的设置。
+                //   IsLoaded 保护：窗口尚未完成加载时跳过，交给 Window_Loaded / InitInfoTab 统一装载。
+                if (IsLoaded)
+                {
+                    if (pr.ReminderTouched) ReloadReminderUi();
+                    if (pr.SyncTouched) LoadInfoSettings();
+                }
+                RefreshUpdateStatus();
+                ShowAppliedSettingsToast(pr.Message);
+                return pr.Message;
+            }
+
+            if (!chk.HasUpdate)
+            {
+                // 只有设置、没有课表：这条就是主通道
+                string pm = await ApplyPushAsync();
+                if (pm.Length > 0)
+                {
+                    report = pm;
+                    if (!silent) TxtStatus.Text = pm;
+                }
+                else if (string.IsNullOrEmpty(report))
+                {
+                    report = chk.Message;
+                }
                 return;
             }
 
@@ -4309,7 +4416,9 @@ public partial class MainWindow : Window
             }
             if (!apply)
             {
-                report = "已取消更新（数据源上的新版本没有下载）。";
+                string pm = await ApplyPushAsync();   // 课表没换，但设置下发照样要生效
+                report = "已取消更新（数据源上的新版本没有下载）。" + (pm.Length > 0 ? "　设置下发：" + pm : "");
+                if (!silent) TxtStatus.Text = report;
                 return;
             }
 
@@ -4317,8 +4426,9 @@ public partial class MainWindow : Window
             if (!outp.Ok)
             {
                 ok = false;
-                report = outp.Message;
-                TxtStatus.Text = outp.Message;
+                string pm = await ApplyPushAsync();   // 包下载失败不影响设置下发
+                report = outp.Message + (pm.Length > 0 ? "　设置下发：" + pm : "");
+                TxtStatus.Text = report;
                 return;
             }
 
@@ -4343,6 +4453,8 @@ public partial class MainWindow : Window
                 sb.Append($"，另有 {ap.ManualSuspended} 条本机手工调课按主机策略已停用（可在「恢复被主机停用的本机调课」里复活）");
             sb.Append("。");
             if (ap.UserCount > 0) sb.Append($"　用户表 {ap.UserCount} 个账号已同步。");
+            if (ap.SettingsApplied)
+                sb.Append($"　设置已按代次应用（{ap.SettingsReason}）：显示 / 同步开关已更新（提醒不随包）。");
 
             // ★ 自动更新是无人值守跑的，不能弹模态框（会在上课时突然挡住屏幕）。
             //   身份被包踢掉时只写状态栏 + 立刻把入口全灰，用户一操作就会发现并看到原因。
@@ -4353,10 +4465,19 @@ public partial class MainWindow : Window
                     : "　⚠ 你的账号已不在本版用户表里，已退出登录 —— 请到「用户中心 → 切换账号」用有效账号登录。");
 
             foreach (var w in ap.Warnings) sb.Append("　⚠ " + w);
+
+            // ★ 包应用完之后再跑独立下发：管理员手动下发的设置必须最终胜出，
+            //   否则包内的观感 / 同步开关会把它踩回去（提醒已退出随包通道，见 r113）。
+            string pushMsg = await ApplyPushAsync();
+            if (pushMsg.Length > 0) sb.Append("　设置下发已生效：").Append(pushMsg);
+
             TxtStatus.Text = sb.ToString();
             report = sb.ToString();
 
             ApplyPermissions();   // 角色 / 角色权限可能随包变了，按钮可用性要跟着刷新
+            // ★ r115：随包通道带的是「显示 9 项 + 同步 5 项」。显示类在教室机没有可看界面，
+            //   但同步开关就在「信息管理」页上 —— 不重载同样要退出重登才看到，和独立下发是同一个坑。
+            if (IsLoaded && ap.SettingsApplied) LoadInfoSettings();
             RefreshUpdateStatus();
         }
         catch (Exception ex)
@@ -4377,6 +4498,35 @@ public partial class MainWindow : Window
     /// 发布：本机是"发布机"时，从 source 目录的 Excel 重新打包上传；
     /// 否则直接把本机当前数据打包上传（适合教师在自己电脑上临时发一次修正）。
     /// </summary>
+    /// <summary>
+    /// 「下发设置到教室机」：只把设置推到数据源的 manifest，不重下课表。
+    /// <para>为什么单独一条通道：每次课表更新都随包覆盖设置，会把教室机现场调好的显示 / 同步开关冲掉；
+    /// 而且发布机的数据源路径常常和教室机不同，随包下发会把教室机的更新通路改死。</para>
+    /// </summary>
+    private void BtnPushSettings_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UserSession.CanPublish)
+        {
+            TxtStatus.Text = "只有管理员能下发设置。";
+            return;
+        }
+
+        var st = Store.LoadSettings();
+        var src = FeedSourceFactory.Create(st);
+        if (src == null)
+        {
+            TxtStatus.Text = "还没配置数据源，无法下发设置。请先填写共享文件夹或 FTP 地址。";
+            new UpdateSettingsWindow { Owner = this }.ShowDialog();
+            RefreshUpdateStatus();
+            SetupUpdateTimer();
+            return;
+        }
+
+        var w = new SettingsPushWindow { Owner = this };
+        w.ShowDialog();
+        RefreshUpdateStatus();
+    }
+
     private async void BtnPublishNow_Click(object sender, RoutedEventArgs e)
     {
         var st = Store.LoadSettings();
@@ -4409,6 +4559,7 @@ public partial class MainWindow : Window
                 "发布到：" + UpdateService.DescribeSource(st) + "\n\n" +
                 "文件名含「临时」的，按 yyyy-MM-dd 前缀对齐到「所在周」（写周三也算本周）。\n" +
                 "临时课表按整周快照处理：这些周内未标记 调/代 的格子会还原为底表原课程。\n" +
+                "本次会携带设置白名单（显示 / 提醒 / 更新 / 同步开关）一起下发。\n" +
                 "发布成功后，本机数据也会同步成这一版。\n\n" +
                 "确定发布吗？";
 
@@ -4444,7 +4595,16 @@ public partial class MainWindow : Window
             {
                 var r = await Task.Run(() => SourcePublisher.Publish(src, st.PublishSourcePath, Environment.MachineName));
 
-                TxtStatus.Text = (r.Skipped ? "数据源上已是最新，未重复上传。" : "") + r.Message;
+                // ★ 明确告诉管理员本次设置随包下发到第几代，教室机按代次决定是否应用。
+                //   SourcePublisher 在导出成功后已把自增代次落盘，这里读到的就是刚发布出去那份包的代次。
+                int carriedRev = Store.LoadSettings().SettingsPublishRev;
+
+                TxtStatus.Text = (r.Skipped ? "数据源上已是最新，未重复上传。" : "") + r.Message
+                    + (r.Ok
+                        ? (r.Skipped ? $"（观感设置沿用已发布包，代次 {carriedRev}）"
+                                     : $"（观感设置随包下发，代次 {carriedRev}；教室机更新到本包后生效）")
+                          + " 提醒 / 数据源路径用「下发设置到教室机」单独下发。"
+                        : "");
 
                 // 本机同步成功后，界面上的课表 / 调代 / 教师表都得跟着变
                 if (r.LocalApplied)
@@ -4472,7 +4632,12 @@ public partial class MainWindow : Window
             else
             {
                 var (ok, msg) = await Task.Run(() => UpdateService.PublishCurrent(src, Environment.MachineName));
-                TxtStatus.Text = msg;
+                // 同样带上设置代次，让"发布到数据源"这条路径也一眼看清设置下发到第几代。
+                int rev2 = Store.LoadSettings().SettingsPublishRev;
+                TxtStatus.Text = msg + (ok
+                    ? $"（观感设置随包下发，代次 {rev2}；教室机更新到本包后生效）"
+                      + " 提醒 / 数据源路径用「下发设置到教室机」单独下发。"
+                    : "");
                 if (!ok) MessageBox.Show(msg, "发布数据包", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
@@ -5161,6 +5326,7 @@ public partial class MainWindow : Window
         RebuildTeachingClassChips();
         TxtTeachingClassHint.Text = ClassNames.Count == 0 ? "（未导入课表，暂无可选班级）" : "选中即加入列表";
         ApplyInfoPermissions();
+        _stampInfo = Store.SettingsStamp;   // 记下本次装载对应的设置文件戳（切页时用来判断是否需要重载）
     }
 
     /// <summary>任教班级 → 一排可勾选、可移除的小标签。</summary>

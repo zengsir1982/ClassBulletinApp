@@ -499,12 +499,16 @@ public static class SourcePublisher
                 overridesAuthoritative: authoritative,
                 includeManualOverrides: includeManual,
                 rev: rev,
-                userBook: Store.LoadUsers());
+                userBook: Store.LoadUsers(),
+                includeSettings: true);
             if (!exp.Ok)
             {
                 r.Message = "打包失败：" + exp.Error;
                 return r;
             }
+
+            // 设置代次自增要立刻落盘，保证下次发布继续 +1
+            Store.SaveSettings(setNow);
 
             var manifestJson = ReadManifest(tmpPkg);
             var localSha = SchedulePackage.ReadDataSha(manifestJson);

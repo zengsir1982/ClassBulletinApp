@@ -692,6 +692,38 @@ public class AppSettings
     public string LastUpdateCheckInfo { get; set; } = "";
 
     /// <summary>
+    /// 本机已应用过的「数据包设置代次」（0 = 从未应用过任何设置包）。
+    /// <para>★ 只由<see cref="ScheduleCore.Services.SchedulePackage"/>在按代次应用设置时写入：
+    /// 包里的 SettingsRev 比它大才覆盖，否则保留本机手工调整。手动导入走"一律覆盖"时同步到包代次。</para>
+    /// <para>与 <see cref="PackageRev"/> 无关：后者只在课表策略变化时自增，无法反映"只改了设置"的情形。</para>
+    /// </summary>
+    public int AppliedSettingsRev { get; set; }
+
+    /// <summary>
+    /// 发布端「设置代次」计数器：每次带设置导出数据包时自增，写进包的 meta.SettingsRev。
+    /// <para>教室机据此判断要不要应用设置（见 <see cref="AppliedSettingsRev"/>），
+    /// 与 <see cref="PackageRev"/> 各自独立——课表没变、只改了设置时也要能下发。</para>
+    /// </summary>
+    public int SettingsPublishRev { get; set; }
+
+    /// <summary>
+    /// 上次随包发布时那份「观感设置」的内容指纹（SHA-256，十六进制）。
+    /// <para>★ 代次只在<b>内容真的变了</b>时才 +1：内容没变就沿用旧代次，教室机判定"代次未提升"直接跳过，
+    /// 不会被每次课表发布反复重刷设置。空 = 从没发布过，首次必升。</para>
+    /// </summary>
+    public string SettingsPublishFingerprint { get; set; } = "";
+
+    /// <summary>
+    /// 独立下发通道已应用的推送凭据（<see cref="SchedulePackage.PackageManifest.SettingsPushId"/>）。
+    /// <para>管理员每点一次「下发设置」都会生成新的 PushId；教室机只要发现与本机不同就应用。
+    /// <b>不看代次大小</b>，所以历史代次虚高（如本机 236、包 33）也不会让下发失效。</para>
+    /// </summary>
+    public string LastSettingsPushId { get; set; } = "";
+
+    /// <summary>最近一次独立下发应用的回执（数据管理页可见，便于回溯是哪一版改了什么）。</summary>
+    public string LastAppliedSettingsInfo { get; set; } = "";
+
+    /// <summary>
     /// 访问 Gitee 仓库所需的口令（可留空）。仅在仓库为<b>私有</b>时用于「检查软件更新」；
     /// 仓库设为公开后就不需要了。只存本机 settings.json，绝不随数据包下发。
     /// </summary>

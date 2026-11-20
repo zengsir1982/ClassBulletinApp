@@ -122,7 +122,8 @@ public static class SchedulePackage
         bool overridesAuthoritative = false,
         bool includeManualOverrides = false,
         int rev = 0,
-        UserBook? userBook = null)
+        UserBook? userBook = null,
+        bool includeSettings = true)
     {
         var res = new ExportResult { Path = outPath };
 
@@ -145,9 +146,44 @@ public static class SchedulePackage
             var meta = new PackageMeta
             {
                 SemesterStartMonday = settings?.SemesterStartMonday ?? "",
-                Theme = settings?.Theme ?? "",
-                Reminder = settings?.Reminder
+                Theme = settings?.Theme ?? ""
+                // ★ r113：提醒退出随包通道（见下面 BuildPackageSettings 的说明）。
+                //   这里不再写 meta.Reminder —— 新包一律不带提醒，读取端仍兼容老包。
             };
+
+            // 设置白名单：只拷"换台电脑也想一样"的项，且绝不写密码 / 设备 ID / 窗口布局。
+            // ★ 代次由「内容指纹」驱动：内容没变就不升代次 → 教室机判定"代次未提升"直接跳过，
+            //   不会再出现"每次课表发布都把教室机设置重刷一遍"。
+            // ★ 不进随包通道的两类：更新来源 + 同步根目录（SourceGroup）、提醒（r113）。
+            //   它们只由「下发设置到教室机」的独立通道显式推送。
+            if (includeSettings && settings != null)
+            {
+                var ps = BuildPackageSettings(settings, includeSourceGroup: false);
+
+                // ★ r113：提醒（上下课提醒 / 语音 / 提示音 / 课表变化提醒）**退出随包通道**。
+                //   随包每次课表发布都会整套写一遍设置，管理员刚用「下发设置」改的提醒
+                //   会被随后应用的包踩回去（现场：改成"关"、教室机回执"已应用"，
+                //   实际被包里的旧值改回"开"，教室里照响）。
+                //   提醒是现场行为开关、与课表数据无关，只由独立下发通道（PushId）携带：
+                //   置 null = 本包不带提醒，`ApplyPackageSettings` 会跳过该项（老包仍兼容）。
+                ps.Reminder = null;
+
+                string fp = SettingsFingerprint(ps);
+
+                bool contentChanged = !string.Equals(fp, settings.SettingsPublishFingerprint,
+                    StringComparison.Ordinal);
+                int settingsRev = contentChanged
+                    ? Math.Max(1, settings.SettingsPublishRev + 1)
+                    : Math.Max(1, settings.SettingsPublishRev);
+
+                meta.SettingsIncluded = true;
+                meta.SettingsRev = settingsRev;
+                meta.Settings = ps;
+
+                // 发布端状态写回（这里 settings 是调用方 Store.LoadSettings() 的实例，直接改对象即可）
+                settings.SettingsPublishRev = settingsRev;
+                settings.SettingsPublishFingerprint = fp;
+            }
 
             // 包覆盖的时间范围：导入时用它决定"清掉本机哪一段的旧调代课"。
             // 即使包内没有任何调代课，也要给一个范围（当前周）——
@@ -294,6 +330,10 @@ public static class SchedulePackage
         try { return JsonSerializer.Deserialize<PackageManifest>(manifestJson, ReadOpt); }
         catch { return null; }
     }
+
+    /// <summary>把 manifest 序列化成上传用的 JSON 文本（独立设置下发通道改完清单后用）。</summary>
+    public static string SerializeManifest(PackageManifest man)
+        => JsonSerializer.Serialize(man, WriteOpt);
 
     // ==================================================================
     //  检查（不写盘）
@@ -515,6 +555,12 @@ public static class SchedulePackage
         /// <summary>本次随包带来的角色权限与原来不同（界面需要重刷按钮可用性）。</summary>
         public bool PolicyApplied { get; set; }
 
+        /// <summary>本次是否应用了随包下发的设置白名单（0 = 包没带设置，或代次未提升）。</summary>
+        public bool SettingsApplied { get; set; }
+
+        /// <summary>本次应用设置的原因（首次初始化 / 代次提升 / 手动导入覆盖 / 代次未提升跳过）。</summary>
+        public string SettingsReason { get; set; } = "";
+
         /// <summary>
         /// 应用后对当前登录身份的重新绑定结果。
         /// <para>★ <c>Removed</c> / <c>Disabled</c> 表示"我自己被这个包踢掉了"：
@@ -557,10 +603,170 @@ public static class SchedulePackage
     }
 
     /// <summary>
+    /// 是否应用包内设置。三分支（见方案图）：本机无代次记录 → 全量应用；包代次更高 → 覆盖；否则跳过。
+    /// <para>手动导入（settingsByRev=false）永远应用（用户主动选择"包设置覆盖本机"）。</para>
+    /// </summary>
+    public static bool ShouldApplySettings(int localRev, int packageRev, bool settingsByRev, out string why)
+    {
+        if (!settingsByRev)
+        {
+            why = "手动导入覆盖";
+            return true;
+        }
+        if (localRev <= 0)
+        {
+            why = "首次全量应用初始设置";
+            return true;
+        }
+        if (packageRev > localRev)
+        {
+            why = "代次提升";
+            return true;
+        }
+        why = "代次未提升跳过";
+        return false;
+    }
+
+    /// <summary>
+    /// 从本机设置构造包里要带的白名单。
+    /// <para><paramref name="includeSourceGroup"/> = false（随包通道）时，
+    /// 「更新来源 + 同步根目录」留空且 <see cref="PackageSettings.SourceGroupIncluded"/> = false，
+    /// 应用侧据此跳过这几项——避免每次课表发布重置教室机的数据源路径。</para>
+    /// </summary>
+    public static PackageSettings BuildPackageSettings(AppSettings s, bool includeSourceGroup)
+    {
+        var ps = new PackageSettings
+        {
+            // 观感类：各机应当一致，随包通道正常携带
+            WeekStartDay = s.WeekStartDay,
+            ShowPanelOnStart = s.ShowPanelOnStart,
+            AutoShowSchedule = s.AutoShowSchedule,
+            AutoShowNotification = s.AutoShowNotification,
+            AutoShowHomework = s.AutoShowHomework,
+            AutoShowMissing = s.AutoShowMissing,
+            AutoShowNotice = s.AutoShowNotice,
+            DoodleRestoreOnStart = s.DoodleRestoreOnStart,
+            DoodleStartCollapsed = s.DoodleStartCollapsed,
+            // 提醒：本方法构造的是"完整白名单"（独立下发通道用）。
+            // ★ 随包通道在 Export 里会把 Reminder 置空 —— 见那里的 r113 说明。
+            Reminder = s.Reminder,
+
+            // 同步开关（不含 BoardSyncRoot / ActorId）
+            BoardSyncEnabled = s.BoardSyncEnabled,
+            BoardSyncPopupDuringBreak = s.BoardSyncPopupDuringBreak,
+            BoardSyncFullScreenReminder = s.BoardSyncFullScreenReminder,
+            BoardSyncVoiceReminder = s.BoardSyncVoiceReminder,
+            BoardSyncAutoApply = s.BoardSyncAutoApply,
+
+            SourceGroupIncluded = includeSourceGroup
+        };
+
+        if (includeSourceGroup)
+        {
+            ps.AutoUpdateEnabled = s.AutoUpdateEnabled;
+            ps.UpdateSourceKind = s.UpdateSourceKind;
+            ps.UpdateFolderPath = s.UpdateFolderPath;
+            ps.UpdateFtpUrl = s.UpdateFtpUrl;
+            ps.UpdateIntervalMinutes = s.UpdateIntervalMinutes;
+            ps.UpdateStartupDelaySeconds = s.UpdateStartupDelaySeconds;
+            ps.BoardSyncRoot = s.BoardSyncRoot;
+        }
+
+        return ps;
+    }
+
+    /// <summary>
+    /// 白名单内容指纹（稳定序列化后取 SHA-256）。
+    /// <para>只比对"会被下发的内容"，不含代次 / 时间戳等易变字段，
+    /// 因此同一份设置反复导出必得同一指纹。</para>
+    /// </summary>
+    public static string SettingsFingerprint(PackageSettings ps)
+    {
+        try
+        {
+            // 固定字段顺序：用排序后的键值对拼串，避免不同序列化器版本造成伪差异
+            var sb = new System.Text.StringBuilder();
+            void B(string k, object? v) => sb.Append(k).Append('=').Append(
+                v is bool b ? (b ? "1" : "0") : (v?.ToString() ?? "")).Append('\n');
+
+            B("WeekStartDay", ps.WeekStartDay);
+            B("ShowPanelOnStart", ps.ShowPanelOnStart);
+            B("AutoShowSchedule", ps.AutoShowSchedule);
+            B("AutoShowNotification", ps.AutoShowNotification);
+            B("AutoShowHomework", ps.AutoShowHomework);
+            B("AutoShowMissing", ps.AutoShowMissing);
+            B("AutoShowNotice", ps.AutoShowNotice);
+            B("DoodleRestoreOnStart", ps.DoodleRestoreOnStart);
+            B("DoodleStartCollapsed", ps.DoodleStartCollapsed);
+            B("Reminder", ps.Reminder == null ? "" : JsonSerializer.Serialize(ps.Reminder, ReadOpt));
+            B("BoardSyncEnabled", ps.BoardSyncEnabled);
+            B("BoardSyncPopupDuringBreak", ps.BoardSyncPopupDuringBreak);
+            B("BoardSyncFullScreenReminder", ps.BoardSyncFullScreenReminder);
+            B("BoardSyncVoiceReminder", ps.BoardSyncVoiceReminder);
+            B("BoardSyncAutoApply", ps.BoardSyncAutoApply);
+            if (ps.SourceGroupIncluded)
+            {
+                B("AutoUpdateEnabled", ps.AutoUpdateEnabled);
+                B("UpdateSourceKind", ps.UpdateSourceKind);
+                B("UpdateFolderPath", ps.UpdateFolderPath);
+                B("UpdateFtpUrl", ps.UpdateFtpUrl);
+                B("UpdateIntervalMinutes", ps.UpdateIntervalMinutes);
+                B("UpdateStartupDelaySeconds", ps.UpdateStartupDelaySeconds);
+                B("BoardSyncRoot", ps.BoardSyncRoot);
+            }
+
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sb.ToString());
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+        }
+        catch
+        {
+            // 指纹算不出来时保守当作"内容变了"，宁可按新内容下发
+            return Guid.NewGuid().ToString("N");
+        }
+    }
+
+    /// <summary>把包内设置白名单逐项写入本机设置（只碰白名单字段，其余一律不动）。</summary>
+    public static void ApplyPackageSettings(AppSettings st, PackageSettings ps)
+    {
+        st.WeekStartDay = ps.WeekStartDay;
+        st.ShowPanelOnStart = ps.ShowPanelOnStart;
+        st.AutoShowSchedule = ps.AutoShowSchedule;
+        st.AutoShowNotification = ps.AutoShowNotification;
+        st.AutoShowHomework = ps.AutoShowHomework;
+        st.AutoShowMissing = ps.AutoShowMissing;
+        st.AutoShowNotice = ps.AutoShowNotice;
+        st.DoodleRestoreOnStart = ps.DoodleRestoreOnStart;
+        st.DoodleStartCollapsed = ps.DoodleStartCollapsed;
+        if (ps.Reminder != null) st.Reminder = ps.Reminder;
+        st.BoardSyncEnabled = ps.BoardSyncEnabled;
+        st.BoardSyncPopupDuringBreak = ps.BoardSyncPopupDuringBreak;
+        st.BoardSyncFullScreenReminder = ps.BoardSyncFullScreenReminder;
+        st.BoardSyncVoiceReminder = ps.BoardSyncVoiceReminder;
+        st.BoardSyncAutoApply = ps.BoardSyncAutoApply;
+
+        // ★ 更新来源 + 同步根目录只在显式声明包含时才写，否则一律保留本机原值。
+        if (ps.SourceGroupIncluded)
+        {
+            st.AutoUpdateEnabled = ps.AutoUpdateEnabled;
+            st.UpdateSourceKind = ps.UpdateSourceKind;
+            st.UpdateFolderPath = ps.UpdateFolderPath;
+            st.UpdateFtpUrl = ps.UpdateFtpUrl;
+            st.UpdateIntervalMinutes = ps.UpdateIntervalMinutes;
+            st.UpdateStartupDelaySeconds = ps.UpdateStartupDelaySeconds;
+            st.BoardSyncRoot = ps.BoardSyncRoot;
+        }
+    }
+
+    /// <summary>
     /// 把检查过的包写入本机。**写盘前自动备份**；本机手工调课（Source=manual）与
     /// 本班通知（Scope=local）一律保留。
     /// </summary>
-    public static ApplyResult Apply(InspectResult pkg, bool writeMeta = true)
+    /// <param name="settingsByRev">
+    /// 设置白名单是否按代次应用：
+    /// <para><b>true（自动更新通道）</b>：本机无代次记录 → 全量应用；包代次更高 → 覆盖；否则不动本机设置。</para>
+    /// <para><b>false（手动导入 / 默认）</b>：包带设置就一律覆盖本机，并把本机代次同步到包代次。</para>
+    /// </param>
+    public static ApplyResult Apply(InspectResult pkg, bool writeMeta = true, bool settingsByRev = false)
     {
         var res = new ApplyResult();
         if (pkg?.Schedule == null || pkg.Manifest == null)
@@ -735,11 +941,40 @@ public static class SchedulePackage
                     st.Theme = pkg.Meta.Theme!;
                     touched = true;
                 }
-                if (pkg.Meta.Reminder != null)
+                // ★ 老包（不带 SettingsIncluded）才用 meta.Reminder 兜底覆盖。
+                //   r113 起新包**不再携带提醒**（随包通道 Reminder=null、也不写 meta.Reminder），
+                //   这段只剩"兼容 v1.0.15 之前导出的老包"一个用途。
+                if (!pkg.Meta.SettingsIncluded && pkg.Meta.Reminder != null)
                 {
                     st.Reminder = pkg.Meta.Reminder;
                     touched = true;
                 }
+
+                // ★ 设置白名单（SettingsIncluded=true 才有），按代次决定是否应用：
+                //   settingsByRev=false（手动导入）：一律覆盖，本机代次同步到包代次。
+                //   settingsByRev=true（自动更新）：本机无记录→全量应用；包代次更高→覆盖；否则跳过。
+                if (pkg.Meta.SettingsIncluded && pkg.Meta.Settings is { } ps)
+                {
+                    bool apply = ShouldApplySettings(st.AppliedSettingsRev, pkg.Meta.SettingsRev,
+                        settingsByRev, out string why);
+                    res.SettingsReason = why;
+
+                    if (apply)
+                    {
+                        ApplyPackageSettings(st, ps);
+                        // ★ r113：只升不降。原来直接赋值，一个代次更小的包就能把本机高水位拉低，
+                        //   下一次大代次的包又能覆盖一遍设置（现场代次在 37 与 242 之间锯齿）。
+                        st.AppliedSettingsRev = Math.Max(st.AppliedSettingsRev, pkg.Meta.SettingsRev);
+                        res.SettingsApplied = true;
+                        touched = true;
+                    }
+                    else
+                    {
+                        res.Warnings.Add($"包内设置代次 {pkg.Meta.SettingsRev} 未高于本机 {st.AppliedSettingsRev}，"
+                                       + "已保留本机设置（管理员需提升设置代次才会下发）。");
+                    }
+                }
+
                 if (touched) Store.SaveSettings(st);
             }
 
@@ -835,6 +1070,26 @@ public class PackageManifest
     /// </summary>
     public string DataSha256 { get; set; } = "";
 
+    // ── 独立设置下发通道（与 data.cbpack 内的 meta 完全解耦）────────────────────
+    // ★ manifest 不参与 DataSha256 计算，所以只改这里不会改变整包摘要 →
+    //   教室机不会误判"课表有更新"去下载整包，真正做到"只下发设置"。
+
+    /// <summary>本次清单是否携带独立下发的设置（false = 没下发过，行为不变）。</summary>
+    public bool SettingsIncluded { get; set; }
+
+    /// <summary>下发代次（仅用于展示与回执；是否应用由 <see cref="SettingsPushId"/> 决定）。</summary>
+    public int SettingsRev { get; set; }
+
+    /// <summary>
+    /// 推送凭据：管理员每点一次「下发设置」生成新的 GUID。
+    /// <para>教室机存 <c>LastSettingsPushId</c>，两者不同就应用——<b>不看代次大小</b>，
+    /// 因此本机历史代次虚高也不会让下发失效（这正是 236 那类问题的解法）。</para>
+    /// </summary>
+    public string SettingsPushId { get; set; } = "";
+
+    /// <summary>下发的设置内容（完整白名单，含更新来源组）。</summary>
+    public PackageSettings? Settings { get; set; }
+
     public List<PackageFile> Files { get; set; } = new();
 }
 
@@ -851,4 +1106,61 @@ public class PackageMeta
     public string SemesterStartMonday { get; set; } = "";
     public string Theme { get; set; } = "";
     public ReminderSettings? Reminder { get; set; }
+
+    /// <summary>本包是否携带设置白名单（false = 老包，行为完全不变）。</summary>
+    public bool SettingsIncluded { get; set; }
+
+    /// <summary>
+    /// 设置代次：发布端每次带设置导出时自增。教室机仅在「本机无记录」或「包代次更高」时应用。
+    /// <para>独立于 <see cref="PackageManifest.Rev"/>（后者只在课表策略变化时自增，反映不了"只改了设置"）。</para>
+    /// </summary>
+    public int SettingsRev { get; set; }
+
+    public PackageSettings? Settings { get; set; }
+}
+
+/// <summary>
+/// 随包下发的设置白名单——只含"换台电脑也想一样"的项。
+/// <para>★ 绝不含：密码 / FTP 凭据 / BoardSyncActorId（设备身份）/ 窗口布局 / 显示班级 /
+/// 发布机身份与源目录 / 保存目录。本机私有项漏进包会串到 30 台机器上。</para>
+/// </summary>
+public class PackageSettings
+{
+    // 显示
+    public int WeekStartDay { get; set; }
+    public bool ShowPanelOnStart { get; set; }
+    public bool AutoShowSchedule { get; set; }
+    public bool AutoShowNotification { get; set; }
+    public bool AutoShowHomework { get; set; }
+    public bool AutoShowMissing { get; set; }
+    public bool AutoShowNotice { get; set; }
+    public bool DoodleRestoreOnStart { get; set; }
+    public bool DoodleStartCollapsed { get; set; }
+
+    // 提醒
+    public ReminderSettings? Reminder { get; set; }
+
+    // 自动更新来源（数据源路径 / 频率——部署到新机后不必再手填）
+    public bool AutoUpdateEnabled { get; set; }
+    public string UpdateSourceKind { get; set; } = "Off";
+    public string UpdateFolderPath { get; set; } = "";
+    public string UpdateFtpUrl { get; set; } = "";
+    public int UpdateIntervalMinutes { get; set; } = 30;
+    public int UpdateStartupDelaySeconds { get; set; } = 30;
+
+    /// <summary>
+    /// 本组「更新来源 + 同步根目录」字段是否随本次下发（<b>应用时用它决定要不要写这几项</b>）。
+    /// <para>★ 随包通道恒为 false：教室机数据源路径常与发布机不同（一个走共享盘、一个走 FTP），
+    /// 每次课表发布都把路径改掉会直接把更新通道掐死，且现场无从察觉。
+    /// 这几项只允许管理员在「下发设置」面板里显式推送。</para>
+    /// </summary>
+    public bool SourceGroupIncluded { get; set; }
+
+    // 班级内容同步开关（不带 ActorId / PollSeconds 这类本机项）
+    public bool BoardSyncEnabled { get; set; }
+    public string BoardSyncRoot { get; set; } = "";
+    public bool BoardSyncPopupDuringBreak { get; set; }
+    public bool BoardSyncFullScreenReminder { get; set; }
+    public bool BoardSyncVoiceReminder { get; set; }
+    public bool BoardSyncAutoApply { get; set; }
 }

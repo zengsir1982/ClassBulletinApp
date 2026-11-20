@@ -364,6 +364,7 @@ public partial class App : System.Windows.Application
                     "dutyedit" => new DutyEditWindow(),
                     "backupwin" => new BackupWindow(),
                     "updatesettings" => new UpdateSettingsWindow(),
+                    "settingspush" => new SettingsPushWindow(),
                     "sharewizard" => new ShareAccessWizardWindow(),
                     "sharewizard1" => new ShareAccessWizardWindow { InitialStep = 1 },
                     "sharewizard2" => new ShareAccessWizardWindow { InitialStep = 2 },
@@ -2316,6 +2317,359 @@ public partial class App : System.Windows.Application
                 return new MainWindow();
             });
 
+            // r112：随包通道只带观感类 + 内容指纹驱动代次 + 独立下发通道（PushId）
+            Check("设置通道：随包只带观感类 / 内容不变不升代次 / 独立下发按 PushId / 提醒只走独立下发", () =>
+            {
+                string d = Path.Combine(Path.GetTempPath(), "cbuicheck-settings-" + Guid.NewGuid().ToString("N")[..8]);
+                System.IO.Directory.CreateDirectory(d);
+                string storeBackup = "";
+                try
+                {
+                    var sch = new ClassSchedule { ClassName = "诊断班" };
+                    var sf = new ScheduleFile();
+                    sf.Classes.Add(sch);
+
+                    var st = new AppSettings
+                    {
+                        AutoShowSchedule = true, AutoShowHomework = false,
+                        AutoUpdateEnabled = true, UpdateSourceKind = "Folder",
+                        UpdateFolderPath = @"\\server\课表", BoardSyncEnabled = true,
+                        GiteeToken = "SECRET_TOKEN_X", AutoLoginPassword = "SECRET_PWD",
+                        BoardSyncActorId = "DEVICE-ID-X",
+                        SettingsPublishRev = 4
+                    };
+                    st.Reminder.Enabled = true;
+
+                    string pkg = Path.Combine(d, "s.cbpack");
+                    var ex = SchedulePackage.Export(pkg, sf, new List<LessonOverride>(),
+                        new List<Notification>(), st, "diag", includeSettings: true);
+                    if (!ex.Ok) throw new Exception("带设置导出失败：" + ex.Error);
+                    if (st.SettingsPublishRev != 5) throw new Exception("发布端代次未自增到 5，实际 " + st.SettingsPublishRev);
+
+                    var ins = SchedulePackage.Inspect(pkg);
+                    if (!ins.Ok || ins.Meta == null || !ins.Meta.SettingsIncluded || ins.Meta.Settings == null)
+                        throw new Exception("包未正确携带设置");
+                    if (ins.Meta.SettingsRev != 5) throw new Exception("包内设置代次不是 5");
+
+                    // ★ r112：随包通道**不得**携带更新来源组（否则每次课表发布都会重置教室机数据源）
+                    if (ins.Meta.Settings.SourceGroupIncluded)
+                        throw new Exception("随包通道不该包含更新来源组");
+                    if (!string.IsNullOrEmpty(ins.Meta.Settings.UpdateFolderPath)
+                        || ins.Meta.Settings.AutoUpdateEnabled
+                        || !string.IsNullOrEmpty(ins.Meta.Settings.BoardSyncRoot))
+                        throw new Exception("随包通道漏出了数据源 / 同步根目录字段");
+
+                    // 观感类必须正常带上
+                    if (!ins.Meta.Settings.AutoShowSchedule || ins.Meta.Settings.AutoShowHomework)
+                        throw new Exception("随包通道丢了观感设置（显示开关）");
+                    if (!ins.Meta.Settings.BoardSyncEnabled)
+                        throw new Exception("随包通道丢了同步开关");
+
+                    // ★ r113：提醒退出随包通道 —— 包内白名单与老兼容字段都不得携带提醒
+                    if (ins.Meta.Settings.Reminder != null)
+                        throw new Exception("随包通道仍带着提醒（提醒只能走独立下发）");
+                    if (ins.Meta.Reminder != null)
+                        throw new Exception("新包仍写入了老兼容字段 meta.Reminder（提醒不该随包）");
+
+                    // 排除本机私有：把整个 meta 序列化后不得出现密码 / 设备 ID / 数据源路径串
+                    string metaJson = System.Text.Json.JsonSerializer.Serialize(ins.Meta);
+                    if (metaJson.Contains("SECRET_TOKEN_X") || metaJson.Contains("SECRET_PWD")
+                        || metaJson.Contains("DEVICE-ID-X") || metaJson.Contains(@"\\server\课表"))
+                        throw new Exception("设置白名单混进了密码 / 设备 ID / 数据源路径");
+                    // 包内**原始** meta.json 也不能出现提醒字段（Export 用 WhenWritingNull，能直接测出来）
+                    string metaRaw;
+                    using (var zs = System.IO.Compression.ZipFile.OpenRead(pkg))
+                    using (var sr = new System.IO.StreamReader(zs.GetEntry("meta.json")!.Open()))
+                        metaRaw = sr.ReadToEnd();
+                    if (metaRaw.Contains("\"Reminder\""))
+                        throw new Exception("包内 meta.json 仍出现 Reminder 字段（提醒应完全退出随包通道）");
+
+                    // ★ 内容没变 → 再导出不升代次
+                    string pkg2 = Path.Combine(d, "s2.cbpack");
+                    var ex2 = SchedulePackage.Export(pkg2, sf, new List<LessonOverride>(),
+                        new List<Notification>(), st, "diag", includeSettings: true);
+                    if (!ex2.Ok) throw new Exception("二次导出失败");
+                    if (st.SettingsPublishRev != 5)
+                        throw new Exception($"内容未变却升了代次（{st.SettingsPublishRev}），教室机会被反复重刷设置");
+
+                    // ★ 内容变了 → 升一代
+                    st.ShowPanelOnStart = !st.ShowPanelOnStart;
+                    string pkg3 = Path.Combine(d, "s3.cbpack");
+                    var ex3 = SchedulePackage.Export(pkg3, sf, new List<LessonOverride>(),
+                        new List<Notification>(), st, "diag", includeSettings: true);
+                    if (!ex3.Ok) throw new Exception("三次导出失败");
+                    if (st.SettingsPublishRev != 6)
+                        throw new Exception($"内容变了却没升代次（{st.SettingsPublishRev}）");
+
+                    // 老包（不携带设置）→ SettingsIncluded=false，行为不变
+                    string pkgOld = Path.Combine(d, "old.cbpack");
+                    var stOld = new AppSettings();
+                    var exOld = SchedulePackage.Export(pkgOld, sf, new List<LessonOverride>(),
+                        new List<Notification>(), stOld, "diag", includeSettings: false);
+                    if (!exOld.Ok) throw new Exception("老包导出失败");
+                    var insOld = SchedulePackage.Inspect(pkgOld);
+                    if (!insOld.Ok || insOld.Meta == null || insOld.Meta.SettingsIncluded)
+                        throw new Exception("老包不该标记携带设置");
+
+                    // 三分支决策（纯函数，不碰磁盘）
+                    bool b1 = SchedulePackage.ShouldApplySettings(0, 5, true, out string r1);
+                    bool b2 = SchedulePackage.ShouldApplySettings(3, 5, true, out string r2);
+                    bool b3 = SchedulePackage.ShouldApplySettings(5, 5, true, out string r3);
+                    bool b4 = SchedulePackage.ShouldApplySettings(9, 5, true, out string r4);
+                    bool bManual = SchedulePackage.ShouldApplySettings(9, 5, false, out string rM);
+                    if (!b1 || r1 != "首次全量应用初始设置") throw new Exception("首次分支错：" + r1);
+                    if (!b2 || r2 != "代次提升") throw new Exception("代次提升分支错：" + r2);
+                    if (b3 || b4 || r3 != "代次未提升跳过") throw new Exception("代次未提升分支错：" + r3);
+                    if (!bManual || rM != "手动导入覆盖") throw new Exception("手动导入分支错：" + rM);
+
+                    // ── 独立下发通道 ────────────────────────────────────────────
+                    string feedDir = Path.Combine(d, "feed");
+                    System.IO.Directory.CreateDirectory(feedDir);
+                    var baseMan = new PackageManifest
+                    {
+                        Schema = SchedulePackage.SchemaVersion,
+                        Kind = "data",
+                        DataSha256 = "sha-original",
+                        Files = new List<PackageFile>()
+                    };
+                    File.WriteAllText(Path.Combine(feedDir, "manifest.json"),
+                        SchedulePackage.SerializeManifest(baseMan));
+                    File.WriteAllText(Path.Combine(feedDir, "data.cbpack"), "FAKE-PACKAGE-BODY");
+
+                    var feed = new FolderFeedSource(feedDir);
+                    var psPush = SchedulePackage.BuildPackageSettings(st, includeSourceGroup: true);
+                    var push1 = SettingsPushService.Push(feed, psPush);
+                    if (!push1.Ok) throw new Exception("下发设置失败：" + push1.Message);
+                    if (push1.Skipped) throw new Exception("首次下发不该被跳过");
+                    if (string.IsNullOrEmpty(push1.PushId)) throw new Exception("下发没有生成 PushId");
+
+                    // ★ 只上传 manifest：data.cbpack 必须原封不动
+                    if (File.ReadAllText(Path.Combine(feedDir, "data.cbpack")) != "FAKE-PACKAGE-BODY")
+                        throw new Exception("下发设置改动了 data.cbpack（应只传 manifest）");
+
+                    var manRemote = SchedulePackage.ParseManifest(
+                        File.ReadAllText(Path.Combine(feedDir, "manifest.json")));
+                    if (manRemote == null || !manRemote.SettingsIncluded || manRemote.Settings == null)
+                        throw new Exception("数据源 manifest 没有写入设置");
+                    if (manRemote.DataSha256 != "sha-original")
+                        throw new Exception("下发设置改动了整包摘要（会让教室机重下课表）");
+                    if (manRemote.Settings.SourceGroupIncluded != true
+                        || manRemote.Settings.UpdateFolderPath != @"\\server\课表")
+                        throw new Exception("独立通道没带上更新来源组");
+
+                    // ★ r113：独立通道必须仍带提醒（随包通道退出后，它是提醒唯一的落地通道）
+                    if (manRemote.Settings.Reminder == null)
+                        throw new Exception("独立通道丢了提醒设置");
+
+                    // ★ r113：只改提醒时，回执必须逐项列出（原来漏比提醒 → 永远"内容与本机一致"）
+                    var stCmp = Store.LoadSettings();
+                    var psSame = SchedulePackage.BuildPackageSettings(stCmp, includeSourceGroup: false);
+                    if (SettingsPushService.DescribeChanges(stCmp, psSame).Count != 0)
+                        throw new Exception("同内容却报出了变更项");
+
+                    var psRem = SchedulePackage.BuildPackageSettings(stCmp, includeSourceGroup: false);
+                    psRem.Reminder = System.Text.Json.JsonSerializer.Deserialize<ReminderSettings>(
+                        System.Text.Json.JsonSerializer.Serialize(stCmp.Reminder))!;
+                    psRem.Reminder.Enabled = !stCmp.Reminder.Enabled;
+                    var remChanges = SettingsPushService.DescribeChanges(stCmp, psRem);
+                    if (!remChanges.Any(c => c.Contains("提醒")))
+                        throw new Exception("只改提醒时回执没列出提醒项（会被误判成下发失败）");
+
+                    // 内容相同 → 不重复推送
+                    var push2 = SettingsPushService.Push(feed, psPush);
+                    if (!push2.Ok || !push2.Skipped)
+                        throw new Exception("内容相同却重复推送了");
+
+                    // 教室机按 PushId 应用：第一次应用、同一 PushId 第二次跳过
+                    storeBackup = System.Text.Json.JsonSerializer.Serialize(Store.LoadSettings());
+                    var ap1 = SettingsPushService.ApplyFromManifest(manRemote);
+                    if (!ap1.Applied) throw new Exception("PushId 变化未触发应用：" + ap1.Message);
+                    var ap2 = SettingsPushService.ApplyFromManifest(manRemote);
+                    if (ap2.Applied) throw new Exception("同一 PushId 被重复应用");
+
+                    // 应用后本机应真的拿到数据源路径（独立通道允许写这几项）
+                    if (Store.LoadSettings().UpdateFolderPath != @"\\server\课表")
+                        throw new Exception("独立通道没有应用更新来源组");
+
+                    // ★ 代次未提升时必须整体跳过设置，连提醒也不能被这次课表更新改掉
+                    //   （老包兼容分支原本无条件写 meta.Reminder，会绕过代次判断）
+                    var stGuard = Store.LoadSettings();
+                    stGuard.AppliedSettingsRev = 999;
+                    stGuard.Reminder.Enabled = false;
+                    Store.SaveSettings(stGuard);
+
+                    var insSkip = SchedulePackage.Inspect(pkg3);   // 包代次 6 < 本机 999
+                    var apSkip = SchedulePackage.Apply(insSkip, settingsByRev: true);
+                    if (!apSkip.Ok) throw new Exception("跳过分支 Apply 失败：" + apSkip.Error);
+                    if (apSkip.SettingsApplied) throw new Exception("代次更高时不该应用设置");
+                    if (Store.LoadSettings().Reminder.Enabled)
+                        throw new Exception("代次跳过时提醒仍被改写（老兼容分支绕过了代次判定）");
+
+                    // ★ r113：代次只升不降 + 提醒不随包
+                    //   强制应用（手动导入路径 settingsByRev=false）也不能把本机高水位拉低，
+                    //   否则下一个大代次包又能覆盖一遍设置（现场 37 与 242 之间锯齿）。
+                    var stHigh = Store.LoadSettings();
+                    stHigh.AppliedSettingsRev = 999;
+                    stHigh.Reminder.Enabled = false;
+                    Store.SaveSettings(stHigh);
+
+                    var apHigh = SchedulePackage.Apply(SchedulePackage.Inspect(pkg3), settingsByRev: false);
+                    if (!apHigh.Ok) throw new Exception("高水位 Apply 失败：" + apHigh.Error);
+                    if (!apHigh.SettingsApplied) throw new Exception("手动导入路径没应用设置");
+                    if (Store.LoadSettings().AppliedSettingsRev != 999)
+                        throw new Exception($"代次被小包拉低了（Math.Max 没生效）：{Store.LoadSettings().AppliedSettingsRev}");
+                    if (Store.LoadSettings().Reminder.Enabled)
+                        throw new Exception("应用数据包把提醒改掉了（提醒应从随包通道退出）");
+
+                    return new LoginWindow();
+                }
+                finally
+                {
+                    // 诊断改过的设置全部还原，避免影响后续断言
+                    if (storeBackup.Length > 0)
+                    {
+                        try
+                        {
+                            var restore = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(storeBackup);
+                            if (restore != null) Store.SaveSettings(restore);
+                        }
+                        catch { }
+                    }
+                    try { System.IO.Directory.Delete(d, true); } catch { }
+                }
+            });
+
+            // ★ r114：下发只写磁盘，界面控件不会自己变 —— 锁住「设置 → 提醒面板」这条重载路径。
+            //   现场反馈：教室机下发后必须退出软件重登才看到提醒变化；而「启动显示面板」那项在独立
+            //   设置窗口里，每次打开都读盘，看着"立刻生效"，于是被误判成"提醒下发失败"。
+            Check("提醒面板：设置变了 ReloadReminderUi 能跟着刷新", () =>
+            {
+                string backup = System.Text.Json.JsonSerializer.Serialize(Store.LoadSettings());
+                try
+                {
+                    var s = Store.LoadSettings();
+                    s.Reminder ??= new ReminderSettings();
+                    bool target = !s.Reminder.Enabled;
+                    s.Reminder.Enabled = target;
+                    Store.SaveSettings(s);
+
+                    var w = new MainWindow();
+
+                    // 程序里只有 Window_Loaded 会调 ReloadReminderUi；诊断不 Show 窗口，
+                    // 这里反射直接调一次，验证重载本身能把控件刷成磁盘值。
+                    var mi = w.GetType().GetMethod("ReloadReminderUi",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    if (mi == null)
+                        throw new Exception("找不到 ReloadReminderUi（改名/删除？下发后的界面刷新会静默失效）");
+                    mi.Invoke(w, null);
+
+                    if (w.ChkRemindEnabled == null)
+                        throw new Exception("提醒总开关控件缺失");
+                    if (w.ChkRemindEnabled.IsChecked != target)
+                        throw new Exception($"重载后提醒总开关没跟随设置（期望 {target}，实际 {w.ChkRemindEnabled.IsChecked}）");
+
+                    return new LoginWindow();
+                }
+                finally
+                {
+                    try
+                    {
+                        var r = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(backup);
+                        if (r != null) Store.SaveSettings(r);
+                    }
+                    catch { }
+                }
+            });
+
+            // ★ r115：B3 的两块地基 —— ①设置文件戳会随写盘变化（切页判新）；
+            //   ②变更分组能分清「提醒」与「同步」，下发后只重载真的变了的那一页。
+            Check("设置刷新地基：文件戳随写盘变化 / 变更分组分得清提醒与同步", () =>
+            {
+                string backup = System.Text.Json.JsonSerializer.Serialize(Store.LoadSettings());
+                try
+                {
+                    // 本段验证的就是"写盘 → 戳变化"，必须真的落盘（诊断默认可能处于不写盘状态）
+                    bool oldPersist = Store.EnablePersistence;
+                    Store.EnablePersistence = true;
+                    try
+                    {
+                        var stamp0 = Store.SettingsStamp;
+                        var stamp1 = stamp0;
+                        // ★ 文件系统的写入时间戳有粒度（连续两次写可能落在同一刻度），
+                        //   单次写盘后 stamp 可能恰好没变 —— 这是诊断的时序问题，不是产品 bug。
+                        //   最多重试 5 次、每次等 30ms 越过一个刻度，并且每次写不同的内容，
+                        //   保证在任何时间粒度下都能观察到戳变化。
+                        for (int attempt = 0; attempt < 5 && stamp1 == stamp0; attempt++)
+                        {
+                            if (attempt > 0) System.Threading.Thread.Sleep(30);
+                            var sProbe = Store.LoadSettings();
+                            sProbe.LastUpdateCheckInfo = "stamp-probe-" + Guid.NewGuid().ToString("N")[..8];
+                            Store.SaveSettings(sProbe);
+                            stamp1 = Store.SettingsStamp;
+                        }
+                        if (stamp1 == stamp0)
+                            throw new Exception($"改写 settings.json 后文件戳没变"
+                                + $"（{stamp0:O} / {stamp1:O}，dir={Store.AppDir}，persist={Store.EnablePersistence}）");
+                    }
+                    finally { Store.EnablePersistence = oldPersist; }
+
+                    var st = Store.LoadSettings();
+
+                    // 情况一：内容完全一致 → 两组都不该报变更
+                    var ps0 = SchedulePackage.BuildPackageSettings(st, includeSourceGroup: false);
+                    var g0 = SettingsPushService.TouchedGroups(st, ps0);
+                    if (g0.Reminder || g0.Sync)
+                        throw new Exception("内容没变却报出了变更组（会导致无谓重载、冲掉正在输入的内容）");
+
+                    // 情况二：只改提醒 → 只有提醒组
+                    //   ★ 必须先克隆：BuildPackageSettings 里的 Reminder 与 st.Reminder 是同一个引用，
+                    //     直接改会把"本机值"也改掉，比对结果永远相同。
+                    var ps1 = SchedulePackage.BuildPackageSettings(st, includeSourceGroup: false);
+                    ps1.Reminder = System.Text.Json.JsonSerializer.Deserialize<ReminderSettings>(
+                        System.Text.Json.JsonSerializer.Serialize(st.Reminder))!;
+                    ps1.Reminder.Enabled = !st.Reminder.Enabled;
+                    var g1 = SettingsPushService.TouchedGroups(st, ps1);
+                    if (!g1.Reminder) throw new Exception("只改提醒时没识别出提醒组");
+                    if (g1.Sync) throw new Exception("只改提醒却被判成同步组变了");
+
+                    // 情况三：只改同步开关 → 只有同步组
+                    var ps2 = SchedulePackage.BuildPackageSettings(st, includeSourceGroup: false);
+                    ps2.BoardSyncEnabled = !st.BoardSyncEnabled;
+                    var g2 = SettingsPushService.TouchedGroups(st, ps2);
+                    if (!g2.Sync) throw new Exception("只改同步开关时没识别出同步组");
+                    if (g2.Reminder) throw new Exception("只改同步却被判成提醒组变了");
+
+                    // 提醒页必须有 x:Name，切页刷新才挂得上
+                    var w = new MainWindow();
+                    if (w.TabReminder == null)
+                        throw new Exception("提醒页缺少 TabReminder（切页自动重载会失效）");
+
+                    // 端到端：设置文件被外部改过之后，切回「信息管理」页应当自动重载，不必重启软件
+                    bool targetSync = !Store.LoadSettings().BoardSyncVoiceReminder;
+                    var sSync = Store.LoadSettings();
+                    sSync.BoardSyncVoiceReminder = targetSync;
+                    Store.SaveSettings(sSync);
+
+                    w.MainTabs.SelectedItem = w.TabReminder;      // 先离开信息页
+                    w.MainTabs.SelectedItem = w.TabInfoManage;    // 再回来 → 文件戳变了，应当重载
+                    if (w.ChkInfoVoice == null)
+                        throw new Exception("信息管理页语音开关控件缺失");
+                    if (w.ChkInfoVoice.IsChecked != targetSync)
+                        throw new Exception($"切页没有重载信息管理页（期望 {targetSync}，实际 {w.ChkInfoVoice.IsChecked}）");
+
+                    return new LoginWindow();
+                }
+                finally
+                {
+                    try
+                    {
+                        var r = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(backup);
+                        if (r != null) Store.SaveSettings(r);
+                    }
+                    catch { }
+                }
+            });
+
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
@@ -3843,6 +4197,43 @@ public partial class App : System.Windows.Application
                           fixedMs.TitleStyle!.SizeLevel == xl &&
                           fixedMs.Items[0].SizeLevel == xl &&
                           Store.LoadSettings().BoardFontDefaultsRev == 2);
+
+                    // ⑥e r111：通知 / 值日便签默认特大加粗；已有内容沿用原格式
+                    var freshNotice = new ScheduleCore.Models.Notification();
+                    BoardSyncService.EnsureNoticeBigStyle(freshNotice, null);
+                    Check("新添加通知默认特大加粗",
+                          freshNotice.TitleStyle?.Bold == true && freshNotice.TitleStyle.SizeLevel == xl
+                          && freshNotice.ContentStyle?.Bold == true && freshNotice.ContentStyle.SizeLevel == xl,
+                          $"T={freshNotice.TitleStyle?.Bold}/{freshNotice.TitleStyle?.SizeLevel} "
+                          + $"C={freshNotice.ContentStyle?.Bold}/{freshNotice.ContentStyle?.SizeLevel}");
+
+                    var oldNotice = new ScheduleCore.Models.Notification
+                    {
+                        TitleStyle = new ScheduleCore.Models.TextStyle { Bold = false, SizeLevel = 0 },
+                        ContentStyle = new ScheduleCore.Models.TextStyle { Bold = false, SizeLevel = 1 }
+                    };
+                    var coveredNotice = new ScheduleCore.Models.Notification();
+                    BoardSyncService.EnsureNoticeBigStyle(coveredNotice, oldNotice);
+                    Check("覆盖已有通知沿用原字体格式",
+                          coveredNotice.TitleStyle?.Bold == false && coveredNotice.TitleStyle.SizeLevel == 0
+                          && coveredNotice.ContentStyle?.Bold == false && coveredNotice.ContentStyle.SizeLevel == 1);
+
+                    var freshDuty = new ScheduleCore.Models.DutyBoard();
+                    BoardSyncService.EnsureDutyBigStyle(freshDuty, hadContent: false);
+                    Check("空值日板新添加默认特大加粗",
+                          freshDuty.TitleStyle.Bold && freshDuty.TitleStyle.SizeLevel == xl
+                          && freshDuty.ContentStyle.SizeLevel == xl
+                          && freshDuty.DayStyle.SizeLevel == xl && freshDuty.DutyStyle.SizeLevel == xl);
+
+                    var oldDuty = new ScheduleCore.Models.DutyBoard
+                    {
+                        TitleStyle = new ScheduleCore.Models.TextStyle { Bold = false, SizeLevel = 0 },
+                        ContentStyle = new ScheduleCore.Models.TextStyle { SizeLevel = 1 }
+                    };
+                    BoardSyncService.EnsureDutyBigStyle(oldDuty, hadContent: true);
+                    Check("已有内容的值日板保留原字体格式",
+                          !oldDuty.TitleStyle.Bold && oldDuty.TitleStyle.SizeLevel == 0
+                          && oldDuty.ContentStyle.SizeLevel == 1);
                 }
             }
             catch (Exception ex) { Check("诊断自身异常", false, ex.GetType().Name + ": " + ex.Message); }

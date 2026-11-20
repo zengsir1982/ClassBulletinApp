@@ -922,7 +922,7 @@ public static class BoardSyncService
                                     }
                                 }
                             }
-                            list.Add(new Notification
+                            var added = new Notification
                             {
                                 Id = appliedId,
                                 Title = Get(o.Fields, "title"),
@@ -931,7 +931,11 @@ public static class BoardSyncService
                                 Scope = "local",          // 本班通知绝不进主数据包
                                 CreatedAt = DateTime.Now,
                                 DueAt = o.DueAt                // 绝对时间点，不按天换算
-                            });
+                            };
+                            // ★ 原有通知已有内容 → 沿用它的字体格式（含教室机本地调过的字号）；
+                            //   原来为空 / 全新添加 → 默认特大加粗，照顾教室后排。
+                            EnsureNoticeBigStyle(added, found);
+                            list.Add(added);
                         }
                     }
                     Store.SaveNotifications(list);
@@ -950,6 +954,7 @@ public static class BoardSyncService
                     // （同一张单在两台机器上算出的 Id 必然一致，教室机本地改过的也能按 Id 对上）。
                     var board = Store.LoadDuty();
                     board.Items ??= new List<DutyItem>();
+                    bool hadDutyContent = board.LiveCount > 0;   // 打墓碑前先记：原来有没有内容
 
                     if (decision == BoardSyncConsts.DecReplace)
                     {
@@ -992,6 +997,8 @@ public static class BoardSyncService
                         { Day = it.Day ?? "", Duty = it.Duty ?? "", Names = it.Names ?? "" });
                     }
 
+                    // ★ 原来为空 / 全新添加 → 整板默认特大加粗；已有内容 → 保留原格式
+                    EnsureDutyBigStyle(board, hadDutyContent);
                     Store.SaveDuty(board);
                     if (Store.LastWriteError != null) return (false, Store.LastWriteError, null);
                     dataVersion = DataVersion(Store.LoadDuty());
@@ -1006,6 +1013,7 @@ public static class BoardSyncService
                     // LoadDuty 永不返回 null（没文件时给一个空白板），所以这里不写 ?? 兜底
                     var board = Store.LoadDuty();
                     board.Items ??= new List<DutyItem>();
+                    bool hadDutyContent = board.LiveCount > 0;   // 打墓碑前先记：原来有没有内容
                     var found = board.Items.FirstOrDefault(x => x.Id == targetId);
                     if (found != null && found.Deleted)
                         return (false, "目标条目已是墓碑，拒绝改写（TOMBSTONE_GUARD）。", null);
@@ -1036,6 +1044,8 @@ public static class BoardSyncService
                             board.Items.Add(it);
                         }
                     }
+                    // ★ 原来为空 / 全新添加 → 整板默认特大加粗；已有内容 → 保留原格式
+                    EnsureDutyBigStyle(board, hadDutyContent);
                     Store.SaveDuty(board);
                     if (Store.LastWriteError != null) return (false, Store.LastWriteError, null);
                     dataVersion = DataVersion(Store.LoadDuty());
@@ -1474,6 +1484,29 @@ public static class BoardSyncService
         target.Bold = source.Bold;
         target.Color = source.Color;
         target.SizeLevel = source.SizeLevel;
+    }
+
+    /// <summary>新建便签的默认字体：特大 + 加粗（教室后排要看得清，与作业公示一致）。</summary>
+    static TextStyle NewBigStyle() => new() { Bold = true, SizeLevel = HwTextStyle.ExtraLargeLevel };
+
+    /// <summary>
+    /// 通知 / 值日便签「原有内容沿用原格式，原来为空则默认特大加粗」。
+    /// <para>★ 样式只写本机对象，绝不塞进 <c>BoardChangeOrder.Styles</c>：通知样式按 r71 约定只在本机生效。</para>
+    /// </summary>
+    public static void EnsureNoticeBigStyle(Notification n, Notification? source)
+    {
+        n.TitleStyle = source?.TitleStyle != null ? CopyStyle(source.TitleStyle) : NewBigStyle();
+        n.ContentStyle = source?.ContentStyle != null ? CopyStyle(source.ContentStyle) : NewBigStyle();
+    }
+
+    /// <summary>值日便签原来一条都没有 → 整板样式设特大加粗；已有内容 → 原样保留（老师可能自己调过）。</summary>
+    public static void EnsureDutyBigStyle(DutyBoard board, bool hadContent)
+    {
+        if (hadContent) return;
+        board.TitleStyle = NewBigStyle();
+        board.ContentStyle = NewBigStyle();
+        board.DayStyle = NewBigStyle();
+        board.DutyStyle = NewBigStyle();
     }
 
     /// <summary>

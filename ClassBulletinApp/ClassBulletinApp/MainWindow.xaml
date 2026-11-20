@@ -190,6 +190,8 @@
                                     <TextBlock Text="数据包分发（离线版 / 多教室机同步）" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
                                     <Button x:Name="BtnExportPackage" Content="导出数据包（发到其他教室机）" Margin="0,0,0,10"
                                             Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnExportPackage_Click"/>
+                                    <CheckBox x:Name="ChkExportSettings" Content="同时携带观感设置（显示 / 同步开关；提醒与数据源路径不随包）"
+                                              IsChecked="True" FontSize="13" Foreground="{DynamicResource BodyBrush}" Margin="0,-4,0,12"/>
                                     <Button x:Name="BtnImportPackage" Content="导入数据包（接收校务课表更新）" Margin="0,0,0,10"
                                             Style="{StaticResource AppSuccessButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportPackage_Click"/>
                                     <Button x:Name="BtnBackup" Content="备份与恢复" Margin="0,0,0,20"
@@ -205,6 +207,10 @@
                                             Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateCheck_Click"/>
                                     <Button x:Name="BtnPublishNow" Content="发布到数据源（供其他教室机更新）" Margin="0,0,0,10"
                                             Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnPublishNow_Click"/>
+                                    <Button x:Name="BtnPushSettings" Content="下发设置到教室机…" Margin="0,0,0,4"
+                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnPushSettings_Click"/>
+                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,10" MaxWidth="560"
+                                               Text="只推送设置、不重下课表。教室机下次检查时自动应用，无人值守也能生效。"/>
                                     <TextBlock x:Name="TxtUpdateStatus" Text="自动更新：未配置" FontSize="13" Foreground="{DynamicResource BodyBrush}" TextWrapping="Wrap" Margin="0,2,0,12" LineHeight="19"/>
                                 </StackPanel>
                             </Grid>
@@ -382,7 +388,7 @@
                 </TabItem>
 
                 <!-- 提醒设置（独立标签页） -->
-                <TabItem Header="提醒设置">
+                <TabItem Header="提醒设置" x:Name="TabReminder">
                     <ScrollViewer x:Name="ReminderScroll" Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="780">
                             <TextBlock Text="⏰ 上下课提醒" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,4"/>

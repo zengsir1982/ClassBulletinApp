@@ -131,7 +131,8 @@ public static class UpdateService
                 return r;
             }
 
-            var ap = SchedulePackage.Apply(ins);
+            // ★ 自动更新通道按代次应用设置（手动导入仍是一律覆盖，见 MainWindow）
+            var ap = SchedulePackage.Apply(ins, settingsByRev: true);
             r.Package = ins;
             r.Applied = ap;
             if (!ap.Ok)
@@ -143,7 +144,8 @@ public static class UpdateService
             var st = Store.LoadSettings();
             st.LastAppliedSha = ins.Manifest?.DataSha256 ?? "";
             st.LastAppliedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-            st.LastUpdateCheckInfo = $"已应用 {ins.Manifest?.BuiltAt:MM-dd HH:mm} 的版本";
+            st.LastUpdateCheckInfo = $"已应用 {ins.Manifest?.BuiltAt:MM-dd HH:mm} 的版本"
+                + (ap.SettingsApplied ? $"；设置已按代次 {ins.Meta?.SettingsRev} 应用" : "");
             Store.SaveSettings(st);
 
             r.Ok = true;
@@ -204,8 +206,12 @@ public static class UpdateService
                 overridesAuthoritative: true,
                 includeManualOverrides: includeManual,
                 rev: rev,
-                userBook: Store.LoadUsers());
+                userBook: Store.LoadUsers(),
+                includeSettings: true);
             if (!ex.Ok) return (false, "打包失败：" + ex.Error);
+
+            // 设置代次自增要立刻落盘，保证下次发布继续 +1
+            Store.SaveSettings(st0);
 
             string manifestJson = ReadManifestFromPackage(tmp);
             if (string.IsNullOrEmpty(manifestJson))

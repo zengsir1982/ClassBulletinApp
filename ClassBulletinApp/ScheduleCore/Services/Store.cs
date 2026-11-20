@@ -89,6 +89,14 @@ public static class Store
     static string TeacherSchedulePath => Path.Combine(AppDir, "teacher_schedule.json");
     static string NotificationsPath => Path.Combine(AppDir, "notifications.json");
     static string SettingsPath => Path.Combine(AppDir, "settings.json");
+
+    /// <summary>
+    /// settings.json 的最后写入时刻。<b>只给界面做「是否被外部改过」判断用</b>（r115）：
+    /// 下发设置、随包应用、手动导入、外部手工改文件都会推高这个戳；
+    /// 界面据此在切页时决定要不要重新装载，避免"设置早变了、面板还显示旧值"。
+    /// </summary>
+    public static DateTime SettingsStamp => StampOf(SettingsPath);
+
     static string OverridesPath => Path.Combine(AppDir, "overrides.json");
     static string UsersPath => Path.Combine(AppDir, "users.json");
     static string HomeworkPath => Path.Combine(AppDir, "homework.json");
