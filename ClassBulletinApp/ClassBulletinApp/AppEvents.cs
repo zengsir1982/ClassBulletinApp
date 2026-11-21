@@ -93,6 +93,22 @@ public static class AppEvents
     /// <summary>悬浮课表底部「信息」快捷按钮被点击（直接打开消息台账 / 回执窗口）。</summary>
     public static event Action? QuickOpenInfoLedger;
 
+    /// <summary>悬浮课表底部「通知」快捷按钮被点击（切换「通知公告便签」的显示 / 隐藏）。</summary>
+    public static event Action? QuickOpenNotice;
+
+    /// <summary>悬浮课表底部「黑板」快捷按钮被点击（切换全部涂鸦板的显示 / 收起）。</summary>
+    public static event Action? QuickOpenBoard;
+
+    /// <summary>
+    /// 悬浮课表请求三个「开关型」快捷（板书 / 通知 / 黑板）的当前状态，用来把按钮高亮成开 / 关。
+    /// <para>主窗收到后回 <see cref="QuickToolsStateChanged"/>。诊断模式单独 new 悬浮窗时无人应答，
+    /// 悬浮窗保持默认（全关）即可，不会报错。</para>
+    /// </summary>
+    public static event Action? QuickToolsStateQuery;
+
+    /// <summary>主窗广播通知便签 / 黑板的当前开关状态（板书由悬浮课表自己读 <c>_handMode</c>）。</summary>
+    public static event Action<bool, bool>? QuickToolsStateChanged;
+
     /// <summary>
     /// 内置快捷的显示配置变了（「管理 → 应用快捷方式 → 内置快捷」里勾选）。
     /// <para>悬浮课表据此立即重排，不必重启；本事件与课表数据无关，绝不触发刷新 / 重绘壁纸。</para>
@@ -184,6 +200,11 @@ public static class AppEvents
     public static void RaiseQuickOpenWeek() => QuickOpenWeek?.Invoke();
     public static void RaiseQuickOpenPublish() => QuickOpenPublish?.Invoke();
     public static void RaiseQuickOpenInfoLedger() => QuickOpenInfoLedger?.Invoke();
+    public static void RaiseQuickOpenNotice() => QuickOpenNotice?.Invoke();
+    public static void RaiseQuickOpenBoard() => QuickOpenBoard?.Invoke();
+    public static void RaiseQuickToolsStateQuery() => QuickToolsStateQuery?.Invoke();
+    public static void RaiseQuickToolsStateChanged(bool noticeOn, bool boardOn)
+        => QuickToolsStateChanged?.Invoke(noticeOn, boardOn);
     public static void RaiseQuickActionsChanged() => QuickActionsChanged?.Invoke();
     public static void RaiseQuickCheckUpdate() => QuickCheckUpdate?.Invoke();
     public static void RaiseQuickCheckUpdateDone(bool ok, string message)

@@ -782,6 +782,11 @@ public static class SchedulePackage
                 res.BackupDir = Store.BackupNow("导入数据包 " + Path.GetFileName(pkg.Path));
 
             // 2) 底表：整份覆盖（包里是完整的 90 班底表）
+            //    ★ r129：手动录入的班级不在包里（或包还是旧版本）时保留本机那份，否则一次自动更新
+            //      就把用户手排的课表抹掉了。只保留「本机能查到它的课程设置」的班 —— 说明是在这台
+            //      机器上手排的；从别的机器同步过来的手动班仍以包为准，发布端删了教室机也会跟着消失。
+            pkg.Schedule.MergeManualFrom(Store.LoadSchedule(),
+                c => Store.LoadScheduleTemplates().FindSetup(c.ClassName) != null);
             Store.SaveSchedule(pkg.Schedule);
             res.ClassCount = pkg.Schedule.Classes.Count;
 

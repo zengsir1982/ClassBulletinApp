@@ -182,6 +182,8 @@ public partial class ScheduleWindow
         SaveHandMode();
         UpdateBackdropButton();
         if (expandWindow) SavePlacement();
+        // 底部快捷区的「板书 / 黑板」胶囊跟着亮灭（标题栏按钮、启动恢复都走这条）
+        RefreshQaToggleVisuals();
     }
 
     private void SaveHandMode()

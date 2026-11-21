@@ -249,6 +249,38 @@
     </Style>
 
     <!--
+        文字链接按钮（r130）：纯文字 + 下划线，用来挂在主按钮后面当辅助入口（如「下载模板」）。
+        ★ 为什么不用 AppGhostButton：描边按钮和主按钮并排会平分注意力，
+          而「下载模板」只是「智能导入」的前置小工具，做成人人都认识的文字链接才不会被误读成独立功能。
+        ★ Padding 给 6,10：文字只有 13px，但命中区要够手指点；VisualTree 里仍是一个 Button，权限 Set 照常可用。
+    -->
+    <Style x:Key="AppLinkButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Padding" Value="6,10"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="Transparent" Padding="{TemplateBinding Padding}">
+                        <TextBlock x:Name="Tx" Text="{TemplateBinding Content}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   TextDecorations="Underline" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Tx" Property="Foreground" Value="{DynamicResource PrimaryDarkBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
         危险动作按钮（r79）：与 AppGhostButton 同构，只把底色/描边/文字换成危险色。
         为什么要单独一份：AppGhostButton 的模板里 Background 写死 DynamicResource CardBrush，
         外挂 Background="..." 是无效的（模板不读 TemplateBinding），

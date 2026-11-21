@@ -103,13 +103,16 @@ public static class WeekHelper
     /// 当前是否处于“上课时间”：取该班当天所有有安排的课程节次时间区间，
     /// 若当前时刻落在任一节次区间内即视为上课中。周末或当日无课表则返回 false。
     /// 用于“上课时间自动隐藏”悬浮窗。
+    /// <para>r133：走 <see cref="SchoolCalendar.Resolve"/>——周六补课那天也算上课时间。</para>
     /// </summary>
-    public static bool IsClassTimeNow(ScheduleFile? schedule, string? className)
+    public static bool IsClassTimeNow(ScheduleFile? schedule, string? className, string? semesterStartMonday = null)
     {
         if (schedule == null || string.IsNullOrEmpty(className)) return false;
         var cs = schedule.Classes.FirstOrDefault(c => c.ClassName == className);
         if (cs == null) return false;
-        int dayIdx = ((int)DateTime.Now.DayOfWeek + 6) % 7;
+        var plan = SchoolCalendar.Resolve(schedule, DateTime.Now, semesterStartMonday);
+        if (plan.IsOff) return false;
+        int dayIdx = plan.DayIdx;
         if (dayIdx > 4) return false;
         if (!cs.Data.TryGetValue(dayIdx, out var dayMap)) return false;
 
@@ -117,7 +120,8 @@ public static class WeekHelper
         foreach (var period in dayMap.Keys)
         {
             var first = dayMap[period].FirstOrDefault();
-            if (first != null && IsWithin(first.TimeRange, now)) return true;
+            // r135：节次时间走统一解析 —— 导入表没写时间但设了全校作息时，自动隐藏不再永久失效
+            if (first != null && IsWithin(BellResolver.ResolveTimeRange(schedule, cs, first), now)) return true;
         }
         return false;
     }

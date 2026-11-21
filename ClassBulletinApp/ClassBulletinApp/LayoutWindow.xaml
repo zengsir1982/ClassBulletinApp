@@ -79,6 +79,11 @@
                         <Slider x:Name="SlNotSpeed" Minimum="40" Maximum="400" TickFrequency="10" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotSpeed" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>
 
+                        <!-- r131 倒计时徽章开关：当天没有换课时，是否在通知条左侧显示最近的倒计时。
+                             换课徽章不受此开关影响（换课是当天动作，优先级更高）。 -->
+                        <CheckBox x:Name="ChkNotCountdownBadge" Content="没有换课时，在通知条左侧显示最近的倒计时（可关）" FontSize="14" Margin="0,14,0,4"
+                                  ToolTip="通知条左侧徽章：当天有换课时显示红色「今日换课 N」；没有换课时，勾了这项且倒计时便签里有未过期事件，就显示琥珀色的最近一条倒计时。关掉后没有换课时徽章隐藏，不影响换课提醒。"/>
+
                         <TextBlock Text="透明度（自动隐藏 / 普通置顶）" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,16,0,4"/>
                         <Slider x:Name="SlNotOpacity" Minimum="0.2" Maximum="1" TickFrequency="0.05" IsSnapToTickEnabled="True" Width="420" HorizontalAlignment="Left"/>
                         <TextBlock x:Name="TxtNotOpacity" FontSize="12" Foreground="{DynamicResource MutedBrush}"/>

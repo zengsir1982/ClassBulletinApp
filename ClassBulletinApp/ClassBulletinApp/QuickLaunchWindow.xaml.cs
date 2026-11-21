@@ -55,10 +55,10 @@ public partial class QuickLaunchWindow : Window
     
         GlassChrome.Prepare(this);}
 
-    // ---------- 内置快捷（九个胶囊）的显示开关 ----------
+    // ---------- 内置快捷（全部胶囊）的显示开关 ----------
 
     /// <summary>
-    /// 九个入口的勾选框：勾上 = 悬浮课表底部显示。
+    /// 全部入口的勾选框：勾上 = 悬浮课表底部显示。
     /// <para>★ 没有权限的入口（例如电教管理员的「发布」）直接禁用并给原因：
     /// 让它可勾但实际不显示，用户会以为设置没保存。</para>
     /// <para>★ 出厂默认按角色走（见 QuickActionCatalog）：电教管理员是作业 / 缺交 / 便签 / 倒数 / 值日 / 信息，
@@ -430,7 +430,7 @@ public partial class QuickLaunchWindow : Window
             s.QlIconOnly = _iconOnly;
             s.QlIconSize = _size;
             s.QaBuiltinFontSize = _builtinSize;   // 0 = 自动（随悬浮课表宽度）
-            QuickActionCatalog.WriteInto(s, _builtinVisible);   // 按当前角色保存九个入口的显隐
+            QuickActionCatalog.WriteInto(s, _builtinVisible);   // 按当前角色保存全部入口的显隐
             Store.SaveSettings(s);
 
             // 悬浮课表立刻重排，不必重启

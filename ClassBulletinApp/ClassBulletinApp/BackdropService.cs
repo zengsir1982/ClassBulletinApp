@@ -365,7 +365,10 @@ public static class BackdropService
                                      showAlternateWeek: s.ShowAlternateWeekLessons);
         string title = string.IsNullOrWhiteSpace(res.ClassName) ? name : res.ClassName;
         if (teacher && !string.IsNullOrWhiteSpace(title)) title = title + " 老师";
-        return (res, title, res.DateText, res.WeekLine);
+        // r133：调休补课 / 放假的标签跟标题行一起画进背景，远看就能知道"今天按周三上课"
+        string weekText = res.WeekLine;
+        if (!string.IsNullOrWhiteSpace(res.DayTag)) weekText += "　" + res.DayTag;
+        return (res, title, res.DateText, weekText);
     }
 
     /// <summary>内容签名：用于判断是否真的需要重绘（日期 / 显示对象 / 课程内容任一变化）。</summary>
@@ -376,9 +379,23 @@ public static class BackdropService
             var s = Store.LoadSettings();
             var b = s.Backdrop ?? new BackdropSettings();
             var sb = new StringBuilder();
+            var dispDate = BoardBuilder.ResolveDisplayDate(s);
+            // r133：校历改了（今天从"按周三"改成放假等）背景要重画，否则壁纸停在旧的课表上
+            var calSchedule = Store.LoadSchedule();
+            var calPlan = SchoolCalendar.Resolve(calSchedule, dispDate, s.SemesterStartMonday);
             sb.Append(s.ScheduleKind).Append('|').Append(s.SelectedClass).Append('|')
-              .Append(s.SelectedTeacher).Append('|').Append(BoardBuilder.ResolveDisplayDate(s).ToString("yyyyMMdd"))
-              .Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing)
+              .Append(s.SelectedTeacher).Append('|').Append(dispDate.ToString("yyyyMMdd"))
+              .Append("|CAL").Append(calPlan.DayIdx).Append(',').Append(calPlan.IsOff).Append(',')
+              .Append(calPlan.IsMakeup).Append(',').Append(calPlan.Note)
+              // r135：课表作息改了也要重绘壁纸（否则节次时间停在旧值上）
+              .Append("|BELL").Append(calSchedule?.Bell?.UpdatedAt?.Ticks.ToString() ?? "-")
+              .Append(calSchedule?.Bell?.Name ?? "");
+            foreach (var p in (calSchedule?.Bell?.Periods ?? new List<ScheduleCore.Models.PeriodTime>()).OrderBy(x => x.Index))
+                sb.Append('#').Append(p.Index).Append(':').Append(p.TimeRange);
+            foreach (var f in calSchedule?.Bell?.FixedSlots ?? new List<ScheduleCore.Models.FixedSlot>())
+                sb.Append('@').Append(f.AfterPeriod).Append(':').Append(f.Name).Append(':').Append(f.TimeRange);
+
+            sb.Append('|').Append(b.ShowSchedule).Append('|').Append(b.ShowHomework).Append('|').Append(b.ShowMissing)
               .Append('|').Append(b.ShowCountdown).Append('|').Append(b.ShowDuty)
               .Append('|').Append(b.ShowNotice)
               .Append('|').Append(b.ShowAnyCustomNote());

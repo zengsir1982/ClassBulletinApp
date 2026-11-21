@@ -168,16 +168,27 @@
                                     <!-- r77：问号不再单独占一行，一律并到它所说明的标题 / 选项行末 -->
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                         <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
-                                        <ctl:HelpBubble PopupTitle="课表导入与调代课" Text="说明：先「导入课表」得到基础课表；再用「导入临时课表」自动识别带（调）/（代）标记的课并生成调代覆盖（仅替换导入来源，保留手动修改）。&#10;&#10;若只有一个班级使用本软件，可直接「导入单个班级课表」（如 八年级X班-班级课程表.xlsx），将仅包含该班课表。&#10;&#10;导入全校总课表 / 单班课表时，会自动按任课教师反向整理出「教师个人课表」（教师人数多时可在顶栏输入姓名查询），选中教师即显示其个人课表，每节课显示所教班级。教师个人也可单独导入自己的课表文件。&#10;&#10;调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。" Margin="6,0,0,0"/>
+                                        <ctl:HelpBubble PopupTitle="课表导入与调代课" Text="说明：推荐用「智能导入课表」，它能自动识别不同学校/系统的课表模板（横排、纵列、单班），先预览解析结果、可微调参数，确认无误再导入。&#10;&#10;「二一课表专用导入」把原来的总课表 / 临时 / 单班 / 教师四个入口合并成一个：选好文件后，程序按文件名猜一个类型（如含「临时」「教师」「班」），你确认或改选即可。&#10;&#10;· 全校总课表：可一次多选七 / 八 / 九年级，更新基础课表并自动整理教师课表。&#10;· 临时课表：只识别带（调）/（代）标记的课生成调代覆盖，不改基础课表，需选生效区间。&#10;· 单个班级 / 单个教师课表：只更新这一个班 / 这一位教师。&#10;&#10;.xls 老格式请先用 Excel/WPS 另存为 .xlsx 再导入。&#10;&#10;调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。&#10;&#10;没有 Excel 课表也能用「手动录入基础课表」：选班级、套用节次模板，逐格填科目/教师/周次（全周/单周/双周），按住格子拖到另一格可直接移动或交换，保存只替换这一个班。窗口左侧的「时间表与科目设置…」可自定义作息时间表（节次时间，以及大课间 / 眼保健操 / 午休这些不占节次的公共时间）、常用科目库，或把录好的课表存成方案反复套用。" Margin="6,0,0,0"/>
                                     </StackPanel>
-                                    <Button x:Name="BtnImport" Content="导入课表（全校总课程表）" Margin="0,0,0,10"
-                                            Style="{StaticResource AppPrimaryButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImport_Click"/>
-                                    <Button x:Name="BtnImportTemp" Content="导入临时课表（含 调 / 代 标记）" Margin="0,0,0,10"
-                                            Style="{StaticResource AppSuccessButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportTemp_Click"/>
-                                    <Button x:Name="BtnImportSingle" Content="导入单个班级课表（单班适用）" Margin="0,0,0,10"
-                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportSingle_Click"/>
-                                    <Button x:Name="BtnImportTeacher" Content="导入单个教师课表（教师个人适用）" Margin="0,0,0,10"
-                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportTeacher_Click"/>
+                                    <!-- r130：「下载模板」是「智能导入」的前置小工具，改成紧跟其后的文字链接
+                                         + 一颗问号说明作用；之前做成独立描边按钮，看着像另一个平级功能，容易被误读 -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="BtnImportSmart" Content="智能导入课表（自动识别模板 · 推荐）"
+                                                Style="{StaticResource AppPrimaryButton}" Padding="18,11" FontSize="15"
+                                                VerticalAlignment="Center" Click="BtnImportSmart_Click"/>
+                                        <Button x:Name="BtnDownloadTemplates" Content="下载模板" Margin="8,0,0,0"
+                                                Style="{StaticResource AppLinkButton}"
+                                                VerticalAlignment="Center" Click="BtnDownloadTemplates_Click"/>
+                                        <ctl:HelpBubble PopupTitle="「下载模板」有什么用"
+                                                        VerticalAlignment="Center"
+                                                        Text="这里下载的是「标准格式」的 Excel 空模板（总课表 / 临时总课表 / 单班课表 / 单个教师课表），不是课表数据本身。&#10;&#10;① 按模板填好，再用左边「智能导入课表」选这个文件，识别率最高、基本不用调参数。&#10;② 模板里已写好各类写法示例：一格两周上不同课写「语文-单|数学-双」，下一行教师写「张老师|李老师」；临时课表的调课写「体育（调）」。&#10;③ 不下载也能导入：智能导入本身就能识别各校现成的课表格式，模板是给「手上只有纸质课表、要从零录入」或「格式太乱识别不准」时用的。&#10;④ 模板里的示例行填之前删掉即可。"/>
+                                    </StackPanel>
+                                    <Button x:Name="BtnImportEryi" Content="二一课表专用导入（总课表 / 临时 / 单班 / 教师）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnImportEryi_Click"/>
+                                    <Button x:Name="BtnManualSchedule" Content="手动录入基础课表（无需 Excel，按班级逐格填）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnManualSchedule_Click"/>
+                                    <Button x:Name="BtnSchoolCalendar" Content="校历 / 调休（周六补周三的课、某天放假）" Margin="0,0,0,10"
+                                            Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnSchoolCalendar_Click"/>
                                     <Button x:Name="BtnClearOverrides" Content="清除临时调课 / 代课…（本周 / 指定范围 / 全部）" Margin="0,0,0,10"
                                             Style="{StaticResource AppDangerButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnClearOverrides_Click"/>
                                     <Button x:Name="BtnRestoreSuspended" Content="恢复被主机停用的本机调课…" Margin="0,0,0,10"

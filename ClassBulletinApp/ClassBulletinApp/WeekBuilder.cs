@@ -28,37 +28,56 @@ public static class WeekBuilder
             foreach (var dm in c.Data.Values)
                 foreach (var p in dm.Keys) maxPeriod = Math.Max(maxPeriod, p);
         data.MaxPeriod = maxPeriod;
+        // 公共时间：r135 课表作息 Bell 优先 → 二一 FixedByGrade 兜底（不再回退本机默认模板）
+        data.FixedSlots = BoardBuilder.ResolveFixedSlots(schedule, selectedClass) ?? new List<FixedSlot>();
 
         var selClass = schedule.Classes.FirstOrDefault(c => c.ClassName == selectedClass);
 
         for (int col = 0; col < 7; col++)
         {
             var thatDate = weekStart.AddDays(col);
-            int dayIdx = ((int)thatDate.DayOfWeek + 6) % 7;      // 0=周一 .. 6=周日
+            // r133 校历：这一列可能"按别的星期上课"（周六补周三的课）或干脆放假。
+            // ★ 补课列的 DayIdx 与被映射的那列相同，所以外面取格子必须按「列号」而不是 DayIdx。
+            var plan = SchoolCalendar.Resolve(schedule, thatDate, semesterStart);
+            int dayIdx = plan.DayIdx;      // 0=周一 .. 6=周日
             data.ColumnDayIdx.Add(dayIdx);
 
-            int parity = WeekHelper.GetParity(thatDate, semesterStart);
+            int parity = plan.Parity;
             // ★ 每一列各取「那一天」生效的覆盖：一条只在本周三生效的调课，不该出现在周四那列
-            var ovDict = OverrideExpander.MapForDate(overrides, selectedClass, thatDate);
-            data.DayHeaders.Add($"{DayName(thatDate.DayOfWeek)}\n{thatDate:MM/dd}");
+            var ovDict = plan.UsesOverrides
+                ? OverrideExpander.MapForDate(overrides, selectedClass, plan.OverrideDate)
+                : new Dictionary<string, LessonOverride>();
+            data.DayHeaders.Add(HeaderText(thatDate, plan));
 
             for (int period = 1; period <= maxPeriod; period++)
             {
                 var cell = new WeekCell
                 {
+                    Col = col,
                     DayIdx = dayIdx,
                     Period = period,
                     DayName = DayName(thatDate.DayOfWeek),
-                    PeriodText = $"第{period}节"
+                    PeriodText = $"第{period}节",
+                    IsMakeupColumn = plan.IsMakeup,
+                    IsOffColumn = plan.IsOff
                 };
+
+                // 放假日：整列留空（连节次时间都不显示，避免看着像有课）
+                if (plan.IsOff)
+                {
+                    data.Cells.Add(cell);
+                    continue;
+                }
 
                 // 时间（取基础课第一条）
                 if (selClass != null && selClass.Data.TryGetValue(dayIdx, out var dayMap)
                     && dayMap.TryGetValue(period, out var lessons) && lessons.Count > 0)
                 {
-                    cell.TimeRange = lessons[0].TimeRange;
-                    if (!string.IsNullOrEmpty(lessons[0].TimeRange))
-                        cell.PeriodText = $"第{period}节\n{lessons[0].TimeRange}";
+                    // r135：与悬浮课表同一套逐节解析，Excel 导入班也能吃到全校作息
+                    string timeRange = BellResolver.ResolveTimeRange(schedule, selClass, lessons[0]);
+                    cell.TimeRange = timeRange;
+                    if (!string.IsNullOrEmpty(timeRange))
+                        cell.PeriodText = $"第{period}节\n{timeRange}";
                 }
 
                 string key = OverrideExpander.CellKey(selectedClass, dayIdx, period);
@@ -107,6 +126,26 @@ public static class WeekBuilder
 
         return data;
     }
+
+    /// <summary>表头：常规「周X／MM/dd」；补课列加一行「按周三」，放假日加一行「放假」。</summary>
+    private static string HeaderText(DateTime date, DayPlan plan)
+    {
+        string head = $"{DayName(date.DayOfWeek)}\n{date:MM/dd}";
+        if (plan.IsOff) return head + "\n放假";
+        if (plan.IsMakeup) return head + "\n按" + DayName(plan.DayIdx) + "上课";
+        return head;
+    }
+
+    private static string DayName(int dayIdx) => dayIdx switch
+    {
+        0 => "周一",
+        1 => "周二",
+        2 => "周三",
+        3 => "周四",
+        4 => "周五",
+        5 => "周六",
+        _ => "周日"
+    };
 
     private static string DayName(DayOfWeek d) => d switch
     {

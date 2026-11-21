@@ -103,6 +103,9 @@ public partial class MainWindow : Window
         AppEvents.QuickOpenWeek += OnQuickOpenWeek;
         AppEvents.QuickOpenPublish += OnQuickOpenPublish;
         AppEvents.QuickOpenInfoLedger += OnQuickOpenInfoLedger;
+        AppEvents.QuickOpenNotice += OnQuickOpenNotice;
+        AppEvents.QuickOpenBoard += OnQuickOpenBoard;
+        AppEvents.QuickToolsStateQuery += OnQuickToolsStateQuery;
         AppEvents.QuickCheckUpdate += OnQuickCheckUpdate;
 
         // 球上右键「隐藏」时，这里的勾选要跟着取消（球是常驻窗口，两边状态必须一致）
@@ -351,6 +354,48 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { TxtStatus.Text = "打不开消息台账：" + ex.Message; }
     }
+
+    /// <summary>悬浮课表「通知」快捷入口：切换「通知公告便签」（复用显示设置里那套显隐逻辑）。</summary>
+    private void OnQuickOpenNotice()
+    {
+        try
+        {
+            if (_noticeOn) HideNoticeWin();
+            else ShowNoticeWin();
+            TxtStatus.Text = _noticeOn
+                ? "已显示通知公告便签（再点一次「通知」可收起）。"
+                : "已收起通知公告便签（内容和事项都留着，下次点「通知」再显示）。";
+        }
+        catch (Exception ex) { TxtStatus.Text = "切换通知公告便签失败：" + ex.Message; }
+    }
+
+    /// <summary>悬浮课表「黑板」快捷入口：切换全部涂鸦板（与显示设置里的黑板开关同一条逻辑）。</summary>
+    private void OnQuickOpenBoard()
+    {
+        try
+        {
+            if (DoodleBoardService.AnyOpen)
+            {
+                DoodleBoardService.HideAllOpen();
+                TxtStatus.Text = "已收起黑板（内容与笔迹都留着，下次点「黑板」就回来）。";
+            }
+            else
+            {
+                DoodleBoardService.ShowAll();
+                TxtStatus.Text = "已打开黑板，共 " + DoodleBoardService.Open.Count + " 块。";
+            }
+            UpdateToggleLabels();
+            RefreshDoodleTrayMenu();
+        }
+        catch (Exception ex) { TxtStatus.Text = "切换黑板失败：" + ex.Message; }
+    }
+
+    /// <summary>悬浮课表请求「通知 / 黑板」当前状态：回执一次，让底部胶囊点亮正确的高亮。</summary>
+    private void OnQuickToolsStateQuery() => PublishQuickToolsState();
+
+    /// <summary>把通知便签 / 黑板的当前开关状态广播给悬浮课表（板书由它自己读）。</summary>
+    private void PublishQuickToolsState()
+        => AppEvents.RaiseQuickToolsStateChanged(_noticeOn, DoodleBoardService.AnyOpen);
 
     /// <summary>
     /// 悬浮课表「发布」快捷入口：直接弹「新建班级内容变更单」。
@@ -692,6 +737,9 @@ public partial class MainWindow : Window
             }
             // 合并调代覆盖：用新的 temp 覆盖替换旧的 temp，保留用户手填的 manual（与 ImportTempSchedule 语义一致）
             var manual = Store.LoadOverrides().Where(o => o.Source != "temp").ToList();
+            // r129：手动录入的班级不在二一缓存里，整份覆盖前先并回来（本机有课程设置的才算本机手排的）
+            result.Schedule.MergeManualFrom(Store.LoadSchedule(),
+                c => Store.LoadScheduleTemplates().FindSetup(c.ClassName) != null);
             Store.SaveSchedule(result.Schedule);
             Store.SaveOverrides(result.Overrides.Concat(manual).ToList());
             fromErYi = true;
@@ -1122,6 +1170,8 @@ public partial class MainWindow : Window
         if (BtnToggleDuty != null) BtnToggleDuty.Content = _dutyOn ? "隐藏值日便签" : "显示值日便签";
         if (BtnToggleNotice != null) BtnToggleNotice.Content = _noticeOn ? "隐藏通知公告便签" : "显示通知公告便签";
         UpdateModeIndicator();
+        // 悬浮课表底部「通知 / 黑板」胶囊据此同步高亮（所有开关路径最终都会走到这里）
+        PublishQuickToolsState();
     }
 
     /// <summary>
@@ -1144,7 +1194,6 @@ public partial class MainWindow : Window
         }
 
         // 整份数据（影响全部班级 / 全部教室机）
-        Set(BtnImport, canData, UserSession.DenyManageData);
         Set(BtnClearOverrides, canData, UserSession.DenyManageData);
         Set(BtnClearImported, canData, UserSession.DenyManageData);
 
@@ -1153,14 +1202,20 @@ public partial class MainWindow : Window
         Set(BtnImportPackage, canPack, UserSession.DenyManagePackage);
         Set(BtnBackup, canPack, UserSession.DenyManagePackage);
 
-        // ★ 单班导入与教师课表刻意留在「总课表」权限下，不跟临时课表一起放开：
-        //   这两个入口都能选任意班级 / 任意教师，一旦给班主任开了，
-        //   他就能把别的班整份导入覆盖掉 —— 这不是"改本班"的范畴。
-        Set(BtnImportSingle, canData, UserSession.DenyManageData);
-        Set(BtnImportTeacher, canData, UserSession.DenyManageData);
+        // ★ 二一专用导入是四合一入口：总课表 / 单班 / 教师需 ManageData，临时课表可单独授权 ImportTemp。
+        //   任一有权即可进入，窗口内按类型逐项禁用无权选项（判定仍只走 UserSession）。
+        //   单班 / 教师刻意留在 ManageData 下，不给只有 ImportTemp 的角色开 —— 否则能覆盖任意班。
+        Set(BtnImportEryi, canData || canTemp,
+            canData ? null : UserSession.DenyImportTemp);
 
-        // 每周的临时课表：影响面较小，可单独授权
-        Set(BtnImportTemp, canTemp, UserSession.DenyImportTemp);
+        // 手动录入基础课表：整班覆盖底表 = 导入级操作，走 ManageData。
+        // （时间表与科目设置的入口已挪进手动录入窗口，数据管理页不再单独放按钮）
+        Set(BtnManualSchedule, canData, UserSession.DenyManageData);
+        // 校历 / 调休：改的是"全校上哪天的课"，与课表同等重要，走同一权限。
+        Set(BtnSchoolCalendar, canData, UserSession.DenyManageData);
+
+        // 下载导入模板 = 导入的前置辅助，跟着智能导入同一权限。
+        Set(BtnDownloadTemplates, canData, UserSession.DenyManageData);
 
         // 发布 / 同步策略（一次点击影响 30 台机器）；名单管理能给自己升管理员 —— 这两项恒只给管理员
         // ★ 自动更新设置（BtnUpdateSettings）走 CanManageUpdate：所有角色默认都能改本机更新来源，
@@ -3164,7 +3219,40 @@ public partial class MainWindow : Window
     }
 
     // ---------- 课表导入后的统一处理（含教师个人课表整理） ----------
+    /// <summary>
+    /// 导入 / 自动更新 / 手动录入的统一落盘入口。
+    /// <para>r129：先把上一条记录里的「手动录入」班级并回来再写盘 —— 自动更新与 Excel 导入
+    /// 都只该替换「导入的那一套」，不能把用户手排的课表顺手抹掉。</para>
+    /// </summary>
     private void ApplyImportedSchedule(ScheduleFile sf, string importPath, out int teacherCount)
+    {
+        _manualKept = MergeManualClasses(sf, Store.LoadSchedule());
+        if (_manualKept > 0) ScheduleImporter.SortClasses(sf);   // 手动的班也按年级/班号排好，别都堆在末尾
+        SaveScheduleAndRefresh(sf, importPath, out teacherCount);
+    }
+
+    /// <summary>最近一次导入 / 自动更新里「原样保留的手动录入班」数量（r129，供状态栏文案用）。</summary>
+    private int _manualKept;
+
+    /// <summary>状态栏后缀：本次导入保留了几份手动录入的课表。没有就返回空串。</summary>
+    private string ManualKeptNote()
+        => _manualKept > 0 ? "（另有 " + _manualKept + " 个手动录入的班原样保留）" : "";
+
+    /// <summary>
+    /// 把 previous 里的手动录入班级并回 incoming（同名以 incoming 为准）。返回补回的班数。
+    /// 纯函数，便于诊断直接断言；真正的逻辑在 <see cref="ScheduleFile.MergeManualFrom"/>。
+    /// </summary>
+    internal static int MergeManualClasses(ScheduleFile incoming, ScheduleFile? previous)
+        => incoming.MergeManualFrom(previous);
+
+    /// <summary>
+    /// 写底表 + 重建班级列表 / 教师表 / 数据源标记。删除班级时直接调它（不走合并）。
+    /// </summary>
+    /// <param name="markExcel">
+    /// 是否把主数据源切成 Excel。导入 / 手动录入要切（否则下次启动被二一缓存盖回去）；
+    /// 「删除手动班」不该顺手改数据源，传 false。
+    /// </param>
+    private void SaveScheduleAndRefresh(ScheduleFile sf, string importPath, out int teacherCount, bool markExcel = true)
     {
         Store.SaveSchedule(sf);
         ClassNames.Clear();
@@ -3173,7 +3261,7 @@ public partial class MainWindow : Window
         var st = Store.LoadSettings();
         st.LastImportPath = importPath;
         // 用户主动用 Excel 定义/覆盖基础课表后，把主数据源切到 Excel，避免下次启动又被 ErYi 缓存覆盖
-        st.ScheduleSource = "Excel";
+        if (markExcel) st.ScheduleSource = "Excel";
         if (ClassNames.Count > 0 &&
             (string.IsNullOrEmpty(st.SelectedClass) || !ClassNames.Contains(st.SelectedClass)))
             st.SelectedClass = ClassNames[0];
@@ -3227,22 +3315,242 @@ public partial class MainWindow : Window
         RefreshTeacherCombo();
     }
 
-    // ---------- 导入课表 ----------
-    private void BtnImport_Click(object sender, RoutedEventArgs e)
+    // ---------- 智能导入课表（自动识别模板 + 预览校正）----------
+    // ---------- 下载导入模板（总课表 / 临时总课表 / 单班 / 教师）----------
+    private void BtnDownloadTemplates_Click(object sender, RoutedEventArgs e)
+    {
+        var pick = new ImportTemplatePickWindow { Owner = this };
+        if (pick.ShowDialog() != true) return;
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "Excel 工作簿 (*.xlsx)|*.xlsx",
+            FileName = ImportTemplateWriter.DefaultFileName(pick.Kind),
+            Title = "保存" + ImportTemplateWriter.KindLabel(pick.Kind) + "模板"
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            ImportTemplateWriter.Write(dlg.FileName, pick.Kind);
+            MessageBox.Show("模板已保存：\n" + dlg.FileName +
+                "\n\n按模板填好后，用「智能导入课表」选择该文件即可。"
+                + "\n\n单双周课程照模板里的示例填：一格写「语文-单|数学-双」，下一行教师写「张老师|李老师」。",
+                "已保存", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("生成模板失败：" + ex.Message, "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void BtnImportSmart_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
-            Title = "选择全校总课程表（可一次多选七 / 八 / 九年级三份）",
+            Filter = "Excel 工作簿 (*.xlsx)|*.xlsx",
+            Title = "选择课表文件（支持不同学校/系统的模板，可单个或一次多选）",
             Multiselect = true
         };
         if (dlg.ShowDialog() != true) return;
 
+        // .xls 老格式：ClosedXML 不支持，给明确转存指引（本期不引入 OLE2 解析库）
+        var badXls = dlg.FileNames.Where(p => string.Equals(System.IO.Path.GetExtension(p), ".xls", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (badXls.Count > 0)
+        {
+            MessageBox.Show("以下文件是老式 .xls 格式，暂不支持：\n" +
+                string.Join("\n", badXls.Select(System.IO.Path.GetFileName)) +
+                "\n\n请用 Excel 或 WPS 打开后「另存为」→ 选择 .xlsx 格式，再重新导入。",
+                "需要转换格式", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        var files = dlg.FileNames.Where(p => !string.Equals(System.IO.Path.GetExtension(p), ".xls", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (files.Count == 0) return;
+
+        try
+        {
+            var cur = Store.LoadSchedule() ?? new ScheduleFile();
+            int before = cur.Classes.Count;
+            var parsedFiles = new List<string>();
+            var overwritten = new List<string>();
+
+            foreach (var path in files)
+            {
+                var preview = new ImportPreviewWindow(path) { Owner = this };
+                if (preview.ShowDialog() != true) continue;
+
+                var sf = preview.Result;
+                if (sf == null || sf.Classes.Count == 0) continue;
+
+                parsedFiles.Add(System.IO.Path.GetFileName(path));
+                foreach (var c in sf.Classes)
+                {
+                    if (cur.Classes.Any(x => x.ClassName == c.ClassName)) overwritten.Add(c.ClassName);
+                    cur.Classes.RemoveAll(x => x.ClassName == c.ClassName);
+                    cur.Classes.Add(c);
+                }
+            }
+
+            if (parsedFiles.Count == 0)
+            {
+                TxtStatus.Text = "智能导入已取消，未改动现有课表。";
+                return;
+            }
+
+            ScheduleImporter.SortClasses(cur);
+            cur.SourceFiles = parsedFiles;
+            cur.SourceFile = parsedFiles.Count == 1 ? files[0] : $"智能合并自 {parsedFiles.Count} 份：{string.Join("、", parsedFiles)}";
+            cur.ImportedAt = DateTime.Now;
+            ApplyImportedSchedule(cur, files[0], out int tc);
+
+            int total = cur.Classes.Count;
+            int net = total - before;
+            var ow = overwritten.Distinct().ToList();
+            string mergeInfo = $"共 {total} 个班（原有 {before}、净增 {Math.Max(0, net)}" +
+                (ow.Count == 0 ? "、无同名覆盖" :
+                 ow.Count <= 5 ? $"、覆盖同名班 {string.Join("、", ow)}" : $"、覆盖同名班 {ow.Count} 个") + "）";
+            TxtStatus.Text = $"智能导入完成：{mergeInfo}；已整理 {tc} 位教师的个人课表。"
+                + ManualKeptNote()
+                + (badXls.Count > 0 ? $"　{badXls.Count} 个 .xls 文件需转存后重导。" : "");
+            AppEvents.RaiseScheduleChanged();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "智能导入失败：" + ex.Message;
+        }
+    }
+
+    // ---------- 二一课表专用导入（合并入口）----------
+    /// <summary>
+    /// 一个按钮取代原「总课表 / 临时 / 单班 / 教师」四个入口。
+    /// 选文件 → 按文件名智能预选类型 → 用户确认 → 分派到对应落盘逻辑。
+    /// </summary>
+    private void BtnImportEryi_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Excel 工作簿 (*.xlsx)|*.xlsx",
+            Title = "选择二一课表文件（总课表可一次多选七 / 八 / 九年级）",
+            Multiselect = true
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        var files = dlg.FileNames.ToList();
+        var badXls = files.Where(p => string.Equals(System.IO.Path.GetExtension(p), ".xls", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (badXls.Count > 0)
+            MessageBox.Show("以下文件是老式 .xls 格式，暂不支持：\n" +
+                string.Join("\n", badXls.Select(System.IO.Path.GetFileName)) +
+                "\n\n请用 Excel 或 WPS 打开后「另存为」→ .xlsx 格式，再重新导入。",
+                "需要转换格式", MessageBoxButton.OK, MessageBoxImage.Information);
+        files = files.Where(p => !string.Equals(System.IO.Path.GetExtension(p), ".xls", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (files.Count == 0) return;
+
+        var picker = new EryiImportKindWindow(files) { Owner = this };
+        if (picker.ShowDialog() != true) return;
+
+        switch (picker.Kind)
+        {
+            case EryiImportKind.Base:
+                DoImportBase(files.ToArray());
+                break;
+            case EryiImportKind.Temp:
+                // 临时课表是"补丁"且要选生效区间，逐份导入（一般只选一份）
+                foreach (var f in files) DoImportTemp(f);
+                break;
+            case EryiImportKind.Single:
+                foreach (var f in files) DoImportSingle(f);
+                break;
+            case EryiImportKind.Teacher:
+                foreach (var f in files) DoImportTeacher(f);
+                break;
+        }
+    }
+
+    // ---------- 校历 / 调休（r133）：周六补周三的课、某天放假 ----------
+    private void BtnSchoolCalendar_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UserSession.CanManageData) { MessageBox.Show(UserSession.DenyManageData, "无权", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        new SchoolCalendarWindow { Owner = this }.ShowDialog();
+    }
+
+    // ---------- 手动录入基础课表（r121；时间表与科目设置入口 r126 移进录入窗口）----------
+    private void BtnManualSchedule_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UserSession.CanManageData) { MessageBox.Show(UserSession.DenyManageData, "无权", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+
+        var tmpl = Store.LoadScheduleTemplates();
+        var wnd = new ManualScheduleWindow(Store.LoadSchedule(), tmpl) { Owner = this };
+        if (wnd.ShowDialog() != true) return;
+
+        // r129：窗口里点了「删除该班」
+        if (!string.IsNullOrWhiteSpace(wnd.DeleteClassName))
+        {
+            DeleteClassFromSchedule(wnd.DeleteClassName!);
+            return;
+        }
+        if (wnd.Result == null) return;
+
+        // 只替换目标班、其他班原样保留：载入现有 schedule.json，按班名替换或追加。
+        var sf = Store.LoadSchedule() ?? new ScheduleFile();
+        var edited = wnd.Result;
+        int idx = sf.Classes.FindIndex(c => c.ClassName == edited.ClassName);
+        bool isNew = idx < 0;
+        if (isNew) sf.Classes.Add(edited);
+        else sf.Classes[idx] = edited;
+        sf.ImportedAt = DateTime.Now;
+
+        // 复用导入链路：写底表 + 重建班级列表 + 整理教师课表 + 切数据源到 Excel + 广播刷新。
+        // 手动录入后同样要把数据源切到 Excel，否则下次启动会被二一 JSON 缓存覆盖回去。
+        int teacherCount = 0;
+        ApplyImportedSchedule(sf, "手动录入", out teacherCount);
+
+        AppEvents.RaiseScheduleChanged();
+        TxtStatus.Text = (isNew ? "已新增班级「" : "已更新班级「") + edited.ClassName
+            + "」的基础课表（手动录入，与导入的课表分开存放；教师 " + teacherCount + " 人）。";
+    }
+
+    /// <summary>
+    /// 从底表里删掉一个班（r129）。手动录入的班（含课程设置）永久删除；
+    /// 导入的班也允许删，但状态栏会说清"下次自动更新 / 重新导入会回来"。
+    /// </summary>
+    private void DeleteClassFromSchedule(string className)
+    {
+        var sf = Store.LoadSchedule() ?? new ScheduleFile();
+        var target = sf.Classes.FirstOrDefault(c => string.Equals(c.ClassName, className, StringComparison.Ordinal));
+        if (target == null)
+        {
+            TxtStatus.Text = "「" + className + "」不在课表里，可能已经被删除。";
+            return;
+        }
+        bool manual = target.IsManual;
+        sf.Classes.Remove(target);
+        sf.ImportedAt = DateTime.Now;
+
+        // ★ 不能走 ApplyImportedSchedule：它会把上一条记录里的手动班原样并回来（等于删不掉）
+        SaveScheduleAndRefresh(sf, "删除班级", out _, markExcel: false);
+
+        // 这个班的调代课记录也一并清掉，免得以后同名班复用这些零散调课
+        try
+        {
+            var ovs = Store.LoadOverrides();
+            int removed = ovs.RemoveAll(o => string.Equals(o.ClassName, className, StringComparison.Ordinal));
+            if (removed > 0) Store.SaveOverrides(ovs);
+        }
+        catch { }
+
+        AppEvents.RaiseScheduleChanged();
+        TxtStatus.Text = manual
+            ? "已删除手动录入的班级「" + className + "」（其他班未动）。"
+            : "已从课表移除班级「" + className + "」（其他班未动）。它是导入的课表，下次自动更新 / 重新导入 Excel 时会重新出现。";
+    }
+
+    // ---------- 二一课表专用导入（四条落盘逻辑，供合并入口分派）----------
+    /// <summary>全校总课表：可一次多选七/八/九年级三份，按班合并后写 schedule.json。</summary>
+    private void DoImportBase(string[] paths)
+    {
+        if (paths == null || paths.Length == 0) return;
         try
         {
             // ★ 按班合并，绝不整份替换：七/八/九年级是三个独立文件，
             //   整份替换会导致"最后导入的那个年级把前两个年级全抹掉"（只剩 30 个班）。
-            //   与 r8 的「单班导入」是同一套合并语义。
             var cur = Store.LoadSchedule() ?? new ScheduleFile();
             int before = cur.Classes.Count;
 
@@ -3251,7 +3559,7 @@ public partial class MainWindow : Window
             var overwritten = new System.Collections.Generic.List<string>();
             var sources = new System.Collections.Generic.List<string>();
 
-            foreach (var path in dlg.FileNames)
+            foreach (var path in paths)
             {
                 ScheduleFile sf;
                 try
@@ -3289,12 +3597,12 @@ public partial class MainWindow : Window
             ScheduleImporter.SortClasses(cur);
 
             cur.SourceFiles = sources;
-            cur.SourceFile = dlg.FileNames.Length == 1
-                ? dlg.FileName
+            cur.SourceFile = paths.Length == 1
+                ? paths[0]
                 : $"合并自 {parsed} 份：{string.Join("、", sources)}";
             cur.ImportedAt = DateTime.Now;
 
-            ApplyImportedSchedule(cur, dlg.FileNames[0], out int tc);
+            ApplyImportedSchedule(cur, paths[0], out int tc);
 
             int total = cur.Classes.Count;
             int net = total - before;
@@ -3317,15 +3625,10 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- 导入临时课表（含 调/代 标记）：只生成覆盖记录，绝不改动基础课表 ----------
-    private void BtnImportTemp_Click(object sender, RoutedEventArgs e)
+    // ---------- 临时课表（含 调/代 标记）：只生成覆盖记录，绝不改动基础课表 ----------
+    private void DoImportTemp(string path)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
-            Title = "选择全校班级临时总课表"
-        };
-        if (dlg.ShowDialog() != true) return;
+        if (string.IsNullOrEmpty(path)) return;
 
         // 临时课表是“补丁”，必须先有底表；否则打上去也无处可打
         var baseSf = Store.LoadSchedule();
@@ -3344,7 +3647,7 @@ public partial class MainWindow : Window
         try
         {
             var (tempOverrides, tempClassNames) =
-                ScheduleImporter.ImportTempOverrides(dlg.FileName, picker.From, picker.To);
+                ScheduleImporter.ImportTempOverrides(path, picker.From, picker.To);
 
             // 班级名对不上就挂不上去：先拦掉“选错年级的文件”，再提示个别不相符的班
             var existing = new HashSet<string>(baseSf.Classes.Select(c => c.ClassName));
@@ -3402,7 +3705,7 @@ public partial class MainWindow : Window
             int dai = tempOverrides.Count(o => o.Type == "代");
 
             var st = Store.LoadSettings();
-            st.LastImportPath = dlg.FileName;
+            st.LastImportPath = path;
             Store.SaveSettings(st);
 
             string range = $"{picker.From:M月d日} – {picker.To:M月d日}";
@@ -3429,18 +3732,13 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- 导入单个班级课表（单班适用） ----------
-    private void BtnImportSingle_Click(object sender, RoutedEventArgs e)
+    // ---------- 单个班级课表（单班适用） ----------
+    private void DoImportSingle(string path)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
-            Title = "选择单个班级课表"
-        };
-        if (dlg.ShowDialog() != true) return;
+        if (string.IsNullOrEmpty(path)) return;
         try
         {
-            var imported = ScheduleImporter.ImportSingleClass(dlg.FileName);
+            var imported = ScheduleImporter.ImportSingleClass(path);
 
             // ★ 单班课表只替换「该班」这一份，不能把整份底表换掉（否则一台机器上导了单班课表，
             //   其余几十个班就全没了）。已有底表时按班名合并，没有底表时就是新建。
@@ -3454,7 +3752,7 @@ public partial class MainWindow : Window
             cur.SourceFile = imported.SourceFile;
             cur.ImportedAt = DateTime.Now;
 
-            ApplyImportedSchedule(cur, dlg.FileName, out int tcSingle);
+            ApplyImportedSchedule(cur, path, out int tcSingle);
 
             if (ClassNames.Count > 0)
             {
@@ -3477,25 +3775,20 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- 导入单个教师个人课表 ----------
-    private void BtnImportTeacher_Click(object sender, RoutedEventArgs e)
+    // ---------- 单个教师个人课表 ----------
+    private void DoImportTeacher(string path)
     {
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Filter = "Excel 文件 (*.xlsx)|*.xlsx|所有文件 (*.*)|*.*",
-            Title = "选择单个教师课表"
-        };
-        if (dlg.ShowDialog() != true) return;
+        if (string.IsNullOrEmpty(path)) return;
         try
         {
-            var sf = ScheduleImporter.ImportTeacherSchedule(dlg.FileName);
+            var sf = ScheduleImporter.ImportTeacherSchedule(path);
             MergeTeacherSchedule(sf);
             if (sf.Classes.Count > 0)
             {
                 var st = Store.LoadSettings();
                 st.SelectedTeacher = sf.Classes[0].ClassName;
                 st.ScheduleKind = "Teacher";
-                st.LastImportPath = dlg.FileName;
+                st.LastImportPath = path;
                 Store.SaveSettings(st);
                 RefreshTeacherCombo();
                 UpdateModeIndicator();
@@ -4452,6 +4745,7 @@ public partial class MainWindow : Window
             if (ap.ManualSuspended > 0)
                 sb.Append($"，另有 {ap.ManualSuspended} 条本机手工调课按主机策略已停用（可在「恢复被主机停用的本机调课」里复活）");
             sb.Append("。");
+            if (_manualKept > 0) sb.Append("　" + _manualKept + " 个手动录入的班原样保留。");
             if (ap.UserCount > 0) sb.Append($"　用户表 {ap.UserCount} 个账号已同步。");
             if (ap.SettingsApplied)
                 sb.Append($"　设置已按代次应用（{ap.SettingsReason}）：显示 / 同步开关已更新（提醒不随包）。");

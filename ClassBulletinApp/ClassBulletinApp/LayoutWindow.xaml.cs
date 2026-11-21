@@ -79,6 +79,7 @@ public partial class LayoutWindow : Window
         ChkNotTop.IsChecked = nl.TopMost;
         ChkNotClick.IsChecked = nl.ClickThrough;
         ChkNotHoverFade.IsChecked = nl.HoverFade;
+        ChkNotCountdownBadge.IsChecked = nl.ShowCountdownBadge;
         ChkNotHide.IsChecked = nl.AutoHide;
         ChkNotClassHide.IsChecked = nl.AutoHideDuringClass;
         SlNotPeek.Value = Math.Clamp(nl.EdgePeek, SlNotPeek.Minimum, SlNotPeek.Maximum);
@@ -158,6 +159,7 @@ public partial class LayoutWindow : Window
         nl.TopMost = ChkNotTop.IsChecked == true;
         nl.ClickThrough = ChkNotClick.IsChecked == true;
         nl.HoverFade = ChkNotHoverFade.IsChecked == true;
+        nl.ShowCountdownBadge = ChkNotCountdownBadge.IsChecked == true;
         nl.AutoHide = ChkNotHide.IsChecked == true && !nl.ClickThrough;
         // 「上课时间自动隐藏」与「鼠标穿透」可以同时成立：前者只在上课期间把条子滑到边沿，
         // 后者只决定鼠标点击落到底层。真正互斥的只有「自动靠边隐藏」——隐藏后要留可点的细边。

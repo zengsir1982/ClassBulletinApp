@@ -366,6 +366,10 @@ public static class SourcePublisher
                     }
                 }
                 ScheduleImporter.SortClasses(merged);
+                // r129：手动录入的班只存在本机，发布源是 Excel 文件夹时（这里按文件重建底表）
+                // 也要把它们一起打进包，否则教室机大屏上根本看不到这些班。
+                merged.MergeManualFrom(Store.LoadSchedule(),
+                    c => Store.LoadScheduleTemplates().FindSetup(c.ClassName) != null);
                 merged.SourceFile = $"source 合并 {baseFiles.Count} 份";
                 merged.SourceFiles = baseFiles.Select(Path.GetFileName).ToList()!;
                 merged.ImportedAt = stamp;

@@ -47,4 +47,30 @@ public partial class DateSwitchWindow : Window
         DialogResult = false;
         Close();
     }
+
+    /// <summary>
+    /// r133：调休上课的正规做法在校历里，这里只是直达入口（带上面选的日期）。
+    /// 关掉校历后如果「今天」已经被设成补课日 / 放假日，就顺手把显示日期切回今天 ——
+    /// 用户刚设完调休，最想看的是"今天的样子"，而不是继续停在某个固定日期上。
+    /// </summary>
+    private void Calendar_Click(object sender, RoutedEventArgs e)
+    {
+        var wnd = new SchoolCalendarWindow(Dp.SelectedDate ?? DateTime.Today) { Owner = this };
+        wnd.ShowDialog();
+
+        var s = Store.LoadSettings();
+        if (string.Equals(s.DisplayDateMode, "Fixed", StringComparison.OrdinalIgnoreCase))
+        {
+            var plan = SchoolCalendar.Resolve(Store.LoadSchedule(), DateTime.Today, s.SemesterStartMonday);
+            if (plan.IsMakeup || plan.IsOff)
+            {
+                s.DisplayDateMode = "Today";
+                s.FixedDisplayDate = "";
+                Store.SaveSettings(s);
+                AppEvents.RaiseScheduleChanged();
+            }
+        }
+        DialogResult = true;
+        Close();
+    }
 }

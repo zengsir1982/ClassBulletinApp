@@ -51,6 +51,8 @@ public partial class WeekView : System.Windows.Controls.UserControl
     private bool _isTeacher;           // true = 显示教师个人课表（只读）
     private string _semesterStart = "";
     private DateTime _monday;          // 这一周的「第一天」（跟着周起始日设置，默认周日）
+    /// <summary>第一次构建前，_monday 是构造函数用默认周起始日算的，不能拿来对齐（r133）。</summary>
+    private bool _weekInitDone;
     private int _weekStartDay = WeekHelper.DefaultWeekStartDay;
     private WeekCell? _pressCell;
     private System.Windows.Point _dragStart;
@@ -154,7 +156,11 @@ public partial class WeekView : System.Windows.Controls.UserControl
         // 先把自己这一天对齐到新的周首日（Rebuild 里也会幂等地再对齐一次），
         // 再广播：周视图 / 悬浮窗 / 桌面背景一起换周。
         _weekStartDay = WeekHelper.NormalizeStartDay(d);
-        _monday = WeekHelper.WeekStart(_monday, _weekStartDay);
+        // 正在看"本周"就继续停在含今天的那一周，别因为换起始日把用户送回上一周（r133）
+        bool showingThisWeek = _monday.Date <= DateTime.Now.Date && DateTime.Now.Date <= _monday.AddDays(6).Date;
+        _monday = showingThisWeek
+            ? WeekHelper.WeekStart(DateTime.Now, _weekStartDay)
+            : WeekHelper.WeekStart(_monday, _weekStartDay);
         AppEvents.RaiseScheduleChanged();   // 自己也订阅了，会同步重建
         TxtStatus.Text = $"周视图已改为「一周从{WeekHelper.StartDayName(d)}开始」。";
     }
@@ -199,7 +205,18 @@ public partial class WeekView : System.Windows.Controls.UserControl
         // 周起始日可能在「显示设置」里被改过：重新对齐当前显示周的第一天
         // （对齐是幂等的：本来就是该周首日时不会移动）
         _weekStartDay = WeekHelper.NormalizeStartDay(s.WeekStartDay);
-        _monday = WeekHelper.WeekStart(_monday, _weekStartDay);
+        if (!_weekInitDone)
+        {
+            // ★ r133 修复：构造函数里还不知道设置里的周起始日（字段默认周日），
+            //   先按周日算出本周首日、再按「周起始日=周一」对齐，会整整退回一周
+            //   （今天周六/周日时必然出现，表现为周视图一打开就是上一周）。首次必须从今天重算。
+            _monday = WeekHelper.WeekStart(DateTime.Now, _weekStartDay);
+            _weekInitDone = true;
+        }
+        else
+        {
+            _monday = WeekHelper.WeekStart(_monday, _weekStartDay);
+        }
 
         ApplyModeHint();   // 依赖 _isTeacher 提供正确的操作提示
 
@@ -252,9 +269,18 @@ public partial class WeekView : System.Windows.Controls.UserControl
         WeekGrid.RowDefinitions.Clear();
         WeekGrid.ColumnDefinitions.Clear();
 
+        // 行计划：节次行 + 公共时间行（大课间/眼保健操/午休/升旗），公共时间不占节次序号
+        var plan = new List<(int period, ScheduleCore.Models.FixedSlot? fx)>();
+        foreach (var f in data.FixedSlots.Where(f => f.AfterPeriod <= 0).OrderBy(f => f.AfterPeriod))
+            plan.Add((0, f));
+        for (int p = 1; p <= data.MaxPeriod; p++)
+        {
+            plan.Add((p, null));
+            foreach (var f in data.FixedSlots.Where(x => x.AfterPeriod == p)) plan.Add((0, f));
+        }
+
         WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        for (int p = 0; p < data.MaxPeriod; p++)
-            WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        foreach (var _ in plan) WeekGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         WeekGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
         for (int d = 0; d < 7; d++)
@@ -299,9 +325,37 @@ public partial class WeekView : System.Windows.Controls.UserControl
             WeekGrid.Children.Add(h);
         }
 
-        var cellDict = data.Cells.ToDictionary(c => (c.DayIdx, c.Period), c => c);
-        for (int p = 0; p < data.MaxPeriod; p++)
+        // r133：按「列号」取格子。调休补课列的 DayIdx 与被映射那一列相同（周六按周三上课时两列都是 2），
+        // 用 DayIdx 作键会把两列的课串在一起。
+        var cellDict = data.Cells.ToDictionary(c => (c.Col, c.Period), c => c);
+        int rowIdx = 1;
+        foreach (var (period, fx) in plan)
         {
+            if (fx != null)
+            {
+                // 公共时间：灰底横条跨整行（从第 1 列到第 7 列），不参与拖拽/编辑
+                var bar = new Border
+                {
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xF1, 0xF3, 0xF6)),
+                    CornerRadius = new CornerRadius(6),
+                    Margin = new System.Windows.Thickness(2, 2, 2, 2),
+                    Padding = new System.Windows.Thickness(10, 4, 10, 4)
+                };
+                bar.Child = new TextBlock
+                {
+                    Text = fx.Name + (string.IsNullOrWhiteSpace(fx.TimeRange) ? "" : "　" + fx.TimeRange),
+                    FontSize = 12,
+                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x5F, 0x5E, 0x5A)),
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center
+                };
+                Grid.SetRow(bar, rowIdx);
+                Grid.SetColumn(bar, 1);
+                Grid.SetColumnSpan(bar, 7);
+                WeekGrid.Children.Add(bar);
+                rowIdx++;
+                continue;
+            }
+
             // 节次表头：不要底色块，只要一行右对齐的小字 —— 底色块会和学科淡彩抢注意力
             var ph = new Border
             {
@@ -311,7 +365,7 @@ public partial class WeekView : System.Windows.Controls.UserControl
             };
             var phText = new TextBlock
             {
-                Text = data.PeriodHeaders[p],
+                Text = data.PeriodHeaders[period - 1],
                 FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
                 HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
@@ -319,19 +373,19 @@ public partial class WeekView : System.Windows.Controls.UserControl
             };
             phText.SetResourceReference(TextBlock.ForegroundProperty, "MutedBrush");
             ph.Child = phText;
-            Grid.SetRow(ph, p + 1);
+            Grid.SetRow(ph, rowIdx);
             Grid.SetColumn(ph, 0);
             WeekGrid.Children.Add(ph);
 
             for (int d = 0; d < 7; d++)
             {
-                int dayIdx = data.ColumnDayIdx.Count > d ? data.ColumnDayIdx[d] : d;   // 列号 ≠ DayIdx
-                var cell = cellDict[(dayIdx, p + 1)];
+                if (!cellDict.TryGetValue((d, period), out var cell)) continue;
                 var border = MakeCellBorder(cell);
-                Grid.SetRow(border, p + 1);
+                Grid.SetRow(border, rowIdx);
                 Grid.SetColumn(border, d + 1);
                 WeekGrid.Children.Add(border);
             }
+            rowIdx++;
         }
     }
 
@@ -350,8 +404,12 @@ public partial class WeekView : System.Windows.Controls.UserControl
             Margin = new System.Windows.Thickness(2),
             Padding = new System.Windows.Thickness(7, 5, 7, 5),
             // 空格子也保留手型（管理模式下右键空格就能排调课）；教师只读视图才用箭头
-            Cursor = (cell.HasLesson || (Mode == WeekViewMode.Manage && !_isTeacher))
-                ? WpfCursors.Hand : WpfCursors.Arrow
+            // r133：调休补课列 / 放假日列不给编辑 —— 在这两列上排调课会写到"被映射的那个星期"，
+            //       同一格会同时出现在周三和周六两列，语义混乱，所以只读。
+            Cursor = (cell.IsMakeupColumn || cell.IsOffColumn)
+                ? WpfCursors.Arrow
+                : ((cell.HasLesson || (Mode == WeekViewMode.Manage && !_isTeacher))
+                    ? WpfCursors.Hand : WpfCursors.Arrow)
         };
 
         var sp = new StackPanel();
@@ -438,7 +496,13 @@ public partial class WeekView : System.Windows.Controls.UserControl
         // 右键：Manage=安排调代课；Float=清除该格
         border.MouseRightButtonUp += (s, e) =>
         {
-            if (_isTeacher)
+            if (cell.IsMakeupColumn || cell.IsOffColumn)
+            {
+                TxtStatus.Text = cell.IsOffColumn
+                    ? "这一天在校历里设为「放假」，不排课。要上课请先在「校历 / 调休」里改掉。"
+                    : "调休补课列是只读的：这天本来就是按别的星期的课表上课，调课请到对应那一列（或「校历 / 调休」里取消沿用调课）。";
+            }
+            else if (_isTeacher)
             {
                 TxtStatus.Text = "教师个人周课表为只读：如需安排调课 / 代课，请先到顶栏「班级」下拉切换到对应班级。";
             }

@@ -53,8 +53,10 @@ public static class ReminderService
                 viewOverrides = TeacherOverrideApplier.BuildTeacherOverrides(schedule, name, Store.LoadOverrides());
 
             var res = BoardBuilder.Build(name, s.SemesterStartMonday, schedule, displayDate, viewOverrides);
-            int dayIdx = ((int)displayDate.DayOfWeek + 6) % 7;
-            if (dayIdx > 4) return;   // 周末不提醒
+            // r133 校历：放假不提醒；调休补课（周六上 Wednesday 的课）照常提醒
+            var plan = res.Plan ?? SchoolCalendar.Resolve(schedule, displayDate, s.SemesterStartMonday);
+            if (plan.IsOff) return;
+            if (plan.DayIdx > 4) return;   // 周末不提醒
 
             var slots = new List<Slot>();
             foreach (var row in res.Rows)

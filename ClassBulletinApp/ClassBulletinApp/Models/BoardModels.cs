@@ -47,8 +47,13 @@ public class LessonView
 /// <summary>周视图（整周课表）中的单个课程格子。</summary>
 public class WeekCell
 {
+    public int Col { get; set; }          // r133：列号 0..6（列号 ≠ DayIdx，补课列两列可能共用同一个 DayIdx）
     public int DayIdx { get; set; }       // 0=周一 .. 6=周日
     public int Period { get; set; }       // 第几节
+    /// <summary>这一列是调休补课列（按别的星期上课）——只读，不允许在这列上直接排调课。</summary>
+    public bool IsMakeupColumn { get; set; }
+    /// <summary>这一列是放假日（整列不排课）。</summary>
+    public bool IsOffColumn { get; set; }
     public string DayName { get; set; } = "";
     public string PeriodText { get; set; } = "";     // 第X节（含时间）
     public string TimeRange { get; set; } = "";
@@ -82,4 +87,7 @@ public class WeekGridData
     public List<WeekCell> Cells { get; set; } = new();
     public List<string> DayHeaders { get; set; } = new();   // 7 个，含星期与日期
     public List<string> PeriodHeaders { get; set; } = new(); // MaxPeriod 个
+
+    /// <summary>公共时间（大课间/眼保健操/午休/升旗）：按 AfterPeriod 插在对应节次之后。</summary>
+    public List<ScheduleCore.Models.FixedSlot> FixedSlots { get; set; } = new();
 }

@@ -97,6 +97,14 @@ public class PanelLayout
     /// <summary>通知字幕滚动速度（像素/秒）。</summary>
     public double MarqueeSpeed { get; set; } = 120;
 
+    /// <summary>
+    /// 通知条左侧徽章：当天没有换课时，是否用最近的倒计时事件填空（r131）。
+    /// <para>★ 只控制倒计时这一档；当天有换课时红色换课徽章始终显示，不受本开关影响
+    /// ——换课是"今天就要执行的动作"，关掉倒计时不能把它一起关掉。</para>
+    /// <para>默认 true（旧存档缺字段时按 true 反序列化），但徽章还要求本机有未过期倒计时事件才显示。</para>
+    /// </summary>
+    public bool ShowCountdownBadge { get; set; } = true;
+
     /// <summary>是否已由用户拖动过（有自由坐标）。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasFreePosition => Left.HasValue && Top.HasValue;

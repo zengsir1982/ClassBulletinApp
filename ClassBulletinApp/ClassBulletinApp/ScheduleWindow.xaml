@@ -368,7 +368,15 @@
                                            Margin="10,0,0,2" Visibility="Collapsed" ToolTip="当前时间"
                                            TextTrimming="CharacterEllipsis"/>
                             </Grid>
-                            <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" Margin="0,1,0,0"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                                <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" VerticalAlignment="Center"/>
+                                <!-- r133 校历标签：调休补课「按周三课表上课」（绿）、放假「今日放假」（红） -->
+                                <Border x:Name="DayTagBox" Visibility="Collapsed" CornerRadius="4"
+                                        Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                        Background="#2E7D32">
+                                    <TextBlock x:Name="TxtDayTag" FontSize="12" Foreground="White"/>
+                                </Border>
+                            </StackPanel>
                         </StackPanel>
                     </StackPanel>
                     <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼 -->
@@ -505,6 +513,23 @@
                                 Background="#F0F4FF" BorderBrush="#B8C6EC"
                                 ToolTip="打开「信息管理」的消息台账 / 回执窗口（教室里是收件箱，老师这边是发送箱）">
                             <TextBlock Text="📨 信息"/>
+                        </Button>
+                        <!-- 三个「开关型」入口：板书 / 通知公告便签 / 黑板。按钮高亮即表示当前已开启；
+                             显隐与顺序同样由 QuickActionCatalog 按角色决定，所有角色默认显示。 -->
+                        <Button x:Name="BtnQaHand" Style="{StaticResource QuickActionBtn}" Click="BtnQaHand_Click"
+                                Background="#E8F0FE" BorderBrush="#A8C0E8"
+                                ToolTip="展开 / 收起课表左侧的板书手写区（笔迹自动留 7 天）；与黑板互斥">
+                            <TextBlock Text="✍ 板书"/>
+                        </Button>
+                        <Button x:Name="BtnQaNotice" Style="{StaticResource QuickActionBtn}" Click="BtnQaNotice_Click"
+                                Background="#FFF4E5" BorderBrush="#F0C48A"
+                                ToolTip="显示 / 隐藏「通知公告便签」（事项列表形态的通知便签）">
+                            <TextBlock Text="📢 通知"/>
+                        </Button>
+                        <Button x:Name="BtnQaBoard" Style="{StaticResource QuickActionBtn}" Click="BtnQaBoard_Click"
+                                Background="#E8F5E9" BorderBrush="#A5CFA8"
+                                ToolTip="打开 / 收起桌面底层的涂鸦黑板（内容和笔迹都留着）；与板书互斥">
+                            <TextBlock Text="🎨 黑板"/>
                         </Button>
                     </WrapPanel>
 

@@ -1838,8 +1838,19 @@ public static class BoardSyncService
             try { st = LoadState(); }
             catch (Exception ex) { return (false, "台账读取失败：" + ex.Message); }
 
-            int before = st.Records.Count;
-            int n = all ? before : st.Records.RemoveAll(r => r.IsTerminal);
+            // ★「全部清空」必须真的把记录从集合里移除。原来这里只写了 `n = before`（拿总数当
+            //   已清条数），却漏掉 Clear()，结果 SaveState 把原封不动的列表写回磁盘 —— 界面提示
+            //   「已清除 N 条」，刷新后列表一条没少。两个分支都要在计数之后真正改 st.Records。
+            int n;
+            if (all)
+            {
+                n = st.Records.Count;
+                st.Records.Clear();
+            }
+            else
+            {
+                n = st.Records.RemoveAll(r => r.IsTerminal);
+            }
             if (n == 0) return (true, "没有可清除的记录：未处理的变更单不会被清除。");
 
             try

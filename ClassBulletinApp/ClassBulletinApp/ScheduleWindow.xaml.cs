@@ -93,6 +93,10 @@ public partial class ScheduleWindow : Window, IGlassSurface
     /// <summary>当前已应用的胶囊字号，用于避免每次 SizeChanged 都重排一遍。</summary>
     private double _qaAppliedFont = -1;
 
+    /// <summary>开关型快捷（板书 / 通知 / 黑板）的最近一次状态，用于把按钮高亮成「开 / 关」。
+    /// 板书由本窗 `_handMode` 直接取；通知 / 黑板由主窗通过 <c>QuickToolsStateChanged</c> 回执。</summary>
+    private bool _qaNoticeOn, _qaBoardOn;
+
     // 长按（触摸/鼠标左键按住）弹出编辑
     private DispatcherTimer? _pressTimer;
     private PeriodRow? _pressRow;
@@ -209,6 +213,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
         // 内置快捷：点击只发事件，真正打开窗口 / 检查更新由主窗口做（这里不持有它的引用）。
         AppEvents.QuickCheckUpdateDone += OnQuickCheckUpdateDone;
         AppEvents.ScheduleFlash += OnScheduleFlash;
+        AppEvents.QuickToolsStateChanged += OnQuickToolsStateChanged;
 
         // 快捷胶囊「自动」档要跟窗口宽度联动：拖动缩放后立刻重排，窄窗挤不下就自动收小
         // 课表行高同理：窗口变矮（或屏幕缩放变大）后压紧字号与内边距，尽量一屏显示完当天的课
@@ -222,6 +227,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
         {
             AppEvents.QuickCheckUpdateDone -= OnQuickCheckUpdateDone;
             AppEvents.ScheduleFlash -= OnScheduleFlash;
+            AppEvents.QuickToolsStateChanged -= OnQuickToolsStateChanged;
             AppEvents.QuickActionsChanged -= ApplyQuickActionPermissions;
             _qaWatchdog?.Stop();
             _qaWatchdog = null;
@@ -245,7 +251,10 @@ public partial class ScheduleWindow : Window, IGlassSurface
         [QuickActionCatalog.Week] = BtnQaWeek,
         [QuickActionCatalog.Publish] = BtnQaPublish,
         [QuickActionCatalog.Info] = BtnQaInfo,
-        [QuickActionCatalog.Settings] = BtnQaSettings
+        [QuickActionCatalog.Settings] = BtnQaSettings,
+        [QuickActionCatalog.Hand] = BtnQaHand,
+        [QuickActionCatalog.Notice] = BtnQaNotice,
+        [QuickActionCatalog.Board] = BtnQaBoard
     };
 
     /// <summary>
@@ -284,6 +293,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
 
         _qaAppliedFont = -1;         // 新加的胶囊也要吃到当前字号档（否则会被「同档不重排」挡掉）
         ApplyBuiltinQuickActionSize();
+        RefreshQaToggleVisuals();    // 重排后把板书 / 通知 / 黑板的高亮补回来
     }
 
     private void BtnQaHomework_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenHomework();
@@ -303,6 +313,50 @@ public partial class ScheduleWindow : Window, IGlassSurface
     private void BtnQaPublish_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenPublish();
 
     private void BtnQaInfo_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenInfoLedger();
+
+    private void BtnQaHand_Click(object sender, RoutedEventArgs e) => ToggleHandMode();
+
+    private void BtnQaNotice_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenNotice();
+
+    private void BtnQaBoard_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenBoard();
+
+    /// <summary>
+    /// 主窗回执的「通知便签 / 黑板」开关状态。诊断模式没有主窗订阅 Query，这里不会被调用，
+    /// 三个按钮就保持默认的「关」样式 —— 不影响点击打开。
+    /// </summary>
+    private void OnQuickToolsStateChanged(bool noticeOn, bool boardOn)
+    {
+        _qaNoticeOn = noticeOn;
+        _qaBoardOn = boardOn;
+        RefreshQaToggleVisuals();
+    }
+
+    /// <summary>
+    /// 把三个开关型胶囊按当前状态刷成「开（蓝底白字 + 加深边框）/ 关（各自淡色）」。
+    /// <para>板书状态直接取本窗 <c>_handMode</c>；进板书会收起黑板，所以黑板按钮这时也按「关」显示，
+    /// 免得两个互斥的东西同时亮着。</para>
+    /// </summary>
+    private void RefreshQaToggleVisuals()
+    {
+        if (BtnQaHand == null || BtnQaNotice == null || BtnQaBoard == null) return;
+
+        bool boardOn = _qaBoardOn && !_handMode;   // 板书开 → 黑板必已收起
+        PaintToggleBtn(BtnQaHand, _handMode, "#E8F0FE", "#A8C0E8", "#1E4FA3");
+        PaintToggleBtn(BtnQaNotice, _qaNoticeOn, "#FFF4E5", "#F0C48A", "#C0392B");
+        PaintToggleBtn(BtnQaBoard, boardOn, "#E8F5E9", "#A5CFA8", "#1E4FA3");
+    }
+
+    private static void PaintToggleBtn(Button btn, bool on, string offBg, string offBorder, string onBg)
+    {
+        btn.Background = new SolidColorBrush((Color)System.Windows.Media.ColorConverter.ConvertFromString(on ? onBg : offBg));
+        btn.BorderBrush = new SolidColorBrush((Color)System.Windows.Media.ColorConverter.ConvertFromString(on ? onBg : offBorder));
+        var tb = btn.Content as TextBlock;
+        if (tb != null)
+        {
+            tb.Foreground = on ? Brushes.White : new SolidColorBrush((Color)System.Windows.Media.ColorConverter.ConvertFromString("#1B2836"));
+            tb.FontWeight = on ? FontWeights.Bold : FontWeights.Normal;
+        }
+    }
 
     private void BtnQaUpdate_Click(object sender, RoutedEventArgs e)
     {
@@ -549,6 +603,8 @@ public partial class ScheduleWindow : Window, IGlassSurface
         UpdateQaButtonVisual();
         LoadQuickLaunchers();
         ApplyQuickActionPermissions();
+        // 问主窗「通知便签 / 黑板」当前是开是关，好把两个胶囊点亮（板书已在上面 SetHandMode 时刷过）
+        AppEvents.RaiseQuickToolsStateQuery();
         _timer.Start();
     }
 
@@ -812,6 +868,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
         QuickActionStyle.Apply(BtnQaPublish, fs);
         QuickActionStyle.Apply(BtnQaInfo, fs);
         QuickActionStyle.Apply(BtnQaSettings, fs);
+        QuickActionStyle.Apply(BtnQaHand, fs);
+        QuickActionStyle.Apply(BtnQaNotice, fs);
+        QuickActionStyle.Apply(BtnQaBoard, fs);
     }
 
     // ---------- 课表行尺寸自适应（窗口高度变化时压紧 / 放大，尽量一屏显示完当天的课） ----------
@@ -1143,6 +1202,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             : res.ClassName;
         TxtDate.Text = res.DateText;
         TxtWeek.Text = res.WeekLine;
+        ApplyDayTag(res);
         ApplyClockMode(s.ScheduleClockMode);
 
         ClassHeader.ToolTip = _isTeacherMode
@@ -1164,6 +1224,27 @@ public partial class ScheduleWindow : Window, IGlassSurface
         // 行数变了（换了日期 / 班级 / 单双周显示方式），每节可用的高度也跟着变。
         // 这里同步算一次而不是排队：--shot 截图是 Refresh 后立刻取渲染结果，排队会来不及。
         ApplyRowMetrics();
+    }
+
+    /// <summary>
+    /// r133 校历标签：调休补课显示「按周三课表上课」（绿），放假日显示「今日放假」（红），
+    /// 普通日收起。标签只影响这一行，不动日期/星期本身 —— 日期永远显示真实日期。
+    /// </summary>
+    private void ApplyDayTag(TodayResult res)
+    {
+        if (DayTagBox == null || TxtDayTag == null) return;   // 板书模式的轻量壳里可能没有
+        bool show = !string.IsNullOrWhiteSpace(res.DayTag);
+        // ★ 悬浮课表的标题栏本来就窄（右边还有三个按钮），这里只放最短的四个字：
+        //   「按周三」/「放假」。完整说明（含备注）走 ToolTip，别让标签把日期挤掉。
+        TxtDayTag.Text = res.IsOff
+            ? "放假"
+            : (res.Plan?.AsDate is DateTime asDate ? "按" + SchoolCalendar.DayNameShort(asDate) : "调休上课");
+        DayTagBox.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+        DayTagBox.Background = new System.Windows.Media.SolidColorBrush(res.IsOff
+            ? System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B)
+            : System.Windows.Media.Color.FromRgb(0x2E, 0x7D, 0x32));
+        DayTagBox.ToolTip = res.Plan?.Describe() ?? res.DayTag;
     }
 
     /// <summary>

@@ -97,7 +97,12 @@ public static class Store
     /// </summary>
     public static DateTime SettingsStamp => StampOf(SettingsPath);
 
+    /// <summary>schedule.json 的最后写入时刻。诊断里用来确认「自动更新到底有没有把底表写下去」。</summary>
+    public static DateTime ScheduleStamp => StampOf(SchedulePath);
+
     static string OverridesPath => Path.Combine(AppDir, "overrides.json");
+    /// <summary>手动录入课表的三类模板（发布端私有，不进数据包）。</summary>
+    static string ScheduleTemplatesPath => Path.Combine(AppDir, "schedule_templates.json");
     static string UsersPath => Path.Combine(AppDir, "users.json");
     static string HomeworkPath => Path.Combine(AppDir, "homework.json");
     static string MissingPath => Path.Combine(AppDir, "missing.json");
@@ -306,6 +311,41 @@ public static class Store
 
     public static ScheduleFile? LoadTeacherSchedule()
         => ReadJsonOrNull<ScheduleFile>(TeacherSchedulePath);
+
+    /// <summary>
+    /// 读手动录入模板。文件不存在 / 空 / 损坏时返回带内置预置项的新对象（不写盘，
+    /// 诊断模式下也不产生副作用）；首次真正修改由 <see cref="SaveScheduleTemplates"/> 落盘。
+    /// </summary>
+    public static ScheduleTemplates LoadScheduleTemplates()
+    {
+        var t = ReadJsonOrNull<ScheduleTemplates>(ScheduleTemplatesPath);
+        if (t == null) return ScheduleTemplates.CreateWithBuiltIns();
+        // 老文件若缺列表（字段后加的）补空集合，避免 UI 空引用
+        t.PeriodTemplates ??= new();
+        t.SubjectLibraries ??= new();
+        t.Plans ??= new();
+        t.ClassSetups ??= new();   // r125：按班级的课程设置快照（老文件没有这个字段）
+        // r124：r121/r123 生成的旧文件没有 FixedSlots 字段，内置模板补回预置公共时间
+        // （大课间/眼保健操/午休/升旗），否则升级后大屏课表看不到这些行；自定义模板保持用户原样。
+        var builtIns = ScheduleTemplates.CreateWithBuiltIns();
+        foreach (var p in t.PeriodTemplates)
+        {
+            p.FixedSlots ??= new();
+            if (p.IsBuiltIn && p.FixedSlots.Count == 0)
+            {
+                var def = builtIns.PeriodTemplates.FirstOrDefault(b => b.Name == p.Name);
+                if (def != null) p.FixedSlots = def.FixedSlots;
+            }
+        }
+        return t;
+    }
+
+    /// <summary>写手动录入模板（本机私有）。受持久化总开关约束，走原子写。</summary>
+    public static void SaveScheduleTemplates(ScheduleTemplates t)
+    {
+        if (!EnablePersistence) return;
+        WriteJsonAtomic(ScheduleTemplatesPath, t);
+    }
 
     public static void SaveHomework(HomeworkBoard board)
     {

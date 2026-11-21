@@ -26,6 +26,19 @@ public partial class NotificationWindow : Window, IGlassSurface
     private bool _clickThrough;
     private DispatcherTimer? _danmakuTimer;
 
+    // ===== r131 徽章（换课 / 倒计时 / 隐藏 三态）=====
+    /// <summary>徽章详情浮层的自动收起计时器。</summary>
+    private DispatcherTimer? _badgePopupTimer;
+    /// <summary>跨零点检测：徽章里的"今天"和实际倒计时天数都要在过零点后重算。</summary>
+    private DispatcherTimer? _dayRolloverTimer;
+    private DateTime _badgeDay = DateTime.Today;
+    /// <summary>诊断注入：当天换课列表（null = 从 Store 读）。</summary>
+    internal List<LessonOverride>? DiagTodayOverrides;
+    /// <summary>诊断注入：倒计时卡（null = 从 Store 读）。</summary>
+    internal CountdownBoard? DiagCountdown;
+    /// <summary>诊断注入：倒计时徽章开关（null = 从 Store 读）。</summary>
+    internal bool? DiagShowCountdownBadge;
+
     /// <summary>诊断（--ui-check）用：确认「移上去变透明」这条链真的接上了（穿透态下肉眼很难验证）。</summary>
     internal HoverFader? Fader => _fader;
 
@@ -110,8 +123,31 @@ public partial class NotificationWindow : Window, IGlassSurface
         AppEvents.NotificationChanged += StartMarquee;
         AppEvents.LayoutChanged += OnLayoutChanged;
         AppEvents.ReminderDanmaku += OnReminderDanmaku;
+        // r131：徽章三条刷新链 —— 调代课变动、倒计时便签变动、 crosses midnight。
+        AppEvents.ScheduleChanged += OnBadgeDataChanged;
+        AppEvents.CountdownChanged += OnBadgeDataChanged;
+        _dayRolloverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _dayRolloverTimer.Tick += (_, _) =>
+        {
+            if (_badgeDay != DateTime.Today) { _badgeDay = DateTime.Today; RefreshBadge(); }
+        };
+        _dayRolloverTimer.Start();
         MarqueeHost.SizeChanged += (_, _) => StartMarquee();
         StartMarquee();
+        RefreshBadge();
+    }
+
+    /// <summary>
+    /// 换课数据变化时：若徽章从「非换课」翻成「换课」，自动弹一次详情（相当于方案二的弹幕）；
+    /// 倒计时变化只静默改徽章，不弹（倒计时不是刚发生的动作，弹了反而打扰）。
+    /// </summary>
+    private void OnBadgeDataChanged()
+    {
+        var before = _badgeKind;
+        RefreshBadge();
+        if (before != BadgeKind.Changes && _badgeKind == BadgeKind.Changes && BadgePopup != null && !BadgePopup.IsOpen)
+            Badge_Click(this, new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0,
+                System.Windows.Input.MouseButton.Left));
     }
 
     private void ApplyCurrentLayout(PanelLayout? live = null)
@@ -199,6 +235,7 @@ public partial class NotificationWindow : Window, IGlassSurface
     {
         ApplyCurrentLayout(notification);
         StartMarquee();
+        RefreshBadge();   // r131：倒计时徽章开关可能在布局窗口里刚被改过
     }
 
     // ---------- 提醒弹幕：临时把通知条内容替换为提醒文案，数秒后恢复 ----------
@@ -327,11 +364,183 @@ public partial class NotificationWindow : Window, IGlassSurface
         tt.BeginAnimation(TranslateTransform.XProperty, anim);
     }
 
+    // ==================== r131 徽章：换课 > 倒计时 > 隐藏 ====================
+
+    /// <summary>
+    /// 徽章三态的唯一裁决入口。当天（今天这一列）有生效的调代课 = 红色换课徽章；
+    /// 没有且开关开且有未过期倒计时 = 琥珀色徽章；都没有 = 隐藏。
+    /// 整个过程与跑马灯 completely 无关，不碰 TxtMarquee / StartMarquee，所以不占那两条名额。
+    /// </summary>
+    internal void RefreshBadge()
+    {
+        if (Badge == null) return;
+        _badgeDay = DateTime.Today;
+        try
+        {
+            var settings = Store.LoadSettings();
+            string? cls = settings.SelectedClass;
+            var today = DateTime.Today;
+
+            // ① 当天生效的换课
+            // ★ r132 只统计「今天」这一列：DayIdx 必须等于今天的日历星期（0=周一..6=周日）。
+            //   旧写法直接拿 ForDate（只按生效区间筛、不看星期），一条周一到周五有效的调课
+            //   在周一那天就会被算成"今天"的换课，于是徽章显示的是整周总数。
+            // ★ 同时按格子归并（MapForDate）：同一格既有导入临时表又有手动改课时只算一处，
+            //   这样徽章数字与课表上真正变了样的格子数一致。
+            // r133：星期几改由校历裁决 —— 周六补周三的课时，今天这一列是"周三"，
+            //   调课也按被映射的那天取。
+            var overrides = DiagTodayOverrides ?? Store.LoadOverrides();
+            var schedule = Store.LoadSchedule();
+            var plan = SchoolCalendar.Resolve(schedule, today, settings.SemesterStartMonday);
+            int todayIdx = plan.DayIdx;   // 0=周一 .. 6=周日
+            var todayList = plan.UsesOverrides
+                ? OverrideExpander.MapForDate(overrides, cls, plan.OverrideDate).Values
+                    .Where(o => o.DayIdx == todayIdx)
+                    .OrderBy(o => o.Period).ToList()
+                : new List<LessonOverride>();
+
+            if (todayList.Count > 0)
+            {
+                ShowBadge("今日换课", todayList.Count.ToString(), "#C0392B", "#FFD166", "#7A2B12",
+                    tooltip: "点开看今天的调课 / 代课明细（只统计当前班「" + (cls ?? "") + "」）");
+                _badgeKind = BadgeKind.Changes;
+                _badgeChanges = todayList;
+                return;
+            }
+
+            // ② 没有换课：开关开 + 有未过期倒计时 → 琥珀徽章（最近一条）
+            bool showCd = DiagShowCountdownBadge ?? settings.NotificationLayout?.ShowCountdownBadge == true;
+            if (showCd)
+            {
+                var board = DiagCountdown ?? Store.LoadCountdown();
+                var next = board.SortedItems().FirstOrDefault(x => x.DaysLeft() >= 0);
+                if (next != null)
+                {
+                    int days = next.DaysLeft();
+                    string val = days == 0 ? "就是今天" : "还有 " + days + " 天";
+                    ShowBadge(ShortName(next.Name), val, "#E08A1E", "#FFE0A3", "#7A4A00",
+                        tooltip: "点开看倒计时（共 " + board.SortedItems().Count + " 条）；关闭此徽章请到 布局设置 → 通知悬浮窗");
+                    _badgeKind = BadgeKind.Countdown;
+                    _badgeChanges = null;
+                    return;
+                }
+            }
+
+            // ③ 都没有：隐藏
+            Badge.Visibility = Visibility.Collapsed;
+            BadgePopup.IsOpen = false;
+            _badgeKind = BadgeKind.None;
+            _badgeChanges = null;
+        }
+        catch
+        {
+            // 读设置 / 底表失败一律隐藏徽章，绝不让通知条本身崩掉
+            Badge.Visibility = Visibility.Collapsed;
+            _badgeKind = BadgeKind.None;
+            _badgeChanges = null;
+        }
+    }
+
+    /// <summary>徽章最多显示 6 个字，超长截断 + 省略号。</summary>
+    internal static string ShortName(string name)
+    {
+        string s = (name ?? "").Trim();
+        return s.Length <= 6 ? s : s.Substring(0, 6) + "…";
+    }
+
+    private void ShowBadge(string label, string value, string bg, string valueBg, string valueFg, string tooltip)
+    {
+        BadgeLabel.Text = label;
+        BadgeValue.Text = value;
+        // 徽章字号跟着通知条字幕字号走（至少 16、至多与字幕齐平），大屏远距离才看得清
+        double baseFs = TxtMarquee.FontSize > 0 ? TxtMarquee.FontSize : 28;
+        double badgeFs = Math.Max(16, Math.Min(baseFs, 34));
+        BadgeLabel.FontSize = badgeFs;
+        BadgeValue.FontSize = Math.Max(14, badgeFs - 2);
+        Badge.Background = ThemeHelper.Brush(bg, System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B));
+        BadgeValue.Background = ThemeHelper.Brush(valueBg, System.Windows.Media.Color.FromRgb(0xFF, 0xD1, 0x66));
+        BadgeValue.Foreground = ThemeHelper.Brush(valueFg, System.Windows.Media.Color.FromRgb(0x7A, 0x2B, 0x12));
+        Badge.ToolTip = tooltip;
+        Badge.Visibility = Visibility.Visible;
+    }
+
+    private enum BadgeKind { None, Changes, Countdown }
+    private BadgeKind _badgeKind = BadgeKind.None;
+    private List<LessonOverride>? _badgeChanges;
+
+    /// <summary>点徽章弹出详情；再点收起。</summary>
+    private void Badge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_clickThrough) return;   // 穿透态下整窗不接鼠标，这里只是保险
+        e.Handled = true;
+        if (BadgePopup.IsOpen) { CloseBadgePopup(); return; }
+        if (_badgeKind == BadgeKind.None) return;
+
+        BadgePopupBody.Children.Clear();
+        if (_badgeKind == BadgeKind.Changes)
+        {
+            AddPopupTitle("今日 " + (_badgeChanges?.Count ?? 0) + " 处换课", "#C0392B");
+            foreach (var o in (_badgeChanges ?? new List<LessonOverride>()).Take(6))
+            {
+                string type = string.IsNullOrEmpty(o.Type) ? (o.Source == "manual" ? "调" : "调") : o.Type;
+                string subj = o.IsEmpty ? "空课" : (string.IsNullOrEmpty(o.Subject) ? "—" : o.Subject);
+                string detail = "第" + o.Period + "节　" + subj
+                    + (string.IsNullOrEmpty(o.Teacher) ? "" : "　" + o.Teacher)
+                    + (string.IsNullOrEmpty(o.Note) ? "" : "（" + o.Note + "）");
+                AddPopupRow(detail, type == "代" ? "#C0392B" : "#BA7517");
+            }
+            int more = (_badgeChanges?.Count ?? 0) - 6;
+            if (more > 0) AddPopupRow("…另有 " + more + " 处，详见课表", "#888780");
+        }
+        else if (_badgeKind == BadgeKind.Countdown)
+        {
+            var board = DiagCountdown ?? Store.LoadCountdown();
+            AddPopupTitle("倒计时", "#B87333");
+            foreach (var it in board.SortedItems().Where(x => x.DaysLeft() >= 0).Take(6))
+                AddPopupRow(it.Name + "　" + it.DaysText(),
+                    it.DaysLeft() == 0 ? "#C0392B" : "#B87333");
+        }
+
+        BadgePopup.IsOpen = true;
+        _badgePopupTimer?.Stop();
+        _badgePopupTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        _badgePopupTimer.Tick += (_, _) => CloseBadgePopup();
+        _badgePopupTimer.Start();
+    }
+
+    private void CloseBadgePopup()
+    {
+        _badgePopupTimer?.Stop();
+        _badgePopupTimer = null;
+        BadgePopup.IsOpen = false;
+    }
+
+    private void AddPopupTitle(string text, string color)
+    {
+        BadgePopupBody.Children.Add(new TextBlock
+        {
+            Text = text, FontSize = 13, FontWeight = FontWeights.Medium,
+            Foreground = ThemeHelper.Brush(color, System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B)),
+            Margin = new System.Windows.Thickness(0, 0, 0, 6)
+        });
+    }
+
+    private void AddPopupRow(string text, string color)
+    {
+        var row = new DockPanel { Margin = new System.Windows.Thickness(0, 0, 0, 4) };
+        row.Children.Add(new TextBlock
+        {
+            Text = text, FontSize = 13, Foreground = System.Windows.Media.Brushes.Black,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        BadgePopupBody.Children.Add(row);
+    }
+
     private bool IsWithinButton(DependencyObject? dep)
     {
         while (dep != null)
         {
-            if (ReferenceEquals(dep, BtnHide)) return true;
+            if (ReferenceEquals(dep, BtnHide) || ReferenceEquals(dep, Badge)) return true;
             dep = dep is Visual ? VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
         }
         return false;
@@ -343,9 +552,13 @@ public partial class NotificationWindow : Window, IGlassSurface
         _hider?.Dispose();
         _fader?.Dispose();
         _danmakuTimer?.Stop();
+        _badgePopupTimer?.Stop();
+        _dayRolloverTimer?.Stop();
         AppEvents.NotificationChanged -= StartMarquee;
         AppEvents.LayoutChanged -= OnLayoutChanged;
         AppEvents.ReminderDanmaku -= OnReminderDanmaku;
+        AppEvents.ScheduleChanged -= OnBadgeDataChanged;
+        AppEvents.CountdownChanged -= OnBadgeDataChanged;
         base.OnClosed(e);
     }
 }

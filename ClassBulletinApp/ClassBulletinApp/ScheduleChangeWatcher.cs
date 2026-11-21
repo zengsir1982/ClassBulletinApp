@@ -325,7 +325,9 @@ public static class ScheduleChangeWatcher
         key = (teacher ? "T:" : "C:") + name + "|" + displayDate.ToString("yyyy-MM-dd");
 
         // 与 LessonOverride.CellKey 同构（班级|星期|节次），用来对手动调课标记做精确匹配
-        cellPrefix = name + "|" + ((int)displayDate.DayOfWeek + 6) % 7;
+        // r133 校历：调休补课日按「被映射的星期」匹配，否则周六上 Wednesday 的课会对不上任何调课记录
+        var plan = res.Plan ?? SchoolCalendar.Resolve(schedule, displayDate, s.SemesterStartMonday);
+        cellPrefix = name + "|" + plan.DayIdx;
 
         foreach (var row in res.Rows)
         {

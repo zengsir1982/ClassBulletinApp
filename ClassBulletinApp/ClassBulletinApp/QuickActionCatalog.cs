@@ -33,6 +33,9 @@ public static class QuickActionCatalog
     public const string Info = "info";
     public const string Publish = "publish";
     public const string Week = "week";
+    public const string Hand = "hand";
+    public const string Notice = "notice";
+    public const string Board = "board";
 
     /// <summary>一个胶囊：动作键 + 文字 + 提示 + 胶囊配色（悬浮课表与「应用快捷方式」预览共用）。</summary>
     public sealed class Entry
@@ -91,14 +94,37 @@ public static class QuickActionCatalog
         {
             Key = Settings, Text = "⚙ 设置", Bg = "#EEF1F5", Border = "#B9C2CE",
             Tip = "打开控制面板的「显示设置」页（字号、颜色、悬浮窗、手写球等都在这里）"
+        },
+        new()
+        {
+            Key = Hand, Text = "✍ 板书", Bg = "#E8F0FE", Border = "#A8C0E8",
+            Tip = "展开 / 收起课表左侧的板书手写区（笔迹自动留 7 天）；与黑板互斥，进板书会先收起黑板"
+        },
+        new()
+        {
+            Key = Notice, Text = "📢 通知", Bg = "#FFF4E5", Border = "#F0C48A",
+            Tip = "显示 / 隐藏「通知公告便签」（事项列表形态的通知便签，不是顶部滚动通知条）"
+        },
+        new()
+        {
+            Key = Board, Text = "🎨 黑板", Bg = "#E8F5E9", Border = "#A5CFA8",
+            Tip = "打开 / 收起桌面底层的涂鸦黑板（内容和笔迹都留着）；与板书互斥"
         }
     };
 
-    /// <summary>电教管理员（student）的出厂默认。</summary>
-    static readonly string[] StudentDefault = { Homework, Missing, Note, Countdown, Duty, Info };
+    /// <summary>
+    /// 电教管理员（student）的出厂默认。
+    /// <para>板书 / 通知便签 / 黑板是纯本机显示工具，不涉及编辑权限，所有角色（含游客）默认都放出来。</para>
+    /// </summary>
+    static readonly string[] StudentDefault =
+        { Homework, Missing, Note, Countdown, Duty, Info, Hand, Notice, Board };
 
-    /// <summary>老师（班主任 / 科任）与管理员共用的出厂默认。</summary>
-    static readonly string[] TeacherDefault = { Publish, Note, Week, Countdown, Settings, Info };
+    /// <summary>
+    /// 老师（班主任 / 科任）与管理员共用的出厂默认（游客 / 未知角色同样按这套）。
+    /// <para>板书 / 通知便签 / 黑板放在末尾，保证原有入口的排列顺序不变。</para>
+    /// </summary>
+    static readonly string[] TeacherDefault =
+        { Publish, Note, Week, Countdown, Settings, Info, Hand, Notice, Board };
 
     public static Entry? Find(string key) => All.FirstOrDefault(e => e.Key == key);
 
@@ -157,7 +183,7 @@ public static class QuickActionCatalog
         return map;
     }
 
-    /// <summary>把当前角色的勾选结果落盘（九个键全写，今后新增的入口不会再被老配置误关）。</summary>
+    /// <summary>把当前角色的勾选结果落盘（全部键都写，今后新增的入口不会再被老配置误关）。</summary>
     public static void SaveVisible(IDictionary<string, bool> map)
     {
         var s = Store.LoadSettings();

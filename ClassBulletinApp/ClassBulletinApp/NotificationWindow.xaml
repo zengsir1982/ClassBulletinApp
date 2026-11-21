@@ -12,19 +12,45 @@
             ToolTip="按住拖动可移动位置；拉窗口边沿可改变大小；双击可编辑通知 / 公告">
         <Grid Margin="6,0">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Grid x:Name="MarqueeHost" Grid.Column="0" ClipToBounds="True">
+            <!-- r132 顺序：左边「自动隐藏 / 常驻显示」按钮，中间跑马灯，右边徽章（换课计数 / 倒计时）。
+                 用户习惯"左边是开关、右边是状态"，徽章放最右也离眼睛扫读方向更近。 -->
+            <Button x:Name="BtnHide" Grid.Column="0" Content="自动隐藏" Click="BtnHide_Click"
+                    VerticalAlignment="Center" Margin="0,0,6,0" Padding="8,3" FontSize="12"
+                    Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
+                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
+            <Grid x:Name="MarqueeHost" Grid.Column="1" ClipToBounds="True">
                 <TextBlock x:Name="TxtMarquee" VerticalAlignment="Center" Foreground="#FFFFFF"
                            FontWeight="Medium" TextWrapping="NoWrap" Padding="0,0,0,0">
                     暂无通知
                 </TextBlock>
             </Grid>
-            <Button x:Name="BtnHide" Grid.Column="1" Content="自动隐藏" Click="BtnHide_Click"
-                    VerticalAlignment="Center" Margin="6,0,4,0" Padding="8,3" FontSize="12"
-                    Background="#33FFFFFF" Foreground="White" BorderBrush="#66FFFFFF"
-                    ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
+            <!-- r131 徽章：有当天换课=红色；无换课且开关开且有倒计时=琥珀色；否则隐藏。
+                 独立于跑马灯，不占 StartMarquee 的两条名额。点开弹详情浮层。 -->
+            <Border x:Name="Badge" Grid.Column="2" Visibility="Collapsed"
+                    CornerRadius="9" Padding="10,3" Margin="8,5,2,5"
+                    VerticalAlignment="Stretch" Background="#C0392B"
+                    MouseLeftButtonUp="Badge_Click" Cursor="Hand">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="BadgeLabel" Text="今日换课" Foreground="#FFFFFF"
+                               FontSize="14" FontWeight="Medium" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="BadgeValue" Text="3" Foreground="#7A2B12"
+                               FontSize="13" FontWeight="Medium" VerticalAlignment="Center"
+                               Margin="7,0,0,0" Padding="6,1" Background="#FFD166"/>
+                </StackPanel>
+            </Border>
+
+            <!-- r131 徽章详情浮层：挂在条上方，点徽章弹出，几秒后自动收回；不抢焦点。 -->
+            <Popup x:Name="BadgePopup" Grid.Column="2" Placement="Top" PlacementTarget="{Binding ElementName=Badge}"
+                   StaysOpen="True" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border x:Name="BadgePopupCard" Background="#FFFFFF" BorderBrush="#E0C4BF"
+                        BorderThickness="1" CornerRadius="10" Padding="12,10" MinWidth="220" MaxWidth="380">
+                    <StackPanel x:Name="BadgePopupBody"/>
+                </Border>
+            </Popup>
         </Grid>
     </Border>
 </Window>

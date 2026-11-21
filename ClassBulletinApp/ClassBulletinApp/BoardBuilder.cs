@@ -44,19 +44,31 @@ public static class BoardBuilder
             DisplayDate = displayDate,
             DateText = $"{displayDate:yyyy年M月d日}",
             WeekLine = $"{WeekHelper.WeekLabel(displayDate, semesterStart)}　{DayName(displayDate.DayOfWeek)}",
-            ClassName = selectedClass ?? "",
-            IsWeekend = ((int)displayDate.DayOfWeek + 6) % 7 > 4
+            ClassName = selectedClass ?? ""
         };
+        // r133 校历：先问「今天按哪天的课表上课」，再由 plan 决定 dayIdx / 单双周 / 是否补课放假。
+        // ★ 顺序很重要：plan 必须在下面的提前 return 之前算出来，否则没选班时大屏就看不到「按周三上课」的标签。
+        var plan = SchoolCalendar.Resolve(schedule, displayDate, semesterStart);
+        res.Plan = plan;
+        res.DayTag = plan.TagText;
+        res.IsMakeup = plan.IsMakeup;
+        res.IsOff = plan.IsOff;
+        res.IsWeekend = !plan.IsMakeup && plan.DayIdx > 4;
+
         if (schedule == null || string.IsNullOrEmpty(selectedClass)) return res;
         var cs = schedule.Classes.FirstOrDefault(c => c.ClassName == selectedClass);
         if (cs == null) return res;
 
-        int dayIdx = ((int)displayDate.DayOfWeek + 6) % 7;
+        int dayIdx = plan.DayIdx;
         // ★ 只取「在 displayDate 这天生效」的覆盖：临时调整自带生效区间，
         //   上周的调代课不会再顶到本周课表上（见 OverrideExpander 注释）。
         //   用索引器而不是 ToDictionary：同一格可能残留多条，取 UpdatedAt 最新那条。
-        var ovDict = OverrideExpander.MapForDate(overrides ?? Store.LoadOverrides(), selectedClass, displayDate);
-        int parity = WeekHelper.GetParity(displayDate, semesterStart);
+        // r133 调休补课：按「被指向的那天」取调课（周三的代课会跟着搬到周六）；
+        //   规则里明确「不沿用调课」时整片不看，只留干净的基础课表。
+        var ovDict = plan.UsesOverrides
+            ? OverrideExpander.MapForDate(overrides ?? Store.LoadOverrides(), selectedClass, plan.OverrideDate)
+            : new Dictionary<string, LessonOverride>();
+        int parity = plan.Parity;
 
         if (!cs.Data.TryGetValue(dayIdx, out var dayMap))
         {
@@ -75,6 +87,7 @@ public static class BoardBuilder
                     Period = ov.Period,
                     PeriodText = $"第{ov.Period}节",
                     CardBg = "#FFFFFF",
+                    TimeRange = BellResolver.ResolveTimeRange(schedule, cs, new Lesson { Period = ov.Period }),
                     Lessons = { new LessonView
                     {
                         DayIdx = dayIdx, Period = ov.Period,
@@ -92,9 +105,9 @@ public static class BoardBuilder
                 res.Rows.Add(new PeriodRow
                 {
                     DayIdx = dayIdx,
-                    PeriodText = "无课",
-                    CardBg = "#FFF7E6",
-                    Lessons = { new LessonView { Subject = "今日休息，无课程安排", SubjectColor = "#9A7B3F" } }
+                    PeriodText = plan.IsOff ? "放假" : "无课",
+                    CardBg = plan.IsOff ? "#EEF3EC" : "#FFF7E6",
+                    Lessons = { new LessonView { Subject = EmptyDayText(plan), SubjectColor = plan.IsOff ? "#3B6D11" : "#9A7B3F" } }
                 });
             return res;
         }
@@ -146,20 +159,23 @@ public static class BoardBuilder
                     DayIdx = dayIdx,
                     Period = period,
                     PeriodText = $"第{period}节",
+                    TimeRange = BellResolver.ResolveTimeRange(schedule, cs, new Lesson { Period = period }),
                     Lessons = { MakeOverrideView(nov, period) }
                 });
                 continue;
             }
 
             var first = lessons.First();
+            // r135：节次时间逐节解析 —— 手动班用自己的快照，导入班优先 Bell，缺哪节回退哪节
+            string timeRange = BellResolver.ResolveTimeRange(schedule, cs, first);
             var row = new PeriodRow
             {
                 DayIdx = dayIdx,
                 Period = period,
                 PeriodText = $"第{period}节",
-                TimeRange = first.TimeRange
+                TimeRange = timeRange
             };
-            if (!string.IsNullOrEmpty(first.TimeRange) && IsCurrent(first.TimeRange, displayDate))
+            if (!string.IsNullOrEmpty(timeRange) && IsCurrent(timeRange, displayDate))
                 row.CardBg = "#FFF3CD";
 
             if (ovDict.TryGetValue(key, out var ov))
@@ -195,17 +211,39 @@ public static class BoardBuilder
             body.Add(row);
         }
 
-        res.Rows.AddRange(InsertFixedSlots(body, FixedSlotsFor(schedule, selectedClass), dayIdx));
+        res.Rows.AddRange(InsertFixedSlots(body, ResolveFixedSlots(schedule, selectedClass), dayIdx));
         return res;
     }
 
-    /// <summary>取该班所在年级的固定时段；无（Excel 导入路径 / 非二一数据）时返回 null。</summary>
-    private static List<FixedSlot>? FixedSlotsFor(ScheduleFile schedule, string? className)
+    /// <summary>
+    /// 取该班固定时段。优先级：
+    /// ① 手动录入的班 —— 用它自己那份（r129：手动录入的作息与导入 / 自动更新完全独立）；
+    /// ② r135 当前课表作息 Bell.FixedSlots（管理员显式设置，全校一致，优先）；
+    /// ③ 二一导入的年级作息 FixedByGrade（没设 Bell 时的兜底）；
+    /// ④ null —— 不插公共时间行。
+    /// <para>★ r135 摘掉了原来的「回退到本机默认模板」：那会让从没设过作息的教室机
+    /// 冒出内置初中的大课间 09:50-10:10（幽灵数据）。</para>
+    /// </summary>
+    internal static List<FixedSlot>? ResolveFixedSlots(ScheduleFile schedule, string? className)
     {
-        if (schedule.FixedByGrade == null || schedule.FixedByGrade.Count == 0) return null;
-        var grade = ErYiClient.ParseGrade(className ?? "");
-        if (string.IsNullOrEmpty(grade)) return null;
-        return schedule.FixedByGrade.TryGetValue(grade, out var list) && list.Count > 0 ? list : null;
+        var cls = string.IsNullOrWhiteSpace(className)
+            ? null
+            : schedule.Classes.FirstOrDefault(c => c.ClassName == className);
+        if (cls != null && cls.IsManual)
+        {
+            // 发布端本机：模板还在就跟着模板走（用户改了作息立刻生效）
+            if (!string.IsNullOrWhiteSpace(cls.PeriodTemplateName))
+            {
+                var own = Store.LoadScheduleTemplates().PeriodTemplates
+                    .FirstOrDefault(p => string.Equals(p.Name, cls.PeriodTemplateName, StringComparison.OrdinalIgnoreCase));
+                if (own != null) return own.FixedSlots;
+            }
+            // 教室机没有本地模板：用保存时写进课表的那份快照
+            if (cls.FixedSlots is { Count: > 0 }) return cls.FixedSlots;
+            return null;   // 手动班明确没有公共时间时不再回退默认模板（否则会冒出别人学校的大课间）
+        }
+
+        return BellResolver.ResolveFixedSlots(schedule, className);
     }
 
     /// <summary>
@@ -213,7 +251,7 @@ public static class BoardBuilder
     /// 固定行 Period=0、Lessons 为空：悬浮窗渲染成灰色紧凑分隔条，
     /// 拖动调课的命中判断（Period &gt; 0）与上课提醒都会自动跳过它们。
     /// </summary>
-    private static List<PeriodRow> InsertFixedSlots(List<PeriodRow> body, List<FixedSlot>? fixedSlots, int dayIdx)
+    internal static List<PeriodRow> InsertFixedSlots(List<PeriodRow> body, List<FixedSlot>? fixedSlots, int dayIdx)
     {
         if (fixedSlots == null || fixedSlots.Count == 0) return body;
 
@@ -242,8 +280,20 @@ public static class BoardBuilder
         IsFixed = true
     };
 
-    private static bool IsCurrent(string timeRange, DateTime now)
+    /// <summary>当天没有任何课可显示时的提示语（r133：区分「放假」「补课但缺数据」「普通休息」）。</summary>
+    private static string EmptyDayText(DayPlan plan)
     {
+        if (plan.IsOff)
+            return string.IsNullOrWhiteSpace(plan.Note) ? "今日放假，不上课" : "今日放假：" + plan.Note;
+        if (plan.IsMakeup)
+        {
+            string d = plan.AsDate.HasValue ? SchoolCalendar.DayNameShort(plan.AsDate.Value) : "指定日";
+            return "按" + d + "课表上课，但课表里没有" + d + "的课程数据";
+        }
+        return "今日休息，无课程安排";
+    }
+
+    private static bool IsCurrent(string timeRange, DateTime now)    {
         var parts = timeRange.Split('-');
         if (parts.Length != 2) return false;
         if (!TimeSpan.TryParse(parts[0], out var s) || !TimeSpan.TryParse(parts[1], out var en)) return false;
@@ -272,4 +322,12 @@ public class TodayResult
     public string ClassName { get; set; } = "";
     public bool IsWeekend { get; set; }
     public DateTime DisplayDate { get; set; } = DateTime.Now;  // 实际显示依据的那一天
+
+    // ===== r133 校历 / 调休 =====
+    /// <summary>这一天的校历结论（补课 / 放假 / 普通日），渲染层用它判断标签与底色。</summary>
+    public DayPlan? Plan { get; set; }
+    /// <summary>大屏标签：「按周三课表上课」「今日放假」，普通日为空。</summary>
+    public string DayTag { get; set; } = "";
+    public bool IsMakeup { get; set; }
+    public bool IsOff { get; set; }
 }

@@ -2,17 +2,30 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctl="clr-namespace:ClassBulletinApp.Controls"
-        Title="切换显示日期" Height="270" Width="380"
+        Title="切换显示日期" SizeToContent="Height" Width="420"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
     <StackPanel Margin="22">
-        <TextBlock Text="选择要显示的日期（可用于调休上课）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
+        <TextBlock Text="选择要显示的日期（预览某一天的课表）" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
         <DatePicker x:Name="Dp" FontSize="16" SelectedDateFormat="Long" Margin="0,0,0,12"/>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
             <Button Content="前一天" Padding="12,6" FontSize="13" Margin="0,0,6,0" Click="Prev_Click"/>
             <Button Content="后一天" Padding="12,6" FontSize="13" Margin="0,0,6,0" Click="Next_Click"/>
             <Button Content="今天" Padding="14,6" FontSize="13" Click="Today_Click" Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
         </StackPanel>
+
+        <!-- r133：调休上课不再靠"把日期固定到某一天"，改到校历里设一条规则；
+             这里给一个直达入口，日期取上面选的那天。 -->
+        <Border Background="{DynamicResource PrimarySoftBrush}" BorderBrush="{DynamicResource PrimarySoftBorderBrush}"
+                BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock Text="调休上课（周六补周三的课、某天放假）" FontSize="13" FontWeight="Bold"
+                           Foreground="{DynamicResource InkBrush}" Margin="0,0,0,4"/>
+                <TextBlock Text="用校历设置：日期仍显示真实那天，只是课表按另一天排；单双周、调课都跟着走。"
+                           FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6"/>
+                <Button x:Name="BtnCalendar" Content="打开「校历 / 调休」…" Padding="12,6" FontSize="13" HorizontalAlignment="Left" Click="Calendar_Click"/>
+            </StackPanel>
+        </Border>
 
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -285,6 +285,11 @@ public partial class App : System.Windows.Application
                     "schedulewinfail" => DiagScheduleUpdateFail(),
                     "schedulewinuptodate" => DiagScheduleUpToDate(),
                     "notifywin" => new NotificationWindow(),
+                    // r131：通知条徽章两态实景（换课红 / 倒计时琥珀），用注入数据不依赖真实底表
+                    "notifybadgechange" => DiagNotifyBadge(true),
+                    "notifybadgecountdown" => DiagNotifyBadge(false),
+                    // r133：校历 / 调休窗口（列表里带一条补课 + 一条放假，便于看排版）
+                    "schoolcalendar" => new SchoolCalendarWindow(DateTime.Today),
                     "homeworkwin" => new HomeworkWindow(),
                     "missingwin" => new MissingWindow(),
                     "main" => new MainWindow(),
@@ -301,6 +306,18 @@ public partial class App : System.Windows.Application
                     "boardsendweek" => DiagBoardSendWeekly(),
                     "boardsendnotice" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityNotice),
                     "boardsync" => new BoardSyncWindow(),
+                    // r125：手动录入（课程设置自动调出 + 方案下拉 + 拖动提示）与单格编辑器
+                    "manual" => DiagManualWindow(),
+                    "celledit" => DiagCellEditorWindow(),
+                    // r127：作息时间表页签（节次与公共时间混排）与拖动浮卡实景
+                    "template" => new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns()),
+                    // r135：带「当前课表作息」绿标 + 已应用提示的实景
+                    "templatebell" => DiagTemplateWithBell(),
+                    // r129：窗口压矮时两栏要出滚动条（否则底部「添加/删除」按钮被裁掉，像是没有这些按钮）
+                    "templatesmall" => new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns()) { Height = 420 },
+                    // r130：下载模板的选择窗（4 类模板 + 单双周说明）
+                    "tplpick" => new ImportTemplatePickWindow(),
+                    "dragcard" => DiagManualWindow(),
                     "mainuser" => new MainWindow { InitialTabIndex = 7 },
                     "mainabout" => new MainWindow { InitialTabIndex = 8 },
                     "login" => new LoginWindow(),
@@ -433,6 +450,15 @@ public partial class App : System.Windows.Application
                 {
                     try { dmw.WeekViewManage.DiagArmDragVisual(); }
                     catch (Exception ex) { try { File.WriteAllText(shotLog, "ARMFAIL " + ex.Message); } catch { } }
+                    w0.UpdateLayout();
+                }
+
+                // r127：拖动浮起卡片实景（真实拖动过程中截不到稳定画面，这里把卡片停在网格中部）
+                if (w0 is ManualScheduleWindow gmw
+                    && string.Equals(e.Args[1], "dragcard", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { gmw.DiagShowDragCard(); }
+                    catch (Exception ex) { try { File.WriteAllText(shotLog, "CARDFAIL " + ex.Message); } catch { } }
                     w0.UpdateLayout();
                 }
 
@@ -868,16 +894,17 @@ public partial class App : System.Windows.Application
                 var prev = UserSession.Current;
                 try
                 {
+                    // r116：板书 / 通知 / 黑板三个显示类入口对所有角色默认显示（含游客），排在各自默认末尾
                     var roles = new[]
                     {
-                        (UserRole.Student, "countdown,duty,hw,info,missing,note",
-                         new[] { "hw", "missing", "note", "countdown", "duty", "info" }),
-                        (UserRole.Teacher, "countdown,info,note,publish,settings,week",
-                         new[] { "publish", "note", "week", "countdown", "settings", "info" }),
-                        (UserRole.SubjectTeacher, "countdown,info,note,publish,settings,week",
-                         new[] { "publish", "note", "week", "countdown", "settings", "info" }),
-                        (UserRole.Admin, "countdown,info,note,publish,settings,week",
-                         new[] { "publish", "note", "week", "countdown", "settings", "info" })
+                        (UserRole.Student, "board,countdown,duty,hand,hw,info,missing,note,notice",
+                         new[] { "hw", "missing", "note", "countdown", "duty", "info", "hand", "notice", "board" }),
+                        (UserRole.Teacher, "board,countdown,hand,info,note,notice,publish,settings,week",
+                         new[] { "publish", "note", "week", "countdown", "settings", "info", "hand", "notice", "board" }),
+                        (UserRole.SubjectTeacher, "board,countdown,hand,info,note,notice,publish,settings,week",
+                         new[] { "publish", "note", "week", "countdown", "settings", "info", "hand", "notice", "board" }),
+                        (UserRole.Admin, "board,countdown,hand,info,note,notice,publish,settings,week",
+                         new[] { "publish", "note", "week", "countdown", "settings", "info", "hand", "notice", "board" })
                     };
 
                     foreach (var (role, expectSorted, expectOrder) in roles)
@@ -888,7 +915,7 @@ public partial class App : System.Windows.Application
                         Check($"{role} 出厂默认显示项", got == expectSorted, got);
                         string order = string.Join(",", QuickActionCatalog.OrderFor(role).Take(expectOrder.Length));
                         Check($"{role} 胶囊排列顺序", order == string.Join(",", expectOrder), order);
-                        Check($"{role} 九个入口都在目录里",
+                        Check($"{role} 全部入口都在目录里",
                               QuickActionCatalog.All.All(e => map.ContainsKey(e.Key)),
                               "count=" + map.Count);
                     }
@@ -916,10 +943,10 @@ public partial class App : System.Windows.Application
                     Check("按角色保存的显隐已落盘",
                           !Store.LoadSettings().QaVisibleByRole[UserRole.Teacher][QuickActionCatalog.Note]);
 
-                    // 游客：只剩不需要编辑权限的三个入口
+                    // 游客：不用编辑权限的入口全在 —— 原来的 周课 / 设置 / 信息 + 板书 / 通知 / 黑板
                     UserSession.SignOut();
-                    Check("游客只剩 周课 / 设置 / 信息",
-                          Keys(QuickActionCatalog.VisibleNow()) == "info,settings,week",
+                    Check("游客显示 周课 / 设置 / 信息 / 板书 / 通知 / 黑板",
+                          Keys(QuickActionCatalog.VisibleNow()) == "board,hand,info,notice,settings,week",
                           Keys(QuickActionCatalog.VisibleNow()));
                 }
                 finally
@@ -937,6 +964,307 @@ public partial class App : System.Windows.Application
                 sb.AppendLine("EXCEPTION " + ex);
                 sb.AppendLine($"RESULT FAIL  {pass}/{pass + fail + 1}");
                 try { File.WriteAllText(log, sb.ToString()); } catch { }
+                Shutdown(1);
+                return;
+            }
+        }
+
+        // 诊断：--manual-drag-check 用真实系统鼠标在「手动录入」网格里拖格子，
+        // 验「拖动 = 移动 / 交换」，且不会被单击填充顶掉（r125 只测了纯逻辑，真机拖不动才暴露）。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--manual-drag-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string dlog = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.manualdrag.log");
+            var sb = new System.Text.StringBuilder();
+            int pass = 0, fail = 0;
+            void Flush() { try { File.WriteAllText(dlog, sb.ToString()); } catch { } }
+            void Check(string name, bool ok, string detail = "")
+            {
+                sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (string.IsNullOrEmpty(detail) ? "" : "  " + detail));
+                if (ok) pass++; else fail++;
+                Flush();
+            }
+            sb.AppendLine("START " + DateTime.Now.ToString("HH:mm:ss"));
+            Flush();
+            try
+            {
+                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CB_DATA_DIR")))
+                {
+                    sb.AppendLine("拒绝：请用 CB_DATA_DIR 指向数据副本后再运行（本诊断会模拟真实鼠标）。");
+                    sb.AppendLine("RESULT FAIL  0/1");
+                    try { File.WriteAllText(dlog, sb.ToString()); } catch { }
+                    Shutdown(1);
+                    return;
+                }
+                Store.SuppressWrites = true;   // 连副本都不写
+
+                var t = ScheduleTemplates.CreateWithBuiltIns();
+                var sf = new ScheduleFile();
+                var cls = new ClassSchedule { ClassName = "拖动测试班" };
+                cls.Data[0] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { new() { Period = 1, Subject = "语文", Teacher = "张老师", Week = 0 } },
+                    [2] = new List<Lesson> { new() { Period = 2, Subject = "英语", Teacher = "李老师", Week = 0 } }
+                };
+                sf.Classes.Add(cls);
+                // 课程设置里放一门「数学」并让列表默认选中它：一旦被单击填充，格子里就会变成数学
+                t.UpsertSetup(new ClassSetup
+                {
+                    ClassName = "拖动测试班", PeriodTemplateName = "初中 7 节", SavedAt = DateTime.Now,
+                    Pairs = new List<SubjectPair> { new() { Subject = "数学", Teacher = "陈老师", WeeklyPeriods = 5 } }
+                });
+
+                var w = new ManualScheduleWindow(sf, t)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual,
+                    Left = 80,
+                    Top = 60,
+                    Topmost = true   // 探针要保证真鼠标点到的是这个窗口，不能被别的窗口盖住
+                };
+                w.Show();
+                w.Activate();
+                PumpMs(900);
+                w.UpdateLayout();
+
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var cells = (Dictionary<(int day, int period), Button>)typeof(ManualScheduleWindow)
+                    .GetField("_cellButtons", bf)!.GetValue(w)!;
+                var data = (Dictionary<int, Dictionary<int, List<Lesson>>>)typeof(ManualScheduleWindow)
+                    .GetField("_data", bf)!.GetValue(w)!;
+                var lb = (System.Windows.Controls.ListBox)typeof(ManualScheduleWindow).GetField("_lbPairs", bf)!.GetValue(w)!;
+                var hint = (System.Windows.Controls.TextBlock)typeof(ManualScheduleWindow)
+                    .GetField("_txtHint", bf)!.GetValue(w)!;
+
+                Check("窗口显示、格子已生成、左侧已选中一门课",
+                      w.IsVisible && cells.Count >= 20 && lb.SelectedItem is SubjectPair,
+                      $"cells={cells.Count} 选中={(lb.SelectedItem as SubjectPair)?.Subject}");
+
+                var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(w);
+                var content = (FrameworkElement)w.Content;
+
+                // ★ 屏幕坐标必须从「客户区原点（物理像素）」+「格子相对窗口的 DIP 偏移 × 缩放」算，
+                // 不能直接拿 PointToScreen：125% 缩放下单位口径不一致，第一版探针差 20% 点到别处。
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(w).Handle;
+                if (hwnd != IntPtr.Zero) SetForegroundWindow(hwnd);   // 非前台时第一次点击会被"激活窗口"吃掉
+                PumpMs(300);
+                var clientOrigin = new DPOINT { X = 0, Y = 0 };
+                ClientToScreen(hwnd, ref clientOrigin);
+
+                (int x, int y) Center((int day, int period) key)
+                {
+                    var b = cells[key];
+                    var off = b.TransformToAncestor(w).Transform(
+                        new System.Windows.Point(b.ActualWidth / 2, b.ActualHeight / 2));
+                    return ((int)Math.Round(clientOrigin.X + off.X * dpi.DpiScaleX),
+                            (int)Math.Round(clientOrigin.Y + off.Y * dpi.DpiScaleY));
+                }
+                string CellText(int day, int period)
+                {
+                    var b = cells[(day, period)];
+                    return (b.Content as string ?? "").Replace("\n", "/");
+                }
+
+                // 输入探针：确认系统的按下/移动/抬起到底有没有进到窗口、进到格子按钮，
+                // 以及鼠标捕获在拖动过程中落到谁身上（捕获被别人抢走 = 后续 move/up 全丢）。
+                int nDown = 0, nMove = 0, nUp = 0, nBtnMove = 0;
+                var capLog = new List<string>();
+                w.PreviewMouseDown += (_, _) => nDown++;
+                w.PreviewMouseMove += (_, _) =>
+                {
+                    nMove++;
+                    if (capLog.Count < 8)
+                    {
+                        var cap = System.Windows.Input.Mouse.Captured;
+                        capLog.Add(cap == null ? "null"
+                            : cap is Button ? "Button" : cap.GetType().Name);
+                    }
+                };
+                w.PreviewMouseLeftButtonUp += (_, _) => nUp++;
+                cells[(0, 1)].MouseMove += (_, _) => nBtnMove++;
+
+                sb.AppendLine($"dpi={dpi.DpiScaleX:0.##} client={clientOrigin.X},{clientOrigin.Y} 源格={CellText(0, 1)} 目标格={CellText(0, 3)}");
+                Flush();
+
+                // ① 拖到空格 = 移动
+                var from = Center((0, 1));
+                var to = Center((0, 3));
+                SetCursorPos(from.x, from.y);
+                PumpMs(120);
+                sb.AppendLine("源格坐标 " + from.x + "," + from.y + " 光标处窗口="
+                              + DescribeHwnd(WindowFromPoint(new DPOINT { X = from.x, Y = from.y })));
+                Flush();
+                RealDrag(from.x, from.y, to.x - from.x, to.y - from.y, 12);
+                PumpMs(900);
+                sb.AppendLine($"输入计数 down={nDown} move={nMove} up={nUp} 源格MouseMove={nBtnMove}");
+                sb.AppendLine("捕获序列 " + string.Join(",", capLog));
+                Flush();
+
+                bool srcEmpty = !data.TryGetValue(0, out var d0) || !d0.ContainsKey(1);
+                bool moved = data.TryGetValue(0, out var d1) && d1.TryGetValue(3, out var l3)
+                             && l3.Count == 1 && l3[0].Subject == "语文";
+                Check("拖到空格 = 移动（原格清空、目标格保留原课程）", srcEmpty && moved,
+                      $"原格={(srcEmpty ? "空" : CellText(0, 1))} 目标格={CellText(0, 3)}");
+                Check("拖动没有被单击填充顶掉（目标不是课程设置里选中的「数学」）",
+                      CellText(0, 3) != "数学", "目标格=" + CellText(0, 3));
+
+                // ② 拖到有课的格子 = 两格交换（拖动后网格重建过，格子按钮要重新取）
+                var from2 = Center((0, 3));
+                var to2 = Center((0, 2));
+                RealDrag(from2.x, from2.y, to2.x - from2.x, to2.y - from2.y, 12);
+                PumpMs(900);
+
+                Check("拖到有课格 = 两格交换",
+                      CellText(0, 3).StartsWith("英语") && CellText(0, 2).StartsWith("语文"),
+                      $"第3节={CellText(0, 3)} 第2节={CellText(0, 2)}");
+                Check("提示语说明了交换", hint.Text.Contains("交换"), hint.Text);
+
+                // r127：拖动时的浮起卡片不能留在覆盖层里（源格也不能一直发灰）
+                var dragLayer = (System.Windows.Controls.Canvas)typeof(ManualScheduleWindow)
+                    .GetField("_dragLayer", bf)!.GetValue(w)!;
+                Check("拖动结束后浮起卡片已收回、源格恢复不透明",
+                      dragLayer.Children.Count == 0 && cells[(0, 3)].Opacity > 0.99,
+                      $"覆盖层残留 {dragLayer.Children.Count} 个，源格不透明度={cells[(0, 3)].Opacity:0.##}");
+
+                // ③ 已有课的格子单击 = 不填充（r126 规则：有课的只负责被拖走，改内容靠双击）
+                var p3 = Center((0, 2));
+                RealDrag(p3.x, p3.y, 0, 0, 1);
+                PumpMs(700);
+                Check("已有课的格子单击不填充（还是语文，没被换成选中的数学）",
+                      CellText(0, 2).StartsWith("语文"), "第2节=" + CellText(0, 2));
+
+                // ④ 空格单击 = 填充选中的课程（220ms 延时后落子）
+                var p4 = Center((0, 5));
+                RealDrag(p4.x, p4.y, 0, 0, 1);
+                PumpMs(700);
+                Check("空格单击会填充选中的课程", CellText(0, 5).StartsWith("数学"), "第5节=" + CellText(0, 5));
+
+                w.Close();
+                sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
+                Flush();
+                Shutdown(0);
+                return;
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("EXCEPTION " + ex);
+                sb.AppendLine($"RESULT FAIL  {pass}/{pass + fail + 1}");
+                Flush();
+                Shutdown(1);
+                return;
+            }
+        }
+
+        // 诊断：--manual-data-check 用真实底表逐班核对「手动录入」网格内容是否等于该班底表。
+        // 用户反馈：自动更新后再进手动录入，在班级列表选班，显示的课表与更新后的课表不一致。
+        // 这条链路只有「选班 → LoadClassIntoGrid → _data」几步，用真实数据跑一遍就能定位：
+        // 是取值时机（IsEditable ComboBox 的 Text 滞后）还是数据源本身不同。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--manual-data-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string mlog = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.manualdata.log");
+            var sb = new System.Text.StringBuilder();
+            int pass = 0, fail = 0;
+            void Flush() { try { File.WriteAllText(mlog, sb.ToString()); } catch { } }
+            void Check(string name, bool ok, string detail = "")
+            {
+                sb.AppendLine((ok ? "PASS " : "FAIL ") + name + (string.IsNullOrEmpty(detail) ? "" : "  " + detail));
+                if (ok) pass++; else fail++;
+                Flush();
+            }
+            sb.AppendLine("START " + DateTime.Now.ToString("HH:mm:ss"));
+            Flush();
+            try
+            {
+                Store.SuppressWrites = true;
+                var sf = Store.LoadSchedule();
+                if (sf == null || sf.Classes.Count == 0)
+                {
+                    // 本机底表被清过（如刚点过「一键清除全部导入数据」）时不算失败：
+                    // 这条探针的意义是拿真实数据核对，没有数据就跳过，免得以后误判成回归。
+                    sb.AppendLine("SKIP 本机 schedule.json 底表是空的，没有班级可核对（先导入课表再跑这条）。");
+                    sb.AppendLine("RESULT SKIP  0/0");
+                    Flush();
+                    Shutdown(0);
+                    return;
+                }
+                var tmpl = Store.LoadScheduleTemplates();
+                sb.AppendLine($"底表 {sf.Classes.Count} 个班，ImportedAt={sf.ImportedAt:yyyy-MM-dd HH:mm}，文件={Store.ScheduleStamp:HH:mm:ss}");
+                Flush();
+
+                var w = new ManualScheduleWindow(sf, tmpl);
+                w.Show();
+                PumpMs(800);
+                w.UpdateLayout();
+
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var cbClass = (System.Windows.Controls.ComboBox)typeof(ManualScheduleWindow).GetField("_cbClass", bf)!.GetValue(w)!;
+                var hint = (System.Windows.Controls.TextBlock)typeof(ManualScheduleWindow).GetField("_txtHint", bf)!.GetValue(w)!;
+
+                string Sig(Dictionary<int, Dictionary<int, List<Lesson>>> data)
+                {
+                    var list = new List<string>();
+                    foreach (var d in data)
+                        foreach (var p in d.Value)
+                            list.Add(d.Key + ":" + p.Key + "=" + string.Join("/", p.Value.Select(l => l.Subject)));
+                    list.Sort(StringComparer.Ordinal);
+                    return string.Join(";", list);
+                }
+
+                // 用前 5 个有课的班模拟「用户在班级列表里逐个选班」
+                var probe = sf.Classes.Where(c => c.Data.Count > 0).Take(5).ToList();
+                Check("班级下拉项数 ≥ 底表班数", cbClass.Items.Count >= sf.Classes.Count,
+                      $"下拉 {cbClass.Items.Count} 项 / 底表 {sf.Classes.Count} 班");
+
+                for (int i = 0; i < probe.Count; i++)
+                {
+                    var want = probe[i];
+                    int idx = cbClass.Items.IndexOf(want.ClassName);
+                    cbClass.SelectedIndex = idx;
+                    PumpMs(200);
+                    var data = (Dictionary<int, Dictionary<int, List<Lesson>>>)typeof(ManualScheduleWindow)
+                        .GetField("_data", bf)!.GetValue(w)!;
+                    string got = Sig(data), exp = Sig(want.Data);
+                    bool ok = got == exp;
+                    string detail = "";
+                    if (!ok)
+                    {
+                        // 顺带指出「网格里现在到底是谁的课表」，方便一眼定位错位是哪种
+                        var landed = sf.Classes.FirstOrDefault(c => Sig(c.Data) == got)?.ClassName ?? "（没有任何班匹配）";
+                        detail = $"下拉选中={cbClass.SelectedItem} 实际显示={landed} 提示={hint.Text}";
+                    }
+                    Check("选「" + want.ClassName + "」后网格 = 该班底表", ok, detail);
+
+                    // 底表对了，还要说清"大屏上另有调代课"——否则仍会被当成不一致
+                    int ov = Store.LoadOverrides().Count(o => !o.Suspended
+                             && string.Equals(o.ClassName, want.ClassName, StringComparison.Ordinal));
+                    if (ov > 0)
+                        Check("「" + want.ClassName + "」提示里点明了 " + ov + " 条调代课不在此展开",
+                              hint.Text.Contains("条临时调课"), hint.Text);
+                }
+
+                // 再验一次「同一班重选」（点同一项）与「新建班级」不会把网格弄脏
+                if (probe.Count > 0)
+                {
+                    cbClass.SelectedIndex = cbClass.Items.IndexOf(probe[0].ClassName);
+                    PumpMs(150);
+                    cbClass.SelectedIndex = 0;
+                    PumpMs(150);
+                    var data0 = (Dictionary<int, Dictionary<int, List<Lesson>>>)typeof(ManualScheduleWindow)
+                        .GetField("_data", bf)!.GetValue(w)!;
+                    Check("反复切班后仍与当前选中班一致",
+                          Sig(data0) == Sig(sf.Classes[0].Data),
+                          "选中=" + cbClass.SelectedItem);
+                }
+
+                w.Close();
+                sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
+                Flush();
+                Shutdown(0);
+                return;
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("EXCEPTION " + ex);
+                sb.AppendLine($"RESULT FAIL  {pass}/{pass + fail + 1}");
+                Flush();
                 Shutdown(1);
                 return;
             }
@@ -1214,6 +1542,406 @@ public partial class App : System.Windows.Application
                 catch { try { hw.Close(); } catch { } throw; }
                 return hw;
             });
+            // r131 通知条徽章三态：有换课=红、无换课+开关开+有倒计时=琥珀、否则隐藏。
+            // ★ 全程不碰跑马灯，不占那两条名额 —— 用 Diag 注入数据，纯内存，不写盘。
+            Check("r131 通知条徽章三态与开关", () =>
+            {
+                var w = new NotificationWindow();
+                try
+                {
+                    var badge = (System.Windows.Controls.Border)typeof(NotificationWindow)
+                        .GetField("Badge", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                        .GetValue(w)!;
+                    var label = (System.Windows.Controls.TextBlock)w.FindName("BadgeLabel")!;
+                    var value = (System.Windows.Controls.TextBlock)w.FindName("BadgeValue")!;
+                    string cls = Store.LoadSettings().SelectedClass ?? "七年级(9)班";
+                    var today = DateTime.Today;
+                    // r133：徽章的「今天」走校历。诊断注入的数据必须用同一口径，
+                    // 否则本机设了调休（周六补周三）时注入到周六列、徽章却去周三列找，会假失败。
+                    int todayIdx = SchoolCalendar.Resolve(Store.LoadSchedule(), today,
+                        Store.LoadSettings().SemesterStartMonday).DayIdx;
+
+                    // ① 当天有换课 → 红徽章 + 节数，倒计时被压住
+                    w.DiagCountdown = new CountdownBoard
+                    {
+                        Items = { new CountdownItem { Name = "期末考试", TargetDate = today.AddDays(30).ToString("yyyy-MM-dd") } }
+                    };
+                    w.DiagShowCountdownBadge = true;
+                    w.DiagTodayOverrides = new List<LessonOverride>
+                    {
+                        new LessonOverride { ClassName = cls, DayIdx = todayIdx,
+                            Period = 3, Subject = "语文", Teacher = "张老师", Type = "代", Source = "manual" },
+                        new LessonOverride { ClassName = cls, DayIdx = todayIdx,
+                            Period = 6, Subject = "自习", Type = "调", Source = "temp" }
+                    };
+                    w.RefreshBadge();
+                    if (badge.Visibility != System.Windows.Visibility.Visible)
+                        throw new Exception("有换课时徽章没显示");
+                    if (label.Text != "今日换课" || value.Text != "2")
+                        throw new Exception("换课徽章文案不对：" + label.Text + "/" + value.Text);
+
+                    // ② 无换课 + 开关开 + 未过期倒计时 → 琥珀徽章，取最近一条
+                    w.DiagTodayOverrides = new List<LessonOverride>();
+                    w.RefreshBadge();
+                    if (label.Text != "期末考试" || !value.Text.Contains("30"))
+                        throw new Exception("倒计时徽章没取最近一条：" + label.Text + "/" + value.Text);
+
+                    // ③ 开关关 → 徽章隐藏（换课仍优先，这里无换课所以隐藏）
+                    w.DiagShowCountdownBadge = false;
+                    w.RefreshBadge();
+                    if (badge.Visibility != System.Windows.Visibility.Collapsed)
+                        throw new Exception("关了开关倒计时徽章还在");
+
+                    // ④ 开关关但有换课 → 红徽章仍显示（换课不受开关影响）
+                    w.DiagTodayOverrides = new List<LessonOverride>
+                    {
+                        new LessonOverride { ClassName = cls, DayIdx = todayIdx,
+                            Period = 1, Subject = "数学", Source = "manual" }
+                    };
+                    w.RefreshBadge();
+                    if (badge.Visibility != System.Windows.Visibility.Visible || label.Text != "今日换课")
+                        throw new Exception("关了开关后换课徽章被误伤");
+
+                    // ④b r132 ★ 只数「今天」这一列，不数整周
+                    //   场景：一条周一起、周五止的调课占用周一~周五；今天只有 1 处换课、其它星期 2 处。
+                    //   旧写法 ForDate 不看星期，会把这 3 处全算进"今天"。
+                    int otherIdx = (todayIdx + 2) % 7;
+                    var from = DateOnly.FromDateTime(today.AddDays(-3));
+                    var to = DateOnly.FromDateTime(today.AddDays(3));
+                    w.DiagShowCountdownBadge = false;
+                    w.DiagTodayOverrides = new List<LessonOverride>
+                    {
+                        new LessonOverride { ClassName = cls, DayIdx = todayIdx, Period = 2,
+                            Subject = "语文", Source = "manual", ValidFrom = from, ValidTo = to },
+                        new LessonOverride { ClassName = cls, DayIdx = todayIdx, Period = 2,
+                            Subject = "语文", Source = "temp", ValidFrom = from, ValidTo = to },   // 同格重复来源 → 仍算 1
+                        new LessonOverride { ClassName = cls, DayIdx = otherIdx, Period = 2,
+                            Subject = "数学", Source = "manual", ValidFrom = from, ValidTo = to },
+                        new LessonOverride { ClassName = cls, DayIdx = otherIdx, Period = 3,
+                            Subject = "英语", Source = "manual", ValidFrom = from, ValidTo = to }
+                    };
+                    w.RefreshBadge();
+                    if (value.Text != "1")
+                        throw new Exception("换课计数没有只数今天（本周其它星期 / 同格重复来源被算进去了）：" + value.Text);
+
+                    // ⑤ 全空 → 隐藏
+                    w.DiagTodayOverrides = new List<LessonOverride>();
+                    w.DiagCountdown = new CountdownBoard();
+                    w.DiagShowCountdownBadge = true;
+                    w.RefreshBadge();
+                    if (badge.Visibility != System.Windows.Visibility.Collapsed)
+                        throw new Exception("没换课没倒计时时徽章没隐藏");
+
+                    // ⑥ 过期倒计时不算（DaysLeft<0 过滤），"就是今天"高亮
+                    var cd = new CountdownBoard { Items =
+                    {
+                        new CountdownItem { Name = "过期事件", TargetDate = today.AddDays(-3).ToString("yyyy-MM-dd") },
+                        new CountdownItem { Name = "今天考试", TargetDate = today.ToString("yyyy-MM-dd") }
+                    }};
+                    w.DiagCountdown = cd;
+                    w.RefreshBadge();
+                    if (label.Text != "今天考试" || value.Text != "就是今天")
+                        throw new Exception("过期倒计时没被过滤 / 今天没高亮：" + label.Text + "/" + value.Text);
+
+                    // ⑦ 长名字截断
+                    if (NotificationWindow.ShortName("七年级期中综合素质测评") != "七年级期中综…")
+                        throw new Exception("徽章长名截断不对：" + NotificationWindow.ShortName("七年级期中综合素质测评"));
+
+                    // ⑧ 跑马灯名额仍为 2，没被徽章挤掉；且 r132 位置已对调（按钮最左、徽章最右）
+                    if (NotificationWindow.MarqueeMax != 2)
+                        throw new Exception("徽章改动把跑马灯名额改了：" + NotificationWindow.MarqueeMax);
+                    var btnHide = (System.Windows.Controls.Button)w.FindName("BtnHide")!;
+                    if (System.Windows.Controls.Grid.GetColumn(btnHide) != 0
+                        || System.Windows.Controls.Grid.GetColumn(badge) != 2)
+                        throw new Exception("徽章与自动隐藏按钮的位置没对调（应为 按钮=左、徽章=右）");
+
+                    w.DiagTodayOverrides = null; w.DiagCountdown = null; w.DiagShowCountdownBadge = null;
+                    return w;
+                }
+                catch { w.DiagTodayOverrides = null; w.DiagCountdown = null; w.DiagShowCountdownBadge = null; try { w.Close(); } catch { } throw; }
+            });
+
+            // r133 校历 / 调休：日期 ≠ 上哪天的课（周六补周三的课、某天放假）。
+            // 断言全部跑在内存里（自造 ScheduleFile），不碰真实课表；最后返回校历窗口顺手验一次能构造。
+            Check("r133 校历调休换算与显示", () =>
+            {
+                string sem = new DateTime(2026, 9, 1).ToString("yyyy-MM-dd");
+                var wed = new DateTime(2026, 11, 18);
+                var sat = new DateTime(2026, 11, 21);
+                var sun = new DateTime(2026, 11, 22);
+                var mon = new DateTime(2026, 11, 23);
+                string D(DateTime d) => d.ToString("yyyy-MM-dd");
+
+                var rules = new List<SchoolCalendarRule>
+                {
+                    new() { Date = D(sat), Kind = CalendarKind.Makeup, AsDate = D(wed), Note = "上周三停课" },
+                    new() { Date = D(sun), Kind = CalendarKind.Off, Note = "校运会" },
+                    new() { Date = D(mon), Kind = CalendarKind.Off, Note = "校运会" },
+                    new() { Date = "2026-11-25", Kind = CalendarKind.Makeup, AsDate = "" }   // 残缺规则
+                };
+
+                // ① 周六按周三上课：星期、单双周、调课口径全部指向 11-18
+                var plan = SchoolCalendar.Resolve(rules, sat, sem);
+                if (!plan.IsMakeup || plan.DayIdx != 2) throw new Exception("周六没有按周三上课：DayIdx=" + plan.DayIdx);
+                if (plan.Parity != WeekHelper.GetParity(wed, sem)) throw new Exception("补课的单双周没有按 11-18 算");
+                if (plan.TagText != "按周三课表上课") throw new Exception("大屏标签文案不对：" + plan.TagText);
+                if (plan.OverrideDate != wed.Date) throw new Exception("调课没有按被映射的那天取");
+
+                // ② 放假
+                var offPlan = SchoolCalendar.Resolve(rules, mon, sem);
+                if (!offPlan.IsOff || offPlan.TagText != "今日放假") throw new Exception("放假日没认出来：" + offPlan.TagText);
+
+                // ③ 没有规则的日子一律照日历星期走
+                var noRule = SchoolCalendar.Resolve(new List<SchoolCalendarRule>(), sun, sem);
+                if (noRule.IsMakeup || noRule.IsOff || noRule.DayIdx != 6)
+                    throw new Exception("没有规则的日子被改写了：DayIdx=" + noRule.DayIdx);
+
+                // ④ 残缺规则（补课但没填按哪天）绝不能把当天课表弄没
+                var badPlan = SchoolCalendar.Resolve(rules, new DateTime(2026, 11, 25), sem);
+                if (badPlan.IsMakeup || badPlan.DayIdx != 2) throw new Exception("残缺规则让当天变成了非正常日");
+
+                // ⑤ 取消「沿用调课」
+                var noInherit = SchoolCalendar.Resolve(new List<SchoolCalendarRule>
+                {
+                    new() { Date = D(sat), AsDate = D(wed), InheritOverrides = false }
+                }, sat, sem);
+                if (noInherit.UsesOverrides) throw new Exception("取消沿用调课后仍然会套调课");
+
+                // ⑥ 批量粘贴解析
+                var pasted = SchoolCalendar.ParseLine("2026-11-21 补课 2026-11-18 上周三停课", 2026);
+                if (pasted == null || pasted.AsDateValue != wed.Date || !pasted.Note.Contains("停课"))
+                    throw new Exception("批量粘贴解析不对：" + (pasted?.DisplayText ?? "null"));
+                var pastedOff = SchoolCalendar.ParseLine("2026-11-23 放假 校运会", 2026);
+                if (pastedOff == null || !pastedOff.IsOff) throw new Exception("批量粘贴的放假日解析不对");
+                if (SchoolCalendar.ParseLine("随便写点什么", 2026) != null) throw new Exception("乱写的行居然解析成功了");
+
+                // ⑦ 大屏：周六那一屏排的是周三的课（周三=语文，周六自带的体育不该出现）
+                var sf = new ScheduleFile { Calendar = rules };
+                var cls = new ClassSchedule { ClassName = "测试班" };
+                cls.Data[2] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { new() { Subject = "语文" } },
+                    [3] = new List<Lesson> { new() { Subject = "数学" } }
+                };
+                cls.Data[5] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { new() { Subject = "体育" } }
+                };
+                sf.Classes.Add(cls);
+
+                var board = BoardBuilder.Build("测试班", sem, sf, sat, new List<LessonOverride>());
+                if (!board.IsMakeup || board.DayTag != "按周三课表上课" || board.IsWeekend)
+                    throw new Exception("大屏没有标出调休补课：" + board.DayTag + "/IsWeekend=" + board.IsWeekend);
+                var subj = board.Rows.Where(r => r.Period > 0).SelectMany(r => r.Lessons)
+                                     .Select(l => l.Subject ?? "").ToList();
+                if (!subj.Contains("语文") || subj.Contains("体育"))
+                    throw new Exception("周六没有按周三的课表排：" + string.Join(",", subj));
+
+                // ⑧ 沿用调课：周三第 1 节的代课要跟着搬到周六
+                var ovs = new List<LessonOverride>
+                {
+                    new() { ClassName = "测试班", DayIdx = 2, Period = 1, Subject = "美术",
+                            Teacher = "王老师", Type = "代", Source = "manual" }
+                };
+                var board2 = BoardBuilder.Build("测试班", sem, sf, sat, ovs);
+                string? first = board2.Rows.FirstOrDefault(r => r.Period == 1)?.Lessons.FirstOrDefault()?.Subject;
+                if (first != "美术") throw new Exception("补课日没有沿用那天的调课：" + first);
+
+                var strictSf = new ScheduleFile
+                {
+                    Calendar = new List<SchoolCalendarRule>
+                    {
+                        new() { Date = D(sat), AsDate = D(wed), InheritOverrides = false }
+                    }
+                };
+                strictSf.Classes.Add(cls);
+                var board3 = BoardBuilder.Build("测试班", sem, strictSf, sat, ovs);
+                string? first3 = board3.Rows.FirstOrDefault(r => r.Period == 1)?.Lessons.FirstOrDefault()?.Subject;
+                if (first3 != "语文") throw new Exception("取消沿用调课后还是套了调课：" + first3);
+
+                // ⑨ 放假日：不排课，只给一句「今日放假」
+                var offBoard = BoardBuilder.Build("测试班", sem, sf, mon, new List<LessonOverride>());
+                if (!offBoard.IsOff) throw new Exception("放假日没标出来");
+                if (!offBoard.Rows.SelectMany(r => r.Lessons).Any(l => (l.Subject ?? "").Contains("放假")))
+                    throw new Exception("放假日没有「今日放假」提示");
+
+                // ⑩ 周视图：周六列标「按周三」、周日照常放假；两列的格子要各存各的（按列号取，不能按 DayIdx）
+                var week = WeekBuilder.BuildWeek("测试班", sem, sf, new List<LessonOverride>(), new DateTime(2026, 11, 16));
+                if (!week.DayHeaders[5].Contains("按周三"))
+                    throw new Exception("周视图周六列没标「按周三」：" + week.DayHeaders[5]);
+                if (!week.DayHeaders[6].Contains("放假"))
+                    throw new Exception("周视图没标放假：" + week.DayHeaders[6]);
+                var wedCell = week.Cells.FirstOrDefault(c => c.Col == 2 && c.Period == 1);
+                var satCell = week.Cells.FirstOrDefault(c => c.Col == 5 && c.Period == 1);
+                if (wedCell == null || satCell == null || satCell.Subject != "语文" || satCell.DayIdx != 2)
+                    throw new Exception("周视图周六列没有按周三的课表：" + satCell?.Subject);
+                if (!satCell.IsMakeupColumn) throw new Exception("周视图周六列没标成补课列（会被误当成周三那列编辑）");
+                if (week.Cells.FirstOrDefault(c => c.Col == 6 && c.Period == 1)?.HasLesson == true)
+                    throw new Exception("放假日那列还在排课");
+
+                return new SchoolCalendarWindow();
+            });
+
+            // r133 入口：数据管理页有「校历 / 调休」按钮，日期切换窗有直达入口
+            Check("r133 校历入口与权限", () =>
+            {
+                var w = new MainWindow();
+                if (w.BtnSchoolCalendar == null) throw new Exception("数据管理页缺「校历 / 调休」按钮");
+                var ds = new DateSwitchWindow(DateTime.Today);
+                var btn = ds.FindName("BtnCalendar") as System.Windows.Controls.Button;
+                if (btn == null) throw new Exception("日期切换窗缺「校历 / 调休」直达入口");
+                ds.Close();
+                return w;
+            });
+
+            // r135 课表作息：一份 Bell 同时服务个人用 / 单班用 / 学校统一用。
+            // 断言全在内存里造 ScheduleFile，不碰真实课表；最后返回作息窗口供框架收尾。
+            Check("r135 课表作息逐节解析与优先级", () =>
+            {
+                string sem = new DateTime(2026, 9, 1).ToString("yyyy-MM-dd");
+                var mon = new DateTime(2026, 11, 23);
+                var sf = new ScheduleFile();
+                var cls = new ClassSchedule { ClassName = "七年级1班" };
+                sf.Classes.Add(cls);
+                var l1 = new Lesson { Period = 1, Subject = "语文", TimeRange = "08:20-09:05" };
+                var l5 = new Lesson { Period = 5, Subject = "体育", TimeRange = "14:00-14:45" };
+
+                // ① 没设 Bell → 旧路径（导入时的逐课副本）
+                if (BellResolver.ResolveTimeRange(sf, cls, l1) != "08:20-09:05")
+                    throw new Exception("Bell 为空时没有走旧的 Lesson.TimeRange");
+
+                var bell = new BellSchedule
+                {
+                    Name = "诊断全校作息", UpdatedAt = DateTime.Now, UpdatedFrom = "diag",
+                    Periods = new List<PeriodTime> { new() { Index = 1, TimeRange = "08:00-08:45" } },
+                    FixedSlots = new List<FixedSlot> { new() { Name = "全校大课间", AfterPeriod = 1, TimeRange = "08:45-09:00" } }
+                };
+                sf.Bell = bell;
+
+                // ② 有 Bell 且这一节有值 → Bell 优先
+                if (BellResolver.ResolveTimeRange(sf, cls, l1) != "08:00-08:45")
+                    throw new Exception("Bell 没有覆盖第 1 节的时间");
+
+                // ③ Bell 没有第 5 节 → 逐节回退，不是整体切换
+                if (BellResolver.ResolveTimeRange(sf, cls, l5) != "14:00-14:45")
+                    throw new Exception("Bell 缺第 5 节时没有逐节回退");
+
+                // ④ HH:MM 是占位符，不能当成有效时间
+                bell.Periods.Add(new PeriodTime { Index = 2, TimeRange = "HH:MM-HH:MM" });
+                if (BellResolver.ResolveTimeRange(sf, cls, new Lesson { Period = 2, TimeRange = "09:10-09:55" }) != "09:10-09:55")
+                    throw new Exception("HH:MM 占位符被当成有效时间");
+
+                // ⑤ 手动班保留 r129 语义，不受 Bell 影响
+                cls.Origin = "Manual";
+                if (BellResolver.ResolveTimeRange(sf, cls, l1) != "08:20-09:05")
+                    throw new Exception("手动班被 Bell 覆盖了");
+                cls.Origin = "";
+
+                // ⑥ 公共时间：显式设置的 Bell 优先于二一 FixedByGrade
+                sf.FixedByGrade["七年级"] = new List<FixedSlot>
+                {
+                    new() { Name = "二一大课间", AfterPeriod = 1, TimeRange = "09:50-10:10" }
+                };
+                var fx = BoardBuilder.ResolveFixedSlots(sf, "七年级1班");
+                if (fx == null || fx.Count == 0 || fx[0].Name != "全校大课间")
+                    throw new Exception("Bell 的公共时间没有优先于二一 FixedByGrade");
+
+                // ⑦ Bell 为空 → 二一兜底
+                sf.Bell = null;
+                fx = BoardBuilder.ResolveFixedSlots(sf, "七年级1班");
+                if (fx == null || fx.Count == 0 || fx[0].Name != "二一大课间")
+                    throw new Exception("Bell 为空时没有回退到二一 FixedByGrade");
+
+                // ⑧ 两者都空 → null，绝不再冒出内置初中的大课间（r135 修的幽灵数据）
+                sf.FixedByGrade.Clear();
+                if (BoardBuilder.ResolveFixedSlots(sf, "七年级1班") != null)
+                    throw new Exception("没有作息时仍冒出了本机内置模板的大课间");
+
+                // ⑨ 大屏：逐节读 Bell，缺的那节回退
+                sf.Bell = bell;
+                cls.Data[0] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { l1 }, [5] = new List<Lesson> { l5 }
+                };
+                var board = BoardBuilder.Build("七年级1班", sem, sf, mon, new List<LessonOverride>());
+                if (board.Rows.FirstOrDefault(r => r.Period == 1)?.TimeRange != "08:00-08:45")
+                    throw new Exception("大屏第 1 节时间不是 Bell 的值");
+                if (board.Rows.FirstOrDefault(r => r.Period == 5)?.TimeRange != "14:00-14:45")
+                    throw new Exception("大屏第 5 节没有逐节回退");
+
+                // ⑩ 周视图与悬浮窗同一套解析（不能各读各的字段）
+                var week = WeekBuilder.BuildWeek("七年级1班", sem, sf, new List<LessonOverride>(), mon);
+                var cell1 = week.Cells.FirstOrDefault(c => c.Col == 0 && c.Period == 1);
+                if (cell1?.TimeRange != "08:00-08:45") throw new Exception("周视图时间没有走 Bell");
+
+                // ⑪ 导入表没时间但 Bell 有 → 上课自动隐藏不再永久失效
+                //    （周末用一条校历规则把今天映射成周一，保证任何日子都能断）
+                var now = DateTime.Now;
+                var sf2 = new ScheduleFile
+                {
+                    Calendar = new List<SchoolCalendarRule>
+                    {
+                        new() { Date = now.ToString("yyyy-MM-dd"), Kind = CalendarKind.Makeup,
+                                AsDate = new DateTime(2026, 11, 16).ToString("yyyy-MM-dd") }
+                    },
+                    Bell = new BellSchedule
+                    {
+                        Periods = new List<PeriodTime> { new() { Index = 1, TimeRange = "00:00-23:59" } }
+                    }
+                };
+                var cls2 = new ClassSchedule { ClassName = "七年级2班" };
+                cls2.Data[0] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { new() { Period = 1, TimeRange = "" } }
+                };
+                sf2.Classes.Add(cls2);
+                if (!WeekHelper.IsClassTimeNow(sf2, "七年级2班", sem))
+                    throw new Exception("导入表无时间但 Bell 有时，上课自动隐藏仍失效");
+
+                return new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns());
+            });
+
+            Check("r135 作息窗口与场景提示", () =>
+            {
+                var tpls = ScheduleTemplates.CreateWithBuiltIns();
+                var p = new PeriodTemplate
+                {
+                    Name = "诊断作息",
+                    Periods = new List<PeriodTime> { new() { Index = 1, TimeRange = "08:00-08:45" } },
+                    FixedSlots = new List<FixedSlot> { new() { Name = "大课间", AfterPeriod = 1, TimeRange = "08:45-09:00" } }
+                };
+                tpls.PeriodTemplates.Add(p);
+                var w = new ScheduleTemplateManagerWindow(tpls);
+
+                // ⑫ 按钮文案与权限（个人用也会有这个按钮，只是提示不同）
+                var btn = w.DiagBellButton;
+                if (btn == null || btn.Content?.ToString() != "应用到当前课表")
+                    throw new Exception("作息窗口缺「应用到当前课表」按钮");
+                if (btn.IsEnabled != UserSession.CanManageData)
+                    throw new Exception("「应用到当前课表」按钮权限没有绑 CanManageData");
+
+                // ⑬ 应用后 Bell 整份写入课表（节次 + 公共时间 + 来源）
+                w.DiagSelectPeriod(p);
+                w.ApplyBellToSchedule(confirm: false);
+                var bell = Store.LoadSchedule()?.Bell;
+                if (bell == null || bell.Name != "诊断作息" || bell.Periods.Count != 1 || bell.FixedSlots.Count != 1)
+                    throw new Exception("点应用后 Bell 没有完整写入课表");
+                if (bell.Periods[0].TimeRange != "08:00-08:45" || bell.FixedSlots[0].Name != "大课间")
+                    throw new Exception("Bell 内容与选中模板不一致");
+
+                // ⑭ 场景自适应：接了数据源的提示「发布 / 同步」，纯本机的提示「本机立即生效」
+                string hint = w.DiagHint;
+                var st = Store.LoadSettings();
+                bool hasFeed = st.BoardSyncEnabled || !string.IsNullOrWhiteSpace(st.ErYiDataDir)
+                               || st.UpdateSourceKind != "Off";
+                if (hasFeed && !hint.Contains("发布 / 同步"))
+                    throw new Exception("配了同步却提示本机立即生效：" + hint);
+                if (!hasFeed && !hint.Contains("本机立即生效"))
+                    throw new Exception("没配同步却提示发布 / 同步：" + hint);
+
+                return w;
+            });
+
             // r67 事项列表便签：通知从「一整条跑马灯」升级成与作业 / 缺交 / 值日并列的便签。
             // 这一段是纯内存断言（不落盘），锁住四条最容易回退的语义：
             //   ① 墓碑别再被改回物理删除  ② 置顶永不过期  ③ 跑马灯只滚两条  ④ 便签窗结构还在
@@ -1492,18 +2220,884 @@ public partial class App : System.Windows.Application
             // 悬浮课表：手势与拖动逻辑都在这里，XAML 里的 Stylus 附加属性（关系统长按 / Flicks）
             // 也只有构造一次才能确认解析没问题。
             Check("ScheduleWindow", () => new ScheduleWindow());
-            // 内置快捷：九个胶囊 + 按角色重排的那条链（缺一个按钮这里就报出来，别等用户发现少了入口）
-            Check("ScheduleWindow 内置快捷（九个）", () =>
+            // 内置快捷：十二个胶囊 + 按角色重排的那条链（缺一个按钮这里就报出来，别等用户发现少了入口）
+            Check("ScheduleWindow 内置快捷（十二个）", () =>
             {
                 var w = new ScheduleWindow();
                 if (w.BtnQaHomework == null || w.BtnQaMissing == null || w.BtnQaNote == null
                     || w.BtnQaCountdown == null || w.BtnQaDuty == null || w.BtnQaSettings == null
                     || w.BtnQaWeek == null || w.BtnQaPublish == null || w.BtnQaInfo == null
+                    || w.BtnQaHand == null || w.BtnQaNotice == null || w.BtnQaBoard == null
                     || w.BuiltinWrap == null)
-                    throw new Exception("内置快捷按钮缺失（周课 / 发布 / 信息）");
+                    throw new Exception("内置快捷按钮缺失（板书 / 通知 / 黑板 等）");
                 if (w.BuiltinWrap.Children.Count != QuickActionCatalog.All.Length)
                     throw new Exception("内置快捷按钮数量与目录不一致：" + w.BuiltinWrap.Children.Count);
                 return w;
+            });
+            // r116：三个开关型胶囊 —— 板书按钮与标题栏共用一条切换链，状态回执事件接线正确
+            Check("快捷 板书 / 通知 / 黑板 状态高亮接线", () =>
+            {
+                var w = new ScheduleWindow();
+                w.DiagSetHandMode(true);
+                if (!w.DiagHandModeActive) throw new Exception("快捷板书没能把板书模式切起来");
+                w.DiagSetHandMode(false);
+                AppEvents.RaiseQuickToolsStateChanged(true, true);
+                AppEvents.RaiseQuickToolsStateQuery();   // 无人订阅也不该抛
+                return w;
+            });
+            // r118：智能导入 —— 现场造一份"传统单班"模板（星期纵列 + 节次横排 + 括号双行格），
+            // 验证探测能认出布局、通用解析能拼回课时。不依赖任何外部样本文件，诊断自包含。
+            Check("r118 智能导入：模板探测 + 通用解析", () =>
+            {
+                string tmp = Path.Combine(Path.GetTempPath(), "cb_smart_import_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                try
+                {
+                    using (var wb = new ClosedXML.Excel.XLWorkbook())
+                    {
+                        var ws = wb.AddWorksheet("课程表");
+                        ws.Cell(1, 1).Value = "课　　程　　表";
+                        ws.Cell(3, 14).Value = "七(1)班";
+                        ws.Cell(4, 1).Value = "时间　星期";
+                        ws.Cell(5, 3).Value = "第1节"; ws.Cell(5, 5).Value = "第2节"; ws.Cell(5, 7).Value = "第3节";
+                        ws.Cell(6, 3).Value = "8:10～8:50"; ws.Cell(6, 5).Value = "9:20～10:00"; ws.Cell(6, 7).Value = "10:10～10:50";
+                        // 星期纵列：A7/A9/A11 各一个（节次横排在 R5），模拟真实老式单班表
+                        ws.Cell(7, 1).Value = "星期一";
+                        // 单双周格：上格"语文(王老师)"+下格"地理(孙老师)"都是完整科目+教师 → 应拆成 W1/W2
+                        ws.Cell(7, 3).Value = "语文(王老师)"; ws.Cell(8, 3).Value = "地理(孙老师)";
+                        // 全周格：上格只有科目、下格只有教师 → 应保持 W0 一门
+                        ws.Cell(7, 5).Value = "数学"; ws.Cell(8, 5).Value = "李老师";
+                        ws.Cell(7, 7).Value = "英语(张老师)"; ws.Cell(8, 7).Value = "张老师";
+                        ws.Cell(9, 1).Value = "星期二";
+                        ws.Cell(9, 3).Value = "历史(赵老师)"; ws.Cell(10, 3).Value = "赵老师";
+                        ws.Cell(11, 1).Value = "星期三";
+                        ws.Cell(11, 5).Value = "地理(孙老师)"; ws.Cell(12, 5).Value = "孙老师";
+                        wb.SaveAs(tmp);
+                    }
+                    var probe = ScheduleCore.Services.ScheduleTemplateProbe.Probe(tmp);
+                    if (!probe.Ok || probe.Candidates.Count == 0) throw new Exception("探测器没有返回候选布局");
+                    var hints = probe.Best;
+                    if (hints.PeriodOrientation != ScheduleTemplateProbe.PeriodOrientation.Horizontal)
+                        throw new Exception("节次横排没认出来，实际=" + hints.PeriodOrientation);
+                    var parsed = ScheduleCore.Services.ScheduleGeneralImporter.Parse(tmp, hints);
+                    int lessons = 0, odd = 0, even = 0, full = 0;
+                    foreach (var c in parsed.Schedule.Classes)
+                        foreach (var d in c.Data.Values) foreach (var p in d.Values)
+                            foreach (var ls in p)
+                            {
+                                lessons++;
+                                if (ls.Week == 1) odd++; else if (ls.Week == 2) even++; else full++;
+                            }
+                    if (lessons < 2) throw new Exception("解析出的课时太少：" + lessons);
+                    // r119：单双周双格必须拆成 W1/W2 两门不同科目；全周格仍是 W0 一门
+                    if (odd < 1 || even < 1) throw new Exception($"单双周未拆出：单周={odd} 双周={even}");
+                    if (full < 1) throw new Exception("全周课丢失");
+                    // 单周那门应叫"语文"，双周那门应叫"地理"（上=单、下=双）
+                    bool okSplit = false;
+                    foreach (var c in parsed.Schedule.Classes)
+                        foreach (var d in c.Data.Values) foreach (var p in d.Values)
+                            if (p.Any(x => x.Week == 1 && x.Subject == "语文") && p.Any(x => x.Week == 2 && x.Subject == "地理"))
+                                okSplit = true;
+                    if (!okSplit) throw new Exception("单双周科目/顺序不对：期望上格语文=单周、下格地理=双周");
+                    return new LoginWindow(); // Check 需要一个 Window，借一个无害的当壳
+                }
+                finally { try { File.Delete(tmp); } catch { } }
+            });
+            // r120：二一专用导入四合一 —— 按文件名智能预选类型（不弹窗，纯静态判定）
+            Check("r120 二一导入类型预选", () =>
+            {
+                EryiImportKind Guess(string n)
+                {
+                    var arr = new[] { @"C:\x\" + n };
+                    return EryiImportKindWindow.Recommend(arr, out _);
+                }
+                if (Guess("七年级全校总课程表.xlsx") != EryiImportKind.Base) throw new Exception("总课表识别错");
+                if (Guess("2026-11-20临时总课表.xlsx") != EryiImportKind.Temp) throw new Exception("临时课表识别错");
+                if (Guess("八年级(22)班-班级课程表.xlsx") != EryiImportKind.Single) throw new Exception("单班识别错");
+                if (Guess("曾胜康-教师课程表.xlsx") != EryiImportKind.Teacher) throw new Exception("教师表识别错");
+                return new LoginWindow();
+            });
+            // r121：手动录入 + 时间表/科目设置 —— 内置模板、周次三值、整班替换/追加、两窗口可构造。
+            // 全程用副本数据目录、不写真实数据（SuppressWrites 由 --ui-check 统一置位）。
+            Check("r121 手动录入与时间表设置", () =>
+            {
+                var t = ScheduleCore.Models.ScheduleTemplates.CreateWithBuiltIns();
+                if (t.PeriodTemplates.Count < 3) throw new Exception("内置节次模板少于 3 套");
+                if (t.DefaultPeriodTemplate == null || t.DefaultPeriodTemplate.Periods.Count == 0)
+                    throw new Exception("默认节次模板无节次");
+                if (t.SubjectLibraries.Count == 0 || t.DefaultSubjectLibrary == null
+                    || t.DefaultSubjectLibrary.Items.Count == 0) throw new Exception("科目库预置为空");
+                if (t.DefaultSubjectLibrary.Items.Any(x => !string.IsNullOrWhiteSpace(x.Teacher)))
+                    throw new Exception("预置科目不应自带教师");
+                // Week 语义：0 全周 / 1 单周 / 2 双周（Lesson 注释约定）
+                var l = new ScheduleCore.Models.Lesson { Period = 1, Subject = "数学", Week = 2 };
+                if (l.Week != 2) throw new Exception("Lesson.Week 双周值不对");
+
+                // 整班替换/追加：模拟 SaveToClass 的合并语义，验证其他班不动、新班追加
+                var sf = new ScheduleFile();
+                sf.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                sf.Classes.Add(new ClassSchedule { ClassName = "二班" });
+                var edited = new ClassSchedule { ClassName = "二班", Data = new() };
+                int idx = sf.Classes.FindIndex(c => c.ClassName == edited.ClassName);
+                if (idx >= 0) sf.Classes[idx] = edited; else sf.Classes.Add(edited);
+                if (sf.Classes.Count != 2 || sf.Classes[0].ClassName != "一班" || sf.Classes[1] != edited)
+                    throw new Exception("替换已有班级时其他班被改动");
+                var edited2 = new ClassSchedule { ClassName = "三班" };
+                idx = sf.Classes.FindIndex(c => c.ClassName == edited2.ClassName);
+                if (idx >= 0) sf.Classes[idx] = edited2; else sf.Classes.Add(edited2);
+                if (sf.Classes.Count != 3 || !sf.Classes.Any(c => c.ClassName == "三班"))
+                    throw new Exception("新班级未追加");
+
+                // 两个窗口都能构造（不 Show，不弹窗）
+                var mgr = new ScheduleTemplateManagerWindow(ScheduleCore.Services.Store.LoadScheduleTemplates());
+                var manual = new ManualScheduleWindow(sf, t);
+                mgr.Close(); manual.Close();
+                return new LoginWindow();
+            });
+            // r122：模板名称输入时光标不跳（TextChanged 不得回写输入框 / 重建列表）+ 录入工具条严格对齐
+            Check("r122 模板输入与工具条对齐", () =>
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var mgr2 = new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns());
+                var tb = (System.Windows.Controls.TextBox)typeof(ScheduleTemplateManagerWindow)
+                    .GetField("_tbPeriodName", bf)!.GetValue(mgr2)!;
+                var lb = (System.Windows.Controls.ListBox)typeof(ScheduleTemplateManagerWindow)
+                    .GetField("_lbPeriod", bf)!.GetValue(mgr2)!;
+                var seq = new System.Collections.Generic.List<string>();
+                System.Windows.Controls.TextChangedEventHandler h = (_, e) =>
+                    seq.Add(((System.Windows.Controls.TextBox)e.Source).Text);
+                tb.TextChanged += h;
+                seq.Clear();
+                tb.Text = "初中课表（改）";
+                tb.TextChanged -= h;
+                // 修复前：TextChanged→重建列表→SelectionChanged→LoadPeriod 回写 TextBox.Text，
+                // 事件序列会变成 ["", "初中课表（改）"]，每敲一字光标被顶到开头。
+                if (seq.Count != 1 || seq[0] != "初中课表（改）")
+                    throw new Exception("名称输入被回写，光标会跳：" + string.Join("|", seq));
+                int n = lb.Items.Count;
+                tb.Text = "再改一次";
+                if (lb.Items.Count != n) throw new Exception("名称输入时列表被重建");
+                mgr2.Close();
+
+                var sf2 = new ScheduleFile();
+                sf2.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                var manual2 = new ManualScheduleWindow(sf2, ScheduleTemplates.CreateWithBuiltIns());
+                var root = (System.Windows.Controls.Grid)manual2.Content;
+                // 根 Grid 必须四行各就各位：0 工具条 / 1 说明 / 2 网格 / 3 底部栏。
+                // 修复前 toolbar 与 bottomBar 都没设 Grid.Row，双双落到第 0 行 → 截图里两行控件叠一起。
+                if (root.RowDefinitions.Count != 4) throw new Exception("录入窗口根 Grid 行数不对");
+                int[] wantRows = { 0, 1, 2, 3 };
+                for (int i = 0; i < wantRows.Length; i++)
+                    if (System.Windows.Controls.Grid.GetRow(root.Children[i]) != wantRows[i])
+                        throw new Exception("录入窗口第 " + i + " 个区块不在第 " + wantRows[i] + " 行（底部栏与工具条可能重叠）");
+                var toolbar = root.Children[0] as System.Windows.Controls.Grid
+                    ?? throw new Exception("录入工具条不是 Grid（WrapPanel 会错位）");
+                if (toolbar.ColumnDefinitions.Count != 11) throw new Exception("录入工具条列数不对");
+                foreach (var cb in toolbar.Children.OfType<System.Windows.Controls.ComboBox>())
+                    if (cb.VerticalAlignment != VerticalAlignment.Center)
+                        throw new Exception("录入工具条下拉框未垂直居中");
+                manual2.Close();
+                return new LoginWindow();
+            });
+            // r123：科目优先批量录入 —— 单/双门转换、现有课表提取合并、自动铺分散、窗口可构造
+            Check("r123 科目配对批量录入", () =>
+            {
+                var single = new SubjectPair { Subject = "数学", Teacher = "张老师", Week = 0, WeeklyPeriods = 5 };
+                var one = single.ToLessons(3);
+                if (one.Count != 1 || one[0].Period != 3 || one[0].Week != 0 || one[0].Subject != "数学")
+                    throw new Exception("单门配对转 Lesson 错");
+                var dual = new SubjectPair { TwoLessons = true, Subject = "生物", Teacher = "樊老师", Subject2 = "地理", Teacher2 = "梁老师" };
+                var two = dual.ToLessons(2);
+                if (two.Count != 2 || two[0].Week != 1 || two[1].Week != 2 || two[0].Subject != "生物" || two[1].Subject != "地理")
+                    throw new Exception("双门配对应转 W1/W2 两门");
+
+                var data = new Dictionary<int, Dictionary<int, List<Lesson>>>();
+                void Put(int day, List<Lesson> lessons)
+                {
+                    if (!data.TryGetValue(day, out var dm)) data[day] = dm = new Dictionary<int, List<Lesson>>();
+                    dm[1] = lessons;
+                }
+                Put(0, new List<Lesson> { new Lesson { Period = 1, Subject = "生物", Teacher = "樊老师", Week = 1 }, new Lesson { Period = 1, Subject = "地理", Teacher = "梁老师", Week = 2 } });
+                Put(1, new List<Lesson> { new Lesson { Period = 1, Subject = "生物", Teacher = "樊老师", Week = 1 }, new Lesson { Period = 1, Subject = "地理", Teacher = "梁老师", Week = 2 } });
+                Put(2, new List<Lesson> { new Lesson { Period = 1, Subject = "数学", Teacher = "张老师", Week = 0 } });
+                var extracted = ManualScheduleWindow.ExtractPairs(data);
+                if (extracted.Count != 2) throw new Exception("提取去重错：期望 2 条，实际 " + extracted.Count);
+                var gotDual = extracted.FirstOrDefault(p => p.TwoLessons);
+                if (gotDual == null || gotDual.Subject != "生物" || gotDual.Subject2 != "地理")
+                    throw new Exception("同格 W1+W2 没合并成双门配对");
+
+                var empties = new List<(int day, int period)>();
+                for (int p = 1; p <= 3; p++) for (int d = 0; d < 5; d++) empties.Add((d, p));
+                var chosen = ManualScheduleWindow.PickSpread(empties, 5);
+                if (chosen.Count != 5 || chosen.Select(x => x.day).Distinct().Count() != 5)
+                    throw new Exception("自动铺没有按天分散（5 节应铺到 5 天）");
+
+                var sf3 = new ScheduleFile();
+                sf3.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                var t3 = ScheduleTemplates.CreateWithBuiltIns();
+                var w3 = new ManualScheduleWindow(sf3, t3);
+                var bf3 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var lb = typeof(ManualScheduleWindow).GetField("_lbPairs", bf3)!.GetValue(w3);
+                if (lb == null) throw new Exception("录入窗口缺少任课清单列表");
+                w3.Close();
+                var pe = new PairEditorWindow(null, t3.DefaultSubjectLibrary);
+                pe.Close();
+                return new LoginWindow();
+            });
+            // r124：公共时间（模板/大屏）+ 任课表导入 + 4 种导入模板可被探测器识别
+            Check("r124 公共时间与导入模板", () =>
+            {
+                var t = ScheduleTemplates.CreateWithBuiltIns();
+                var junior = t.PeriodTemplates.First(p => p.Name.Contains("初中"));
+                if (!junior.FixedSlots.Any(f => f.Name == "大课间")) throw new Exception("内置模板缺大课间");
+                if (junior.FixedSlots.Any(f => f.AfterPeriod < 0 || f.AfterPeriod > junior.Periods.Count))
+                    throw new Exception("公共时间 AfterPeriod 越界");
+
+                // 旧版 schedule_templates.json 没有 FixedSlots 字段：内置模板读取时应补回预置
+                var loadedBuiltIn = Store.LoadScheduleTemplates().PeriodTemplates.FirstOrDefault(p => p.IsBuiltIn);
+                if (loadedBuiltIn != null && loadedBuiltIn.FixedSlots.Count == 0)
+                    throw new Exception("内置模板「" + loadedBuiltIn.Name + "」的公共时间没补上");
+
+                // 公共时间插入顺序：第1节 → 大课间 → 第2节，且固定行 Period=0
+                var body = new List<PeriodRow>
+                {
+                    new PeriodRow { Period = 1, PeriodText = "第1节" },
+                    new PeriodRow { Period = 2, PeriodText = "第2节" }
+                };
+                var slots = new List<FixedSlot> { new() { Name = "大课间", AfterPeriod = 1, TimeRange = "09:50-10:10" } };
+                var withFixed = BoardBuilder.InsertFixedSlots(body, slots, 0);
+                if (withFixed.Count != 3) throw new Exception("公共时间插入后行数不对：" + withFixed.Count);
+                if (!withFixed[1].IsFixed || withFixed[1].PeriodText != "大课间" || withFixed[1].Period != 0)
+                    throw new Exception("大课间没插在第1节之后（或 Period 不是 0）");
+
+                // 任课表模板 → 导入往返
+                var subjectTmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cb_subject_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                try
+                {
+                    SubjectTableImporter.WriteTemplate(subjectTmp);
+                    var imported = SubjectTableImporter.Import(subjectTmp);
+                    if (imported.Count < 3) throw new Exception("任课表导入条数不对：" + imported.Count);
+                    var yw = imported.FirstOrDefault(p => p.Subject == "语文");
+                    if (yw == null || yw.Teacher != "张老师" || yw.WeeklyPeriods != 5)
+                        throw new Exception("任课表字段解析错");
+                }
+                finally { try { System.IO.File.Delete(subjectTmp); } catch { } }
+
+                // 4 种导入模板都必须能被智能探测器识别
+                var kinds = new[]
+                {
+                    ImportTemplateWriter.TemplateKind.Base,
+                    ImportTemplateWriter.TemplateKind.TempBase,
+                    ImportTemplateWriter.TemplateKind.SingleClass,
+                    ImportTemplateWriter.TemplateKind.Teacher
+                };
+                foreach (var kind in kinds)
+                {
+                    var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cb_tpl_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                    try
+                    {
+                        ImportTemplateWriter.Write(tmp, kind);
+                        var pr = ScheduleTemplateProbe.Probe(tmp);
+                        if (!pr.Ok || pr.Best.Confidence < 40)
+                            throw new Exception(kind + " 模板未被识别（置信度 " + (pr.Ok ? pr.Best.Confidence : 0) + "）");
+                        if (kind == ImportTemplateWriter.TemplateKind.Teacher && !pr.Best.IsTeacherSchedule)
+                            throw new Exception("教师模板未被识别为教师课表");
+                        if (kind == ImportTemplateWriter.TemplateKind.SingleClass
+                            && pr.Best.MainDimension != ScheduleTemplateProbe.MainDimension.Single)
+                            throw new Exception("单班模板未被识别为单班");
+                    }
+                    finally { try { System.IO.File.Delete(tmp); } catch { } }
+                }
+
+                var pe2 = new PairEditorWindow(null, t.DefaultSubjectLibrary);
+                pe2.Close();
+                var pick = new ImportTemplatePickWindow();
+                pick.Close();
+                return new LoginWindow();
+            });
+            // r125：格子编辑器按课程设置预填 + 单双周两门 / 班级课程设置自动保存 / 拖动移动交换 / 方案下拉
+            Check("r125 录入窗口四项优化", () =>
+            {
+                var lib = ScheduleTemplates.CreateWithBuiltIns().DefaultSubjectLibrary;
+                var pairs = new List<SubjectPair>
+                {
+                    new() { Subject = "语文", Teacher = "张老师", Location = "1班教室", Week = 0, WeeklyPeriods = 5 },
+                    new() { TwoLessons = true, Subject = "生物", Teacher = "樊老师", Location = "生物室",
+                            Subject2 = "地理", Teacher2 = "梁老师", Location2 = "地理室", WeeklyPeriods = 2 }
+                };
+
+                // ① 按科目找配对：命中 Subject2 也算
+                if (SubjectPair.FindBySubject(pairs, " 语文 ")?.Teacher != "张老师")
+                    throw new Exception("按科目找配对失败（应忽略首尾空格）");
+                if (SubjectPair.FindBySubject(pairs, "地理")?.Subject2 != "地理")
+                    throw new Exception("双门配对的第 2 门没被命中");
+
+                // ② 打开编辑器选科目 → 自动预填教师/地点/周次（且可改）
+                var ce = new CellEditorWindow(0, 2, new List<Lesson>(), lib, pairs);
+                var bf2 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                T Get<T>(string name) => (T)typeof(CellEditorWindow).GetField(name, bf2)!.GetValue(ce)!;
+                var cbSubject = Get<System.Windows.Controls.ComboBox>("_cbSubject");
+                var tbTeacher = Get<System.Windows.Controls.TextBox>("_txtTeacher");
+                var tbLocation = Get<System.Windows.Controls.TextBox>("_txtLocation");
+                var cbWeek = Get<System.Windows.Controls.ComboBox>("_cbWeek");
+
+                cbSubject.SelectedItem = "语文";
+                if (tbTeacher.Text != "张老师" || tbLocation.Text != "1班教室")
+                    throw new Exception("选科目后没有预填教师/地点：" + tbTeacher.Text + "/" + tbLocation.Text);
+                if (cbWeek.SelectedIndex != 0) throw new Exception("全周课程的周次没预填成全周");
+                tbTeacher.Text = "李老师";   // 预填后可改
+                if (tbTeacher.Text != "李老师") throw new Exception("预填后教师改不动");
+                tbTeacher.Text = "张老师";
+
+                // ③ 选「单双周（两门）」→ 第 2 门展开；提交产出 W1+W2 两门
+                var sp2 = Get<System.Windows.Controls.StackPanel>("_secondPanel");
+                if (sp2.Visibility != Visibility.Collapsed) throw new Exception("没选两门时第 2 门不该显示");
+                cbWeek.SelectedIndex = 3;
+                if (sp2.Visibility != Visibility.Visible) throw new Exception("选了单双周两门，第 2 门没展开");
+                var cbSubject2 = Get<System.Windows.Controls.ComboBox>("_cbSubject2");
+                var tbTeacher2 = Get<System.Windows.Controls.TextBox>("_txtTeacher2");
+                cbSubject2.Text = "美术";
+                tbTeacher2.Text = "王老师";
+                var built = ce.BuildLessons();   // 走同一套校验/拼装逻辑（不真的弹对话框）
+                if (built.Count != 2)
+                    throw new Exception("两门只产出了 " + built.Count + " 条 Lesson");
+                if (built[0].Week != 1 || built[1].Week != 2)
+                    throw new Exception("两门的单/双周标记不对");
+                if (built[1].Subject != "美术") throw new Exception("第 2 门科目丢了");
+                ce.Close();
+
+                // ④ 打开本来就是两门的格子 → 自动进入两门模式并回填
+                var ce2 = new CellEditorWindow(1, 3, new List<Lesson>
+                {
+                    new() { Period = 3, Subject = "生物", Teacher = "樊老师", Week = 1 },
+                    new() { Period = 3, Subject = "地理", Teacher = "梁老师", Week = 2 }
+                }, lib, pairs);
+                var cbWeek2 = (System.Windows.Controls.ComboBox)typeof(CellEditorWindow).GetField("_cbWeek", bf2)!.GetValue(ce2)!;
+                var sp22 = (System.Windows.Controls.StackPanel)typeof(CellEditorWindow).GetField("_secondPanel", bf2)!.GetValue(ce2)!;
+                if (cbWeek2.SelectedIndex != 3 || sp22.Visibility != Visibility.Visible)
+                    throw new Exception("打开单双周两门的格子没有自动进入两门模式");
+                ce2.Close();
+
+                // ⑤ 课程设置按班级自动保存：写入 → 读回 → 换班不串
+                var t5 = ScheduleTemplates.CreateWithBuiltIns();
+                t5.UpsertSetup(new ClassSetup { ClassName = "一班", PeriodTemplateName = "初中 7 节", SavedAt = DateTime.Now, Pairs = pairs.Select(x => x.Clone()).ToList() });
+                t5.UpsertSetup(new ClassSetup { ClassName = "二班", SavedAt = DateTime.Now, Pairs = new List<SubjectPair> { new() { Subject = "数学", Teacher = "陈老师" } } });
+                if (t5.ClassSetups.Count != 2) throw new Exception("班级设置应为 2 份，实际 " + t5.ClassSetups.Count);
+                var back = System.Text.Json.JsonSerializer.Deserialize<ScheduleTemplates>(
+                    System.Text.Json.JsonSerializer.Serialize(t5))!;
+                var one = back.FindSetup(" 一班 ");
+                if (one == null || one.Pairs.Count != 2) throw new Exception("课程设置没有随 schedule_templates.json 往返");
+                if (!one.Pairs.Any(x => x.TwoLessons && x.Subject2 == "地理")) throw new Exception("双门配对往返后丢了第 2 门");
+                if (back.FindSetup("三班") != null) throw new Exception("不存在的班不该找到设置");
+
+                // ⑥ 拖动：空格=移动，有课=交换，原格不能残留
+                var data = new Dictionary<int, Dictionary<int, List<Lesson>>>
+                {
+                    [0] = new() { [1] = new List<Lesson> { new() { Period = 1, Subject = "语文", Week = 0 } } },
+                    [1] = new() { [2] = new List<Lesson> { new() { Period = 2, Subject = "数学", Week = 0 } } }
+                };
+                if (ManualScheduleWindow.MoveOrSwap(data, (0, 1), (0, 2))) throw new Exception("拖到空格不该算交换");
+                if (data[0].ContainsKey(1) || data[0][2][0].Subject != "语文") throw new Exception("拖到空格没把课移过去");
+                if (!ManualScheduleWindow.MoveOrSwap(data, (0, 2), (1, 2))) throw new Exception("拖到有课的格子应算交换");
+                if (data[0][2][0].Subject != "数学" || data[1][2][0].Subject != "语文")
+                    throw new Exception("交换后两格内容不对");
+                if (ManualScheduleWindow.MoveOrSwap(data, (4, 7), (0, 1))) throw new Exception("空格不该能拖出东西");
+
+                // ⑦ 窗口：方案下拉在、工具栏 10 列
+                var sf5 = new ScheduleFile();
+                sf5.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                var w5 = new ManualScheduleWindow(sf5, ScheduleTemplates.CreateWithBuiltIns());
+                var cbPlan = (System.Windows.Controls.ComboBox)typeof(ManualScheduleWindow).GetField("_cbPlan", bf2)!.GetValue(w5)!;
+                if (cbPlan.Items.Count < 1 || cbPlan.Items[0] as string != "（不使用方案）")
+                    throw new Exception("课表方案下拉没初始化");
+                var w5toolbar = ((System.Windows.Controls.Grid)w5.Content).Children[0] as System.Windows.Controls.Grid;
+                if (w5toolbar == null || w5toolbar.ColumnDefinitions.Count != 11)
+                    throw new Exception("录入工具条列数应为 11（课表方案 + 清空网格 + 删除该班）");
+                w5.Close();
+
+                // ⑧ 只在课程设置里出现过的班（还没保存到班）也要能选到，否则下次调不回来
+                var t6 = ScheduleTemplates.CreateWithBuiltIns();
+                t6.UpsertSetup(new ClassSetup { ClassName = "三班", SavedAt = DateTime.Now });
+                var sf6 = new ScheduleFile();
+                sf6.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                var w6 = new ManualScheduleWindow(sf6, t6);
+                var cbClass6 = (System.Windows.Controls.ComboBox)typeof(ManualScheduleWindow)
+                    .GetField("_cbClass", bf2)!.GetValue(w6)!;
+                if (!cbClass6.Items.OfType<string>().Contains("三班"))
+                    throw new Exception("只在课程设置里的班没出现在班级下拉");
+                w6.Close();
+                return new LoginWindow();
+            });
+            // r126/r128：时间表与科目设置入口（原名「模板预设管理」）在手动录入窗口里
+            Check("r126 时间表与科目设置入口迁移", () =>
+            {
+                var sf7 = new ScheduleFile();
+                sf7.Classes.Add(new ClassSchedule { ClassName = "一班" });
+                var w7 = new ManualScheduleWindow(sf7, ScheduleTemplates.CreateWithBuiltIns());
+                bool found = false, oldFound = false;
+                void Walk(System.Windows.DependencyObject node)
+                {
+                    foreach (var child in System.Windows.LogicalTreeHelper.GetChildren(node))
+                    {
+                        if (child is Button b)
+                        {
+                            string txt = b.Content as string ?? "";
+                            if (txt.Contains("时间表与科目设置")) found = true;
+                            if (txt.Contains("模板预设")) oldFound = true;
+                        }
+                        if (child is System.Windows.DependencyObject d) Walk(d);
+                    }
+                }
+                Walk(w7);
+                w7.Close();
+                if (!found) throw new Exception("手动录入窗口里找不到「时间表与科目设置」入口");
+                if (oldFound) throw new Exception("旧入口名「模板预设」还在界面上");
+
+                var mgr = new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns());
+                if (mgr.Title != "时间表与科目设置") throw new Exception("窗口标题还是：" + mgr.Title);
+                mgr.Close();
+
+                var field = typeof(MainWindow).GetField("BtnTemplateManager",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (field != null) throw new Exception("数据管理页的模板管理按钮没删掉");
+                return new LoginWindow();
+            });
+            // r128：切班后网格必须等于「该班底表」
+            //  ★ 真 bug：IsEditable 的 ComboBox 在 SelectionChanged 回调里 Text 还是上一个选中项，
+            //    CurrentClassName 读 Text 就会一直显示上一个班 —— 用户看到的是"进去的课表和更新的课表不一致"。
+            Check("r128 切班后网格等于该班底表", () =>
+            {
+                var sf8 = new ScheduleFile();
+                for (int i = 1; i <= 3; i++)
+                {
+                    var cc = new ClassSchedule { ClassName = "切换测试班" + i };
+                    cc.Data[0] = new Dictionary<int, List<Lesson>>
+                    {
+                        [1] = new List<Lesson> { new() { Period = 1, Subject = "科目" + i, Teacher = "老师" + i, Week = 0 } }
+                    };
+                    sf8.Classes.Add(cc);
+                }
+                var w8 = new ManualScheduleWindow(sf8, ScheduleTemplates.CreateWithBuiltIns());
+                w8.Show();
+                PumpMs(400);
+                var bf8 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var cb8 = (System.Windows.Controls.ComboBox)typeof(ManualScheduleWindow).GetField("_cbClass", bf8)!.GetValue(w8)!;
+                for (int i = 2; i >= 1; i--)   // 倒着选，专门制造"Text 滞后 = 上一个班"
+                {
+                    cb8.SelectedIndex = i;     // 索引 i 对应 切换测试班(i+1)
+                    PumpMs(120);
+                    var data = (Dictionary<int, Dictionary<int, List<Lesson>>>)typeof(ManualScheduleWindow)
+                        .GetField("_data", bf8)!.GetValue(w8)!;
+                    string got = data.TryGetValue(0, out var dm8) && dm8.TryGetValue(1, out var lm8) && lm8.Count > 0
+                        ? lm8[0].Subject : "";
+                    string want = "科目" + (i + 1);
+                    if (got != want) throw new Exception($"选第 {i} 项应显示 {want}，实际 {got}（下拉选中={cb8.SelectedItem}）");
+                }
+                // 手输新班名仍然可用（IsEditable 的原本用途：直接敲一个新班名保存）
+                cb8.Text = "手输新班";
+                var curName = (string)typeof(ManualScheduleWindow).GetProperty("CurrentClassName", bf8)!.GetValue(w8)!;
+                if (curName != "手输新班") throw new Exception("手输班名失效，取到的是：" + curName);
+
+                // 用户取消切班时，下拉要退回网格里正在显示的那个班（别让选中项与内容错开）
+                cb8.SelectedIndex = 0;
+                PumpMs(100);
+                typeof(ManualScheduleWindow).GetMethod("RevertClassSelection", bf8)!.Invoke(w8, null);
+                if (!Equals(cb8.SelectedItem, "切换测试班1"))
+                    throw new Exception("回滚后下拉选中=" + cb8.SelectedItem + "（应为 切换测试班1）");
+                w8.Close();
+                return new LoginWindow();
+            });
+            // r127：作息时间表（节次 + 公共时间混排在同一输入框）+ 添加/删除行 + 删除模板 + 拖动浮卡
+            Check("r127 作息时间表与拖动浮卡", () =>
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var sbf = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic;
+                var tMgr = typeof(ScheduleTemplateManagerWindow);
+                var fmt = tMgr.GetMethod("FormatScheduleSheet", sbf)!;
+                var parse = tMgr.GetMethod("ParseScheduleSheet", sbf)!;
+
+                // ① 往返：内置模板 → 多行文本 → 再解析，节次数与公共时间位置都要原样保住
+                var srcT = ScheduleTemplates.CreateWithBuiltIns().PeriodTemplates.First(p => p.IsBuiltIn);
+                if (srcT.FixedSlots.Count == 0) throw new Exception("内置模板没有公共时间，无法验证往返");
+                var sheet = (string)fmt.Invoke(null, new object[] { srcT })!;
+                if (!sheet.Contains('|')) throw new Exception("作息时间表里没有公共时间行：" + sheet.Replace("\n", " / "));
+                var backT = new PeriodTemplate();
+                parse.Invoke(null, new object[] { sheet, backT });
+                if (backT.Periods.Count != srcT.Periods.Count)
+                    throw new Exception("往返后节次数变了：" + backT.Periods.Count + " != " + srcT.Periods.Count);
+                string wantSlots = string.Join(",", srcT.FixedSlots.Select(f => f.Name + "@" + f.AfterPeriod));
+                string gotSlots = string.Join(",", backT.FixedSlots.Select(f => f.Name + "@" + f.AfterPeriod));
+                if (wantSlots != gotSlots) throw new Exception("往返后公共时间位置变了：" + gotSlots + " 应为 " + wantSlots);
+
+                // ② 添加/删除：行首插入 = 在该行前，行尾插入 = 在该行后；节次自动重排
+                var tmpl2 = ScheduleTemplates.CreateWithBuiltIns();
+                var mgr = new ScheduleTemplateManagerWindow(tmpl2);
+                var lb2 = (System.Windows.Controls.ListBox)tMgr.GetField("_lbPeriod", bf)!.GetValue(mgr)!;
+                var sheetBox = (System.Windows.Controls.TextBox)tMgr.GetField("_tbSheet", bf)!.GetValue(mgr)!;
+                var delBtn = (Button)tMgr.GetField("_btnPeriodDel", bf)!.GetValue(mgr)!;
+                var insLine = tMgr.GetMethod("InsertSheetLine", bf)!;
+                var delLine = tMgr.GetMethod("DeleteSheetLine", bf)!;
+                var pt2 = (PeriodTemplate)lb2.SelectedItem!;
+
+                int LineStart(string s, int idx)
+                {
+                    int pos = 0;
+                    for (int i = 0; i < idx; i++) { int nl = s.IndexOf('\n', pos); if (nl < 0) break; pos = nl + 1; }
+                    return pos;
+                }
+
+                sheetBox.Text = "第1节 08:00-08:40\n第2节 08:50-09:30";
+                if (pt2.Periods.Count != 2) throw new Exception("直接改写作息时间表后模型没同步：" + pt2.Periods.Count);
+
+                sheetBox.CaretIndex = LineStart(sheetBox.Text, 1);   // 第 2 行行首
+                insLine.Invoke(mgr, new object[] { true });
+                if (pt2.Periods.Count != 3) throw new Exception("添加节次后节次数不对：" + pt2.Periods.Count);
+                if (pt2.Periods[1].Index != 2 || pt2.Periods[2].Index != 3)
+                    throw new Exception("插入节次后序号没重排：" + string.Join(",", pt2.Periods.Select(x => x.Index)));
+                if (!sheetBox.SelectedText.Contains("HH:MM"))
+                    throw new Exception("插入后没选中时间占位符，用户还得先删掉再敲");
+                if (!sheetBox.Text.Split('\n')[1].StartsWith("第2节"))
+                    throw new Exception("行首点添加没插在该行前面：" + sheetBox.Text.Replace("\n", " / "));
+
+                sheetBox.CaretIndex = sheetBox.Text.Length;          // 最后一行行尾
+                insLine.Invoke(mgr, new object[] { false });
+                if (pt2.FixedSlots.Count != 1) throw new Exception("添加公共时间没落进模型：" + pt2.FixedSlots.Count);
+                if (pt2.FixedSlots[0].AfterPeriod != 3)
+                    throw new Exception("公共时间挂错位置：AfterPeriod=" + pt2.FixedSlots[0].AfterPeriod);
+                if (!pt2.FixedSlots[0].Name.Contains("大课间"))
+                    throw new Exception("公共时间默认名不是大课间：" + pt2.FixedSlots[0].Name);
+
+                var lines2 = sheetBox.Text.Split('\n').ToList();
+                int fsLine = lines2.FindIndex(l => l.Contains('|'));
+                sheetBox.CaretIndex = LineStart(sheetBox.Text, fsLine);
+                delLine.Invoke(mgr, new object[] { false });
+                if (pt2.FixedSlots.Count != 0) throw new Exception("删除公共时间后还剩 " + pt2.FixedSlots.Count + " 条");
+                if (pt2.Periods.Count != 3) throw new Exception("删公共时间把节次也删了");
+
+                sheetBox.CaretIndex = LineStart(sheetBox.Text, 1);
+                delLine.Invoke(mgr, new object[] { true });
+                if (pt2.Periods.Count != 2) throw new Exception("删除节次后节次数不对：" + pt2.Periods.Count);
+                if (pt2.Periods[0].Index != 1 || pt2.Periods[1].Index != 2)
+                    throw new Exception("删除节次后序号没重排：" + string.Join(",", pt2.Periods.Select(x => x.Index)));
+
+                sheetBox.Text = "第1节 08:00-08:40";
+                sheetBox.CaretIndex = 0;
+                delLine.Invoke(mgr, new object[] { true });
+                if (pt2.Periods.Count != 1) throw new Exception("最后一个节次被删掉了（网格会变成空的）");
+
+                // ③ 「删除作息时间表」只删自建模板，内置的不可删
+                var custom = new PeriodTemplate { Name = "自建测试模板" };
+                custom.Periods.Add(new PeriodTime { Index = 1, TimeRange = "08:00-08:40" });
+                tmpl2.PeriodTemplates.Add(custom);
+                tMgr.GetMethod("RefreshPeriodList", bf)!.Invoke(mgr, null);
+                lb2.SelectedItem = custom;
+                if (!delBtn.IsEnabled) throw new Exception("自建模板的「删除作息时间表」按钮不可用");
+                if ((delBtn.Content as string) != "删除作息时间表") throw new Exception("按钮文案不是「删除作息时间表」：" + delBtn.Content);
+                tMgr.GetMethod("DeleteSelectedPeriodTemplate", bf)!.Invoke(mgr, new object[] { false });   // 诊断里不弹确认框
+                if (tmpl2.PeriodTemplates.Contains(custom)) throw new Exception("「删除作息时间表」没删掉自建模板");
+                lb2.SelectedItem = tmpl2.PeriodTemplates.First(x => x.IsBuiltIn);
+                if (delBtn.IsEnabled) throw new Exception("内置模板的「删除作息时间表」不该可用");
+
+                var tabs = (System.Windows.Controls.TabControl)((System.Windows.Controls.Grid)mgr.Content).Children[0];
+                if (((tabs.Items[0] as System.Windows.Controls.TabItem)?.Header as string) != "作息时间表")
+                    throw new Exception("页签没改成「作息时间表」");
+                mgr.Close();
+
+                // ④ 拖动浮卡：能生成、跟着坐标走、收起后不留残留、源格恢复不透明
+                var sf9 = new ScheduleFile();
+                var c9 = new ClassSchedule { ClassName = "浮卡测试班" };
+                c9.Data[0] = new Dictionary<int, List<Lesson>>
+                {
+                    [1] = new List<Lesson> { new() { Period = 1, Subject = "语文", Teacher = "张老师", Week = 0 } }
+                };
+                sf9.Classes.Add(c9);
+                var w9 = new ManualScheduleWindow(sf9, ScheduleTemplates.CreateWithBuiltIns());
+                var wm = typeof(ManualScheduleWindow);
+                var layer = (System.Windows.Controls.Canvas)wm.GetField("_dragLayer", bf)!.GetValue(w9)!;
+                if (layer.IsHitTestVisible) throw new Exception("浮卡覆盖层会挡住鼠标命中");
+                if (System.Windows.Controls.Grid.GetRowSpan(layer) != 4) throw new Exception("浮卡覆盖层没铺满窗口");
+                var showGhost = wm.GetMethod("ShowDragGhost", bf)!;
+                var moveGhost = wm.GetMethod("MoveDragGhost", bf)!;
+                var hideGhost = wm.GetMethod("HideDragGhost", bf)!;
+                var fakeBtn = new Button { Content = "语文\n张老师" };
+                showGhost.Invoke(w9, new object[] { fakeBtn });
+                if (layer.Children.Count != 1) throw new Exception("拖动浮卡没生成");
+                var ghost = (System.Windows.Controls.Border)layer.Children[0];
+                if (ghost.Width < 80 || ghost.Height < 36) throw new Exception($"浮卡尺寸不对：{ghost.Width}x{ghost.Height}");
+                if (fakeBtn.Opacity > 0.5) throw new Exception("源格没变虚影，看不出卡片被拎起来");
+                moveGhost.Invoke(w9, new object[] { new System.Windows.Point(200, 150) });
+                if (Math.Abs(System.Windows.Controls.Canvas.GetLeft(ghost) - (200 - ghost.Width / 2 + 8)) > 0.5)
+                    throw new Exception("浮卡没跟着光标坐标走");
+                hideGhost.Invoke(w9, Array.Empty<object>());
+                if (layer.Children.Count != 0) throw new Exception("浮卡没清掉");
+                if (fakeBtn.Opacity < 0.99) throw new Exception("源格透明度没恢复（会一直发灰）");
+                w9.Close();
+                return new LoginWindow();
+            });
+            // r129：手动录入的课表与「电子表格 / 自动更新」的课表彻底分开
+            //  ① 同名班靠「（手动录入）」尾巴区分；② 导入/自动更新落盘时保留手动班；
+            //  ③ 手动班的公共时间用自己那份，不受年级作息 / 全局默认模板影响；④ 节次时间写进课表；
+            //  ⑤ 删除班级只对手动班开放；⑥ 模板窗口有滚动条、删除按钮移到左栏、设为默认与四个按钮同行。
+            Check("r129 手动录入与导入课表互相独立", () =>
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                // ① 班名尾巴（重复调用不重复加）；旧数据没有 Origin 但带尾巴也算手动
+                if (ClassSchedule.WithManualSuffix("七年级(1)班") != "七年级(1)班（手动录入）")
+                    throw new Exception("班名没加尾巴：" + ClassSchedule.WithManualSuffix("七年级(1)班"));
+                if (ClassSchedule.WithManualSuffix("七年级(1)班（手动录入）") != "七年级(1)班（手动录入）")
+                    throw new Exception("已有尾巴又被加了一次");
+                if (!new ClassSchedule { ClassName = "七年级(1)班（手动录入）" }.IsManual)
+                    throw new Exception("带「（手动录入）」尾巴的旧数据没被认成手动班");
+                if (new ClassSchedule { ClassName = "七年级(1)班", Origin = "" }.IsManual)
+                    throw new Exception("导入的班被误判为手动班");
+
+                // ② 导入 / 自动更新只换导入的那一套，手动班原样保留
+                var prev = new ScheduleFile();
+                var impOld = new ClassSchedule { ClassName = "七年级(1)班" };
+                impOld.Data[0] = new Dictionary<int, List<Lesson>> { [1] = new List<Lesson> { new() { Period = 1, Subject = "语文" } } };
+                var man = new ClassSchedule { ClassName = "七年级(1)班（手动录入）", Origin = "Manual" };
+                man.Data[0] = new Dictionary<int, List<Lesson>> { [1] = new List<Lesson> { new() { Period = 1, Subject = "数学" } } };
+                prev.Classes.Add(impOld);
+                prev.Classes.Add(man);
+
+                var incoming = new ScheduleFile();
+                var impNew = new ClassSchedule { ClassName = "七年级(1)班" };
+                impNew.Data[0] = new Dictionary<int, List<Lesson>> { [1] = new List<Lesson> { new() { Period = 1, Subject = "英语" } } };
+                incoming.Classes.Add(impNew);
+
+                int kept = ClassBulletinApp.MainWindow.MergeManualClasses(incoming, prev);
+                if (kept != 1) throw new Exception("手动班没被保留（kept=" + kept + "）");
+                if (incoming.Classes.Count != 2) throw new Exception("合并后班级数不对：" + incoming.Classes.Count);
+                var gotImp = incoming.Classes.First(c => c.ClassName == "七年级(1)班");
+                if (gotImp.Data[0][1][0].Subject != "英语")
+                    throw new Exception("导入的班被手动班覆盖了：" + gotImp.Data[0][1][0].Subject);
+                var gotMan = incoming.Classes.FirstOrDefault(c => c.ClassName == "七年级(1)班（手动录入）");
+                if (gotMan == null) throw new Exception("同名的手动班在导入后丢了");
+                if (gotMan.Data[0][1][0].Subject != "数学") throw new Exception("手动班的课被改动了");
+                if (ClassBulletinApp.MainWindow.MergeManualClasses(incoming, prev) != 0 || incoming.Classes.Count != 2)
+                    throw new Exception("重复合并会长出第二份手动班");
+
+                // 数据包 / 二一缓存走「准入判断」：本机没这份班的课程设置 → 不保留（教室机跟着发布端走）
+                var incB = new ScheduleFile();
+                incB.Classes.Add(new ClassSchedule { ClassName = "七年级(1)班" });
+                if (incB.MergeManualFrom(prev, c => false) != 0 || incB.Classes.Count != 1)
+                    throw new Exception("准入判断拒绝了却还是把手动班并了回来");
+                var incC = new ScheduleFile();
+                incC.Classes.Add(new ClassSchedule { ClassName = "七年级(1)班" });
+                if (incC.MergeManualFrom(prev, c => true) != 1)
+                    throw new Exception("本机手排的班（准入为真）没有保留");
+
+                // ③ 手动班的公共时间用自己那份；导入班仍按年级作息
+                var sfx = new ScheduleFile();
+                sfx.FixedByGrade["七年级"] = new List<FixedSlot> { new() { Name = "年级大课间", AfterPeriod = 1 } };
+                var mcl = new ClassSchedule
+                {
+                    ClassName = "七年级(9)班（手动录入）", Origin = "Manual", PeriodTemplateName = "不存在的作息",
+                    FixedSlots = new List<FixedSlot> { new() { Name = "手动眼保健操", AfterPeriod = 2 } }
+                };
+                sfx.Classes.Add(mcl);
+                sfx.Classes.Add(new ClassSchedule { ClassName = "七年级(9)班" });
+                var gotFx = BoardBuilder.ResolveFixedSlots(sfx, "七年级(9)班（手动录入）");
+                if (gotFx == null || gotFx.Count != 1 || gotFx[0].Name != "手动眼保健操")
+                    throw new Exception("手动班的公共时间没用自己的：" + string.Join(",", (gotFx ?? new List<FixedSlot>()).Select(f => f.Name)));
+                var gotFx2 = BoardBuilder.ResolveFixedSlots(sfx, "七年级(9)班");
+                if (gotFx2 == null || gotFx2[0].Name != "年级大课间")
+                    throw new Exception("导入班反而没走年级作息：" + (gotFx2 == null ? "(null)" : gotFx2[0].Name));
+
+                // ④ 保存时把作息时间表里的节次时间写进课表（大屏才显示 08:00-08:45）
+                var tpl8 = ScheduleTemplates.CreateWithBuiltIns().PeriodTemplates.First(p => p.Name.Contains("高中"));
+                var data8 = new Dictionary<int, Dictionary<int, List<Lesson>>>
+                {
+                    [0] = new Dictionary<int, List<Lesson>> { [1] = new List<Lesson> { new() { Period = 1, Subject = "语文" } } }
+                };
+                ManualScheduleWindow.StampPeriodTimes(data8, tpl8);
+                if (data8[0][1][0].TimeRange != "08:00-08:45")
+                    throw new Exception("节次时间没写进课表：" + data8[0][1][0].TimeRange);
+                // 占位符（HH:MM-HH:MM）没填时不要写成时间
+                var tplPh = new PeriodTemplate { Name = "占位", Periods = new List<PeriodTime> { new() { Index = 1, TimeRange = "HH:MM-HH:MM" } } };
+                var dataPh = new Dictionary<int, Dictionary<int, List<Lesson>>>
+                {
+                    [0] = new Dictionary<int, List<Lesson>> { [1] = new List<Lesson> { new() { Period = 1, Subject = "语文" } } }
+                };
+                ManualScheduleWindow.StampPeriodTimes(dataPh, tplPh);
+                if (dataPh[0][1][0].TimeRange.Length != 0)
+                    throw new Exception("占位符被当成时间写进去了：" + dataPh[0][1][0].TimeRange);
+
+                // ⑤ 删除按钮：两种班都能删（导入班要提示"下次更新会回来"，手动班是真删）
+                var w10 = new ManualScheduleWindow(sfx, ScheduleTemplates.CreateWithBuiltIns());
+                w10.Show();
+                PumpMs(300);
+                var cb10 = (System.Windows.Controls.ComboBox)typeof(ManualScheduleWindow).GetField("_cbClass", bf)!.GetValue(w10)!;
+                var del10 = (Button)typeof(ManualScheduleWindow).GetField("_btnDeleteClass", bf)!.GetValue(w10)!;
+                if (cb10.Items.IndexOf("七年级(9)班（手动录入）") < 0) throw new Exception("手动班没出现在班级下拉里");
+                cb10.SelectedItem = "七年级(9)班";
+                PumpMs(120);
+                if (!del10.IsEnabled) throw new Exception("导入的班也应能删（提示下次更新会回来即可）");
+                if (!((del10.ToolTip as string) ?? "").Contains("重新导入"))
+                    throw new Exception("导入班的删除提示没说清「下次更新会回来」：" + del10.ToolTip);
+                cb10.SelectedItem = "七年级(9)班（手动录入）";
+                PumpMs(120);
+                if (!del10.IsEnabled) throw new Exception("手动录入的班不能删除");
+                if (!((del10.ToolTip as string) ?? "").Contains("手动录入"))
+                    throw new Exception("手动班的删除提示不对：" + del10.ToolTip);
+
+                // 重名保存规则：导入班同名 → 自动加「（手动录入）」尾巴；选「否」就不保存
+                string n1 = w10.ResolveSaveName("七年级(9)班", _ => MessageBoxResult.Yes);
+                if (n1 != "七年级(9)班（手动录入）") throw new Exception("同名导入班保存时应改成带尾巴的名字，实际：" + n1);
+                string n2 = w10.ResolveSaveName("七年级(9)班", _ => MessageBoxResult.No);
+                if (n2 != "") throw new Exception("选了「回去改名」却仍然保存：" + n2);
+                string n3 = w10.ResolveSaveName("七年级(9)班（手动录入）", _ => MessageBoxResult.Cancel);
+                if (n3 != "七年级(9)班（手动录入）") throw new Exception("自己这份手动课表不该被改名：" + n3);
+                string n4 = w10.ResolveSaveName("全新班", _ => MessageBoxResult.Cancel);
+                if (n4 != "全新班") throw new Exception("新班级不该弹重名确认：" + n4);
+
+                // 删除：只回传班名，由 MainWindow 落盘
+                w10.DeleteClass(confirm: false);
+                if (w10.DeleteClassName != "七年级(9)班（手动录入）")
+                    throw new Exception("删除班级没回传正确的班名：" + (w10.DeleteClassName ?? "(null)"));
+
+                // ⑥ 模板窗口：两栏各有滚动条；删除按钮在左栏「新建」下面；设为默认与四个按钮同一行
+                var mgr3 = new ScheduleTemplateManagerWindow(ScheduleTemplates.CreateWithBuiltIns());
+                var tMgr3 = typeof(ScheduleTemplateManagerWindow);
+                var mgrTmpl3 = (ScheduleTemplates)tMgr3.GetField("_templates", bf)!.GetValue(mgr3)!;
+                var lb3 = (System.Windows.Controls.ListBox)tMgr3.GetField("_lbPeriod", bf)!.GetValue(mgr3)!;
+                var del3 = (Button)tMgr3.GetField("_btnPeriodDel", bf)!.GetValue(mgr3)!;
+                var def3 = (Button)tMgr3.GetField("_btnPeriodDefault", bf)!.GetValue(mgr3)!;
+                var cus3 = new PeriodTemplate { Name = "r129 自建作息" };
+                cus3.Periods.Add(new PeriodTime { Index = 1, TimeRange = "08:00-08:40" });
+                mgrTmpl3.PeriodTemplates.Add(cus3);
+                tMgr3.GetMethod("RefreshPeriodList", bf)!.Invoke(mgr3, null);
+                lb3.SelectedItem = cus3;
+                if ((del3.Content as string) != "删除作息时间表")
+                    throw new Exception("删除按钮文案还是：" + del3.Content);
+
+                if (System.Windows.LogicalTreeHelper.GetParent(del3) is not System.Windows.Controls.StackPanel leftCol)
+                    throw new Exception("删除按钮没在左栏");
+                // 左栏里「+ 新建作息时间表」必须在「删除作息时间表」之前（按钮按加入顺序排）
+                var leftButtons = leftCol.Children.OfType<Button>().Select(b => b.Content as string ?? "").ToList();
+                int iNew = leftButtons.FindIndex(t => t.Contains("新建作息时间表"));
+                int iDel = leftButtons.FindIndex(t => t.Contains("删除作息时间表"));
+                if (iNew < 0 || iDel <= iNew)
+                    throw new Exception("删除按钮没排在「新建作息时间表」下方：" + string.Join(" / ", leftButtons));
+
+                // r135：「设为默认」与「应用到当前课表」同在一行的 StackPanel 里，整体仍占第 1 列
+                if (System.Windows.LogicalTreeHelper.GetParent(def3) is not System.Windows.Controls.StackPanel bellActs3
+                    || System.Windows.LogicalTreeHelper.GetParent(bellActs3) is not System.Windows.Controls.Grid actRow2
+                    || actRow2.ColumnDefinitions.Count != 2)
+                    throw new Exception("「设为默认」没和四个按钮排在同一行");
+                var wrap3 = actRow2.Children.OfType<System.Windows.Controls.WrapPanel>().FirstOrDefault();
+                if (wrap3 == null || wrap3.Children.Count != 4)
+                    throw new Exception("同一行里不是「添加/删除节次 + 添加/删除公共时间」四个按钮");
+                if (System.Windows.Controls.Grid.GetColumn(bellActs3) != 1)
+                    throw new Exception("「设为默认」不在该行最右边");
+                if (!bellActs3.Children.OfType<Button>().Any(b => (b.Content as string) == "应用到当前课表"))
+                    throw new Exception("「应用到当前课表」没和「设为默认」排在同一行");
+
+                var tabs3 = (System.Windows.Controls.TabControl)((System.Windows.Controls.Grid)mgr3.Content).Children[0];
+                var page3 = (System.Windows.Controls.Grid)((System.Windows.Controls.TabItem)tabs3.Items[0]).Content;
+                var svs = page3.Children.OfType<System.Windows.Controls.ScrollViewer>().ToList();
+                if (svs.Count != 2) throw new Exception("作息时间表页两栏没有套滚动条（" + svs.Count + " 个）");
+                if (svs.Any(s => s.VerticalScrollBarVisibility != System.Windows.Controls.ScrollBarVisibility.Auto))
+                    throw new Exception("滚动条不是「需要时才出现」");
+                mgr3.Close();
+                return new LoginWindow();
+            });
+            // r130：①「下载模板」从独立按钮改成「智能导入课表」后面的文字链 + 问号说明；
+            //  ② 4 种模板都要能表达单双周（一格两门：语文-单|数学-双），并真的能导进来。
+            Check("r130 下载模板入口与单双周模板", () =>
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                // ① 入口位置：同一个横向 StackPanel 里，紧跟智能导入按钮，后面跟一颗问号
+                var mw = new MainWindow { InitialTabIndex = 1 };
+                var smart = (Button)typeof(MainWindow).GetField("BtnImportSmart", bf)!.GetValue(mw)!;
+                var dl = (Button)typeof(MainWindow).GetField("BtnDownloadTemplates", bf)!.GetValue(mw)!;
+                if ((dl.Content as string) != "下载模板")
+                    throw new Exception("下载入口文案还是：" + dl.Content);
+                if (System.Windows.LogicalTreeHelper.GetParent(dl) is not System.Windows.Controls.StackPanel row
+                    || !ReferenceEquals(System.Windows.LogicalTreeHelper.GetParent(smart), row))
+                    throw new Exception("「下载模板」没有和「智能导入课表」排在一起（又变回独立按钮了）");
+                if (row.Children.IndexOf(dl) != row.Children.IndexOf(smart) + 1)
+                    throw new Exception("「下载模板」不在「智能导入课表」右边第一位");
+                var asks = row.Children.OfType<ClassBulletinApp.Controls.HelpBubble>().ToList();
+                if (asks.Count == 0) throw new Exception("「下载模板」后面没有问号说明");
+                if (asks[0].Text.Length < 40 || !asks[0].Text.Contains("模板"))
+                    throw new Exception("问号里没讲清下载模板的用处");
+                mw.Close();
+
+                // ② 模板里要有单双周示例，并且能被智能探测器 + 通用解析器读成 Week=1 / Week=2 两门
+                var kinds = new[]
+                {
+                    ImportTemplateWriter.TemplateKind.Base,
+                    ImportTemplateWriter.TemplateKind.TempBase,
+                    ImportTemplateWriter.TemplateKind.SingleClass,
+                    ImportTemplateWriter.TemplateKind.Teacher
+                };
+                foreach (var kind in kinds)
+                {
+                    var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                        "cb_tpl130_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                    try
+                    {
+                        ImportTemplateWriter.Write(tmp, kind);
+                        var pr = ScheduleTemplateProbe.Probe(tmp);
+                        if (!pr.Ok) throw new Exception(kind + " 模板没被识别");
+                        var g = ScheduleGeneralImporter.Parse(tmp, pr.Best);
+                        if (g.UnparsedCells > 0)
+                            throw new Exception(kind + " 模板有 " + g.UnparsedCells + " 个格子没解析出来");
+                        var lessons = g.Schedule.Classes.SelectMany(c => c.Data.Values)
+                            .SelectMany(d => d.Values).SelectMany(x => x).ToList();
+                        int w1 = lessons.Count(l => l.Week == 1);
+                        int w2 = lessons.Count(l => l.Week == 2);
+                        if (w1 != 1 || w2 != 1)
+                            throw new Exception(kind + " 模板的单双周示例没解析成两条（单周 " + w1 + " / 双周 " + w2 + "）");
+                        var one = lessons.First(l => l.Week == 1);
+                        var two = lessons.First(l => l.Week == 2);
+                        if (one.Subject.Length == 0 || two.Subject.Length == 0)
+                            throw new Exception(kind + " 单双周课程没取到科目");
+                        if (one.Subject.EndsWith("单") || two.Subject.EndsWith("双"))
+                            throw new Exception(kind + " 单双周标记没从科目名里清掉：" + one.Subject + " / " + two.Subject);
+                        if (kind != ImportTemplateWriter.TemplateKind.Teacher
+                            && (one.Teacher.Length == 0 || two.Teacher.Length == 0))
+                            throw new Exception(kind + " 单双周两门的教师没被 | 分开：" + one.Teacher + " / " + two.Teacher);
+                    }
+                    finally { try { System.IO.File.Delete(tmp); } catch { } }
+                }
+
+                // ③ 说明文案要写清单双周写法（否则用户还是不知道一格两门怎么填）
+                if (!ImportTemplateWriter.WeekHint.Contains("|") || !ImportTemplateWriter.WeekHint.Contains("单"))
+                    throw new Exception("模板说明里没有单双周写法");
+
+                // ④ 用户照抄时容易写成「语文（单）」「数学（双周）」——标记不能留在科目名里
+                var tmp2 = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                    "cb_tpl130w_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                try
+                {
+                    using (var wb = new ClosedXML.Excel.XLWorkbook())
+                    {
+                        var ws = wb.Worksheets.Add("班级课表");
+                        ws.Cell(1, 1).Value = "七年级(1)班-班级课程表";
+                        ws.Cell(2, 1).Value = "节次";
+                        string[] days = { "星期一", "星期二", "星期三", "星期四", "星期五" };
+                        for (int d = 0; d < days.Length; d++) ws.Cell(2, d + 2).Value = days[d];
+                        for (int p = 1; p <= 7; p++) ws.Cell(p + 2, 1).Value = "第" + p + "节";
+                        ws.Cell(3, 2).Value = "语文（单）|数学（双周）\n张老师|李老师";
+                        wb.SaveAs(tmp2);
+                    }
+                    var pr2 = ScheduleTemplateProbe.Probe(tmp2);
+                    if (!pr2.Ok) throw new Exception("括号写法测试文件没被识别");
+                    var g2 = ScheduleGeneralImporter.Parse(tmp2, pr2.Best);
+                    var ls2 = g2.Schedule.Classes.SelectMany(c => c.Data.Values)
+                        .SelectMany(d => d.Values).SelectMany(x => x).ToList();
+                    var a1 = ls2.FirstOrDefault(l => l.Week == 1);
+                    var a2 = ls2.FirstOrDefault(l => l.Week == 2);
+                    if (a1 == null || a2 == null) throw new Exception("「语文（单）/数学（双周）」没被识别成单双周");
+                    if (a1.Subject != "语文" || a2.Subject != "数学")
+                        throw new Exception("括号里的单双周标记没从科目名清掉：" + a1.Subject + " / " + a2.Subject);
+                }
+                finally { try { System.IO.File.Delete(tmp2); } catch { } }
+
+                return new LoginWindow();
             });
             Check("LoginWindow", () => new LoginWindow());
             Check("RetrievePasswordWindow", () => new RetrievePasswordWindow());
@@ -4469,6 +6063,8 @@ public partial class App : System.Windows.Application
     /// <summary>诊断：提醒小窗（按当前存档的位置与大小显示，便于核对缩放效果）。</summary>
     // ===== 真实输入探针用（--doodle-dragtest）=====
     [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hWnd, ref DPOINT pt);
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(DPOINT pt);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder buf, int max);
@@ -4936,6 +6532,57 @@ public partial class App : System.Windows.Application
         return w;
     }
 
+    /// <summary>r131 诊断截图：通知条徽章两态。change=true 注入当天换课，false 注入最近倒计时。</summary>
+    private static Window DiagNotifyBadge(bool change)
+    {
+        var w = new NotificationWindow();
+        var today = DateTime.Today;
+        string cls = Store.LoadSettings().SelectedClass ?? "七年级(9)班";
+        w.Loaded += (_, _) =>
+        {
+            w.DiagShowCountdownBadge = true;
+            if (change)
+            {
+                int day = ((int)today.DayOfWeek + 6) % 7;
+                w.DiagTodayOverrides = new List<LessonOverride>
+                {
+                    new LessonOverride { ClassName = cls, DayIdx = day, Period = 3, Subject = "语文", Teacher = "张老师", Type = "代", Source = "manual" },
+                    new LessonOverride { ClassName = cls, DayIdx = day, Period = 6, Subject = "自习", Type = "调", Source = "temp" },
+                    new LessonOverride { ClassName = cls, DayIdx = day, Period = 7, Subject = "体育", Teacher = "李老师", Type = "调", Source = "manual" }
+                };
+            }
+            else
+            {
+                w.DiagTodayOverrides = new List<LessonOverride>();
+                w.DiagCountdown = new CountdownBoard { Items =
+                {
+                    new CountdownItem { Name = "期末考试", TargetDate = today.AddDays(30).ToString("yyyy-MM-dd") }
+                }};
+            }
+            w.RefreshBadge();
+        };
+        return w;
+    }
+
+    /// <summary>r135 诊断截图：作息窗口带「当前课表作息」绿标与已应用提示。</summary>
+    private static Window DiagTemplateWithBell()
+    {
+        UserSession.SignIn(new AppUser { Username = "diag-admin", Role = UserRole.Admin });
+        var tpls = ScheduleTemplates.CreateWithBuiltIns();
+        var w = new ScheduleTemplateManagerWindow(tpls);
+        w.Loaded += (_, _) =>
+        {
+            var p = tpls.PeriodTemplates.FirstOrDefault(x => x.Name.Contains("初中"))
+                    ?? tpls.PeriodTemplates.FirstOrDefault();
+            if (p != null)
+            {
+                w.DiagSelectPeriod(p);
+                w.ApplyBellToSchedule(confirm: false);
+            }
+        };
+        return w;
+    }
+
     /// <summary>诊断截图：以指定角色登录后打开悬浮课表，用来核对「内置快捷」的角色默认显隐。</summary>
     private static Window DiagScheduleWindowAs(string role)
     {
@@ -4960,6 +6607,60 @@ public partial class App : System.Windows.Application
         var w = new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityDuty);
         w.SetWeekModeForDiag(true);
         return w;
+    }
+
+    /// <summary>诊断截图：手动录入窗口（带一个班的课 + 已保存的课程设置 + 一个课表方案）。</summary>
+    private static Window DiagManualWindow()
+    {
+        var t = ScheduleTemplates.CreateWithBuiltIns();
+        var sf = new ScheduleFile();
+        var cls = new ClassSchedule { ClassName = "七年级(1)班" };
+        string[,] demo = { { "语文", "数学", "英语", "物理", "历史" }, { "数学", "英语", "语文", "化学", "体育" }, { "英语", "语文", "数学", "生物", "音乐" } };
+        for (int p = 1; p <= 3; p++)
+        {
+            for (int d = 0; d < 5; d++)
+            {
+                if (!cls.Data.TryGetValue(d, out var dm)) cls.Data[d] = dm = new Dictionary<int, List<Lesson>>();
+                dm[p] = new List<Lesson> { new() { Period = p, Subject = demo[p - 1, d], Teacher = "任课老师", Week = 0 } };
+            }
+        }
+        sf.Classes.Add(cls);
+
+        var pairs = new List<SubjectPair>
+        {
+            new() { Subject = "语文", Teacher = "张老师", Location = "1 班教室", WeeklyPeriods = 5 },
+            new() { Subject = "数学", Teacher = "陈老师", Location = "1 班教室", WeeklyPeriods = 5 },
+            new() { TwoLessons = true, Subject = "生物", Teacher = "樊老师", Location = "生物室",
+                    Subject2 = "地理", Teacher2 = "梁老师", Location2 = "地理室", WeeklyPeriods = 2 },
+            new() { Subject = "体育", Teacher = "王老师", Location = "操场", WeeklyPeriods = 3 }
+        };
+        t.UpsertSetup(new ClassSetup
+        {
+            ClassName = "七年级(1)班",
+            PeriodTemplateName = "初中 7 节",
+            SubjectLibraryName = "本校常用",
+            SavedAt = DateTime.Now,
+            Pairs = pairs
+        });
+        t.Plans.Add(new SavedSchedulePlan { Name = "七年级标准课表", SavedAt = DateTime.Now, PeriodTemplateName = "初中 7 节", Data = cls.Data });
+        return new ManualScheduleWindow(sf, t);
+    }
+
+    /// <summary>诊断截图：单格编辑器（一格两门形态，用来核对第 2 门展开后的排版）。</summary>
+    private static Window DiagCellEditorWindow()
+    {
+        var lib = ScheduleTemplates.CreateWithBuiltIns().DefaultSubjectLibrary;
+        var pairs = new List<SubjectPair>
+        {
+            new() { Subject = "语文", Teacher = "张老师", Location = "1 班教室", Week = 0 },
+            new() { TwoLessons = true, Subject = "生物", Teacher = "樊老师", Location = "生物室",
+                    Subject2 = "地理", Teacher2 = "梁老师", Location2 = "地理室" }
+        };
+        return new CellEditorWindow(1, 3, new List<Lesson>
+        {
+            new() { Period = 3, Subject = "生物", Teacher = "樊老师", Location = "生物室", Week = 1 },
+            new() { Period = 3, Subject = "地理", Teacher = "梁老师", Location = "地理室", Week = 2 }
+        }, lib, pairs);
     }
 
     private static Window DiagScheduleUpdateFail()
@@ -6014,6 +7715,20 @@ public partial class App : System.Windows.Application
                       $"before={pendingBefore} after={afterClr.Records.Count}");
                 Check("清除前自动备份 board_sync.json.bak",
                       File.Exists(Path.Combine(classDir, "board_sync.json.bak")));
+
+                // ★「全部清空」路径：上面只清了已终结，这里剩的全是未处理记录 ——
+                //   必须被全部清掉（原 bug：all=true 只算数不删，提示已清 N 条但列表纹丝不动）。
+                int leftBeforeAll = BoardSyncService.LoadState().Records.Count;
+                var clrAll = BoardSyncService.ClearLedger(true);
+                var afterAll = BoardSyncService.LoadState();
+                Check("教师「全部清空」台账：未处理记录也一并清掉",
+                      clrAll.Ok && leftBeforeAll > 0 && afterAll.Records.Count == 0,
+                      clrAll.Message + " / 清前=" + leftBeforeAll + " 清后=" + afterAll.Records.Count);
+                Check("全部清空提示的条数与清前总数一致",
+                      clrAll.Message.Contains("已清除 " + leftBeforeAll + " 条"),
+                      clrAll.Message);
+                // 恢复台账，别让本段清空影响 ⑬ 段的 Send / Pull 断言（它们依赖这里的记录）
+                BoardSyncService.SaveState(afterClr);
             }
             finally
             {
