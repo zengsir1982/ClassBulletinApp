@@ -23,7 +23,7 @@ public static class ScheduleTemplateProbe
     public enum DayOrientation { Horizontal, Vertical }
     public enum MainDimension { ClassesInRows, ClassesInColumns, Single }
     public enum PeriodStyle { LabelWithNumber, MorningNumber, PlainNumber }
-    public enum CellLayout { NewLine, Space, Parenthesis }
+    public enum CellLayout { NewLine, Space, Parenthesis, Custom }
 
     /// <summary>节次标签的排布方向：纵排=A列每节一行（二一/常规）；横排=第N行每节一列（东凤传统格式）。</summary>
     public enum PeriodOrientation { Vertical, Horizontal }
@@ -51,6 +51,14 @@ public static class ScheduleTemplateProbe
 
         public PeriodStyle PeriodStyle { get; set; } = PeriodStyle.LabelWithNumber;
         public CellLayout CellLayout { get; set; } = CellLayout.NewLine;
+
+        /// <summary>
+        /// r143：自定义分隔符（只在 <see cref="CellLayout"/> = Custom 时生效）。
+        /// <para>科目 + 分隔符 + 教师，例如「语文｜罗叶全」「数学·许同琛」。可以是多字符（如 <c>" - "</c>）。
+        /// 探测到常见符号时会预填这里，用户只需把「单元格格式」切到「自定义符号」。</para>
+        /// </summary>
+        public string CustomSeparator { get; set; } = "";
+
         public PeriodOrientation PeriodOrientation { get; set; } = PeriodOrientation.Vertical;
         public CellSpan CellSpan { get; set; } = CellSpan.SingleRow;
 
@@ -290,6 +298,12 @@ public static class ScheduleTemplateProbe
         // 单元格格式：采样几个数据格，看分隔符
         h.CellLayout = DetectCellLayout(ws, h, lastRow, lastCol);
 
+        // r143：再单独找一遍"非标准分隔符"（｜ ； · 、 ~ _ 等）。只预填到 CustomSeparator 并给一句提示，
+        // ★ 不自动把布局改成 Custom —— 自动切换会悄悄改掉原本能解析对的文件，宁可让用户点一下。
+        h.CustomSeparator = DetectCustomSeparator(ws, h, lastRow, lastCol);
+        if (h.CustomSeparator.Length > 0)
+            h.Notes.Add($"数据区里「{h.CustomSeparator}」很像科目与教师的分隔符；若右侧科目/教师没拆开，把「单元格格式」改成「自定义符号」即可");
+
         // ★ 增强探测：识别"东凤传统格式"——节次横排 + 科目/教师双行格。
         //   这类布局前面按"节次纵排"的假设会认错方向，这里统一复核并纠正。
         EnhanceForTraditionalFormat(ws, h, title, dayCells, lastRow, lastCol);
@@ -488,5 +502,38 @@ public static class ScheduleTemplateProbe
         if (pa > nl && pa > sp) return CellLayout.Parenthesis;
         if (sp > nl) return CellLayout.Space;
         return CellLayout.NewLine;
+    }
+
+    /// <summary>
+    /// r143：给「自定义符号」档位找候选分隔符。
+    /// <para>只认「汉字 + 符号 + 汉字」这种形态（排除 <c>8:10</c>、<c>综合2.1-单</c> 这类），
+    /// 且至少命中 3 格才作数。★ <c>-</c> / <c>—</c> 故意不参与：单双周后缀「语文-单」会被误判成分隔符。</para>
+    /// </summary>
+    static readonly string[] SeparatorCandidates =
+        { "｜", "|", "；", ";", "·", "、", "~", "～", "＊", "*", "＿", "_", "／" };
+
+    static string DetectCustomSeparator(IXLWorksheet ws, TemplateHints h, int lastRow, int lastCol)
+    {
+        if (lastRow < 2 || lastCol < 2) return "";
+        var score = new Dictionary<string, int>();
+        int step = Math.Max(1, lastRow / 10);
+        for (int r = h.DayHeaderIndex + 1; r <= lastRow; r += step)
+            for (int c = 1; c <= Math.Min(lastCol, 60); c++)
+            {
+                var v = Clean(ws.Cell(r, c).GetString());
+                if (v.Length < 4 || v.Length > 40) continue;
+                foreach (var sep in SeparatorCandidates)
+                {
+                    int idx = v.IndexOf(sep, StringComparison.Ordinal);
+                    if (idx <= 0) continue;
+                    // 左边以汉字结尾、右边以汉字开头 —— "8:10"、"1-2" 这种数字串自然被排除
+                    if (!Regex.IsMatch(v.Substring(0, idx), @"[\u4e00-\u9fa5]$")) continue;
+                    if (!Regex.IsMatch(v.Substring(idx + sep.Length), @"^[\u4e00-\u9fa5]")) continue;
+                    score[sep] = score.TryGetValue(sep, out var n) ? n + 1 : 1;
+                }
+            }
+        if (score.Count == 0) return "";
+        var best = score.OrderByDescending(kv => kv.Value).First();
+        return best.Value >= 3 ? best.Key : "";
     }
 }

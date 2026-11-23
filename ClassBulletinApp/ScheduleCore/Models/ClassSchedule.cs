@@ -9,8 +9,13 @@ public class ClassSchedule
     /// <summary>
     /// 手动录入班级的班名尾巴。手动录入的课表与「电子表格导入 / 自动更新」的课表各存一份，
     /// 靠这个尾巴区分同名班，避免互相覆盖（r129）。
+    /// <para>r140：从「（手动录入）」缩成「（手录）」——弹窗与班级下拉里短一点更好读。
+    /// 旧数据仍带长尾巴，见 <see cref="LegacyManualSuffix"/>。</para>
     /// </summary>
-    public const string ManualSuffix = "（手动录入）";
+    public const string ManualSuffix = "（手录）";
+
+    /// <summary>r128~r139 用过的长尾巴。老数据（尤其没有 Origin 字段的）靠它继续认得出来。</summary>
+    public const string LegacyManualSuffix = "（手动录入）";
 
     public string ClassName { get; set; } = "";
 
@@ -38,18 +43,26 @@ public class ClassSchedule
     public Dictionary<int, Dictionary<int, List<Lesson>>> Data { get; set; } = new();
 
     /// <summary>
-    /// 是不是手动录入的课表。除显式标记外，班名带 <see cref="ManualSuffix"/> 的也算
-    /// （兼容 r128 及更早版本保存的、还没有 Origin 字段的旧数据）。
+    /// 是不是手动录入的课表。除显式标记外，班名带 <see cref="ManualSuffix"/>（或旧的
+    /// <see cref="LegacyManualSuffix"/>）的也算 —— 兼容 r128 及更早版本保存的、还没有 Origin 字段的旧数据。
     /// </summary>
     [JsonIgnore]
     public bool IsManual => string.Equals(Origin, "Manual", StringComparison.OrdinalIgnoreCase)
-                            || (!string.IsNullOrEmpty(ClassName) && ClassName.EndsWith(ManualSuffix, StringComparison.Ordinal));
+                            || HasManualSuffix(ClassName);
 
-    /// <summary>给班名补上「（手动录入）」尾巴（已经有就不重复加）。</summary>
+    /// <summary>班名带手录尾巴（新 / 旧两种都算）。</summary>
+    public static bool HasManualSuffix(string? name)
+    {
+        string n = name ?? "";
+        return n.EndsWith(ManualSuffix, StringComparison.Ordinal)
+               || n.EndsWith(LegacyManualSuffix, StringComparison.Ordinal);
+    }
+
+    /// <summary>给班名补上「（手录）」尾巴（已经有尾巴、新旧都算，就不重复加）。</summary>
     public static string WithManualSuffix(string? name)
     {
         string n = (name ?? "").Trim();
         if (n.Length == 0) return n;
-        return n.EndsWith(ManualSuffix, StringComparison.Ordinal) ? n : n + ManualSuffix;
+        return HasManualSuffix(n) ? n : n + ManualSuffix;
     }
 }

@@ -141,7 +141,7 @@ public static class ScheduleGeneralImporter
                 int di = DayOfColumn(col, dayCols);
                 var raw = Clean(ws.Cell(r, col).GetString());
                 var teacherRow = h.CellSpan == CellSpan.TwoRows ? Clean(ws.Cell(r + 1, col).GetString()) : "";
-                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time);
+                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time, h.CustomSeparator);
                 if (lessons.Count == 0) { if (raw.Length > 0) result.UnparsedCells++; continue; }
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
                 cs.Data[di][period] = lessons;
@@ -185,7 +185,7 @@ public static class ScheduleGeneralImporter
                 int di = mark.day >= 0 ? mark.day : 0;
                 var raw = Clean(ws.Cell(row, col).GetString());
                 var teacherRow = h.CellSpan == CellSpan.TwoRows ? Clean(ws.Cell(row + 1, col).GetString()) : "";
-                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time);
+                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time, h.CustomSeparator);
                 if (lessons.Count == 0) { if (raw.Length > 0) result.UnparsedCells++; continue; }
                 var cs = EnsureClass(result.Schedule, name);
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
@@ -240,7 +240,7 @@ public static class ScheduleGeneralImporter
                 var raw = Clean(ws.Cell(subjectRowIdx, col).GetString());
                 if (raw.Length == 0) continue;
                 var teacherRow = Clean(ws.Cell(teacherRowIdx, col).GetString());
-                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time);
+                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time, h.CustomSeparator);
                 if (lessons.Count == 0) { result.UnparsedCells++; continue; }
                 var cs = EnsureClass(result.Schedule, name);
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
@@ -271,7 +271,7 @@ public static class ScheduleGeneralImporter
             {
                 var raw = Clean(ws.Cell(r, col).GetString());
                 var teacherRow = h.CellSpan == CellSpan.TwoRows ? Clean(ws.Cell(r + 1, col).GetString()) : "";
-                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time);
+                var lessons = ParseTraditionalCell(raw, teacherRow, h.CellLayout, period, time, h.CustomSeparator);
                 if (lessons.Count == 0) { if (raw.Length > 0) result.UnparsedCells++; continue; }
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
                 cs.Data[di][period] = lessons;
@@ -285,10 +285,18 @@ public static class ScheduleGeneralImporter
     /// "自带科目标记"=这一格里同时写出了科目和教师（空格分两段 / 括号(教师) / 竖线），
     /// 用于区分"单双周双格"和"全周科目+教师两格"。
     /// </summary>
-    static (string subj, string teach, bool hasMarker) SplitTraditionalCell(string text, CellLayout layout)
+    static (string subj, string teach, bool hasMarker) SplitTraditionalCell(string text, CellLayout layout, string sep = "")
     {
         text = Clean(text);
         if (text.Length == 0) return ("", "", false);
+        if (layout == CellLayout.Custom)
+        {
+            // r143：自定义符号。左右两段各算「自带标记」——只看有没有第二段，
+            // 语义与「括号」「空格」一致：两段都有字就是单双周，只有一段就是纯科目。
+            var parts = SplitBySeparator(text, sep);
+            if (parts.Count >= 2) return (parts[0], parts[1], parts[0].Length > 0);
+            return (text, "", false);
+        }
         if (layout == CellLayout.Parenthesis)
         {
             var m = Regex.Match(text, @"^\s*(.*?)[（(](.*?)[)）]\s*(.*)$");
@@ -333,10 +341,11 @@ public static class ScheduleGeneralImporter
     /// - 下格只有教师/人名（如"许同琛" / "(许同琛)"）→ 全周：上格科目 + 下格教师，W0。
     /// 这与二一课表靠"-单/-双"字面识别是两套独立逻辑，互不干扰。
     /// </summary>
-    static List<Lesson> ParseTraditionalCell(string subjectRow, string teacherRow, CellLayout layout, int period, string time)
+    static List<Lesson> ParseTraditionalCell(string subjectRow, string teacherRow, CellLayout layout, int period, string time,
+        string sep = "")
     {
-        var up = SplitTraditionalCell(subjectRow, layout);
-        var low = SplitTraditionalCell(teacherRow, layout);
+        var up = SplitTraditionalCell(subjectRow, layout, sep);
+        var low = SplitTraditionalCell(teacherRow, layout, sep);
         string subjU = CleanTraditionalSubject(up.subj);
         string subjL = CleanTraditionalSubject(low.subj);
 
@@ -417,7 +426,7 @@ public static class ScheduleGeneralImporter
                 // 班级名在节次行同一行取（多班布局每行一个班）；整块都留空时沿用上一行
                 var className = lastClass;
                 if (className.Length == 0) continue;
-                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule);
+                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule, h.CustomSeparator);
                 if (lessons.Count == 0) { result.UnparsedCells++; continue; }
                 var cs = EnsureClass(result.Schedule, className);
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
@@ -466,7 +475,7 @@ public static class ScheduleGeneralImporter
                 int di = mark.day >= 0 ? mark.day : 0;
                 var raw = Clean(ws.Cell(row, col).GetString());
                 if (raw.Length == 0) continue;
-                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule);
+                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule, h.CustomSeparator);
                 if (lessons.Count == 0) { result.UnparsedCells++; continue; }
                 var cs = EnsureClass(result.Schedule, name);
                 if (!cs.Data.ContainsKey(di)) cs.Data[di] = new Dictionary<int, List<Lesson>>();
@@ -502,7 +511,7 @@ public static class ScheduleGeneralImporter
             {
                 var raw = Clean(ws.Cell(r, col).GetString());
                 if (raw.Length == 0) continue;
-                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule);
+                var lessons = ParseCell(raw, h.CellLayout, period, time, h.IsTeacherSchedule, h.CustomSeparator);
                 if (lessons.Count == 0) { result.UnparsedCells++; continue; }
                 if (!cs.Data.ContainsKey(day)) cs.Data[day] = new Dictionary<int, List<Lesson>>();
                 cs.Data[day][period] = lessons;
@@ -512,7 +521,8 @@ public static class ScheduleGeneralImporter
     }
 
     // ============ 单元格解析：把一格文本拆成 Lesson 列表 ============
-    internal static List<Lesson> ParseCell(string raw, CellLayout layout, int period, string time, bool isTeacher)
+    internal static List<Lesson> ParseCell(string raw, CellLayout layout, int period, string time, bool isTeacher,
+        string sep = "")
     {
         raw = Clean(raw);
         if (raw.Length == 0) return new List<Lesson>();
@@ -520,6 +530,15 @@ public static class ScheduleGeneralImporter
         string subjectText, teacherText, locationText;
         switch (layout)
         {
+            case CellLayout.Custom:
+            {
+                // r143：用户自己填的分隔符。「科目｜教师」或「科目｜教师｜地点」，多出来的段都当地点。
+                var parts = SplitBySeparator(raw, sep);
+                subjectText = parts.Count > 0 ? parts[0] : "";
+                teacherText = parts.Count > 1 ? parts[1] : "";
+                locationText = parts.Count > 2 ? string.Join(" ", parts.Skip(2)) : "";
+                break;
+            }
             case CellLayout.Space:
             {
                 // "生物 樊玉清" / "体育与健康 王涛 操场" —— 第一段科目，后续按空格连接
@@ -591,6 +610,20 @@ public static class ScheduleGeneralImporter
         var arr = s.Split(new[] { sep, '/' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                    .Where(x => x.Length > 0).ToList();
         return arr.Count > 0 ? arr : new List<string> { s.Trim() };
+    }
+
+    /// <summary>
+    /// r143：按「自定义分隔符」拆一格。支持多字符分隔符（如 <c>" - "</c>）。
+    /// <para>★ 分隔符为空时退回「空白」拆法，绝不让用户填了个空就把整格吞掉。</para>
+    /// </summary>
+    static List<string> SplitBySeparator(string text, string sep)
+    {
+        text = Clean(text);
+        if (text.Length == 0) return new List<string>();
+        if (string.IsNullOrWhiteSpace(sep))
+            return Regex.Split(text, @"\s+").Where(x => x.Length > 0).ToList();
+        return text.Split(new[] { sep }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                   .Where(x => x.Length > 0).ToList();
     }
 
     // ============ 辅助 ============

@@ -214,6 +214,9 @@ public partial class ScheduleWindow : Window, IGlassSurface
         AppEvents.QuickCheckUpdateDone += OnQuickCheckUpdateDone;
         AppEvents.ScheduleFlash += OnScheduleFlash;
         AppEvents.QuickToolsStateChanged += OnQuickToolsStateChanged;
+        // r147：台账一变就刷新「信息」胶囊角标（SaveState 可能在后台线程触发）
+        BoardSyncService.LedgerChanged += OnLedgerChangedForBadge;
+        RefreshTodoBadge();
 
         // 快捷胶囊「自动」档要跟窗口宽度联动：拖动缩放后立刻重排，窄窗挤不下就自动收小
         // 课表行高同理：窗口变矮（或屏幕缩放变大）后压紧字号与内边距，尽量一屏显示完当天的课
@@ -228,6 +231,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             AppEvents.QuickCheckUpdateDone -= OnQuickCheckUpdateDone;
             AppEvents.ScheduleFlash -= OnScheduleFlash;
             AppEvents.QuickToolsStateChanged -= OnQuickToolsStateChanged;
+            BoardSyncService.LedgerChanged -= OnLedgerChangedForBadge;
             AppEvents.QuickActionsChanged -= ApplyQuickActionPermissions;
             _qaWatchdog?.Stop();
             _qaWatchdog = null;
@@ -313,6 +317,35 @@ public partial class ScheduleWindow : Window, IGlassSurface
     private void BtnQaPublish_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenPublish();
 
     private void BtnQaInfo_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenInfoLedger();
+
+    void OnLedgerChangedForBadge()
+    {
+        try { Dispatcher.BeginInvoke(new Action(() => RefreshTodoBadge())); }
+        catch { /* 正在退出 */ }
+    }
+
+    /// <summary>
+    /// 「信息」胶囊的待办角标。<paramref name="count"/> 不传时现算（同一份口径 <see cref="PendingTodoService"/>）。
+    /// <para>没待办 / 游客模式 → 收起；>99 → 99+，别把胶囊撑变形。</para>
+    /// </summary>
+    public void RefreshTodoBadge(int? count = null)
+    {
+        if (BadgeQaInfo == null) return;
+        try
+        {
+            int n = count ?? PendingTodoService.Compute().Todo;
+            if (n <= 0)
+            {
+                BadgeQaInfo.Visibility = Visibility.Collapsed;
+                BtnQaInfo.ToolTip = "打开「信息管理」的消息台账 / 回执窗口（当前没有待办）";
+                return;
+            }
+            TxtQaInfoBadge.Text = PendingTodoService.BadgeText(n);
+            BadgeQaInfo.Visibility = Visibility.Visible;
+            BtnQaInfo.ToolTip = $"有 {n} 条待办：打开消息台账逐条裁决 / 核对";
+        }
+        catch { /* 角标失败不影响按钮本身 */ }
+    }
 
     private void BtnQaHand_Click(object sender, RoutedEventArgs e) => ToggleHandMode();
 
@@ -1227,23 +1260,34 @@ public partial class ScheduleWindow : Window, IGlassSurface
     }
 
     /// <summary>
-    /// r133 校历标签：调休补课显示「按周三课表上课」（绿），放假日显示「今日放假」（红），
-    /// 普通日收起。标签只影响这一行，不动日期/星期本身 —— 日期永远显示真实日期。
+    /// r137 校历标签：调休补课显示「按12周周三」（绿），放假日显示「放假」（红），
+    /// 普通日收起。标题栏窄，周次用短写法；完整语义「按第12周周三上课」走 ToolTip，日期永远显示真实日期。
     /// </summary>
     private void ApplyDayTag(TodayResult res)
     {
         if (DayTagBox == null || TxtDayTag == null) return;   // 板书模式的轻量壳里可能没有
         bool show = !string.IsNullOrWhiteSpace(res.DayTag);
-        // ★ 悬浮课表的标题栏本来就窄（右边还有三个按钮），这里只放最短的四个字：
-        //   「按周三」/「放假」。完整说明（含备注）走 ToolTip，别让标签把日期挤掉。
-        TxtDayTag.Text = res.IsOff
-            ? "放假"
-            : (res.Plan?.AsDate is DateTime asDate ? "按" + SchoolCalendar.DayNameShort(asDate) : "调休上课");
+
+        // r143：调休补课日的 WeekLine 本身就是「按第12周周五上课」，再挂一个「按12周周五」的胶囊
+        // 等于同一句话说两遍（用户反馈「只要显示一个即可」）。补课日只留胶囊，用完整文案 + 加粗放大，
+        // 比原来那行 14px 淡蓝字醒目。
+        // 放假日不重复（「第12周 星期五」是周次，「今日放假」是状态，两条信息），周次行保留。
+        bool weekLineIsTag = res.IsMakeup && show;
+        if (TxtWeek != null)
+            TxtWeek.Visibility = weekLineIsTag ? Visibility.Collapsed : Visibility.Visible;
+
+        TxtDayTag.Text = show
+            ? (weekLineIsTag
+                ? res.DayTag                                                    // 「按第12周周五上课」
+                : (res.IsOff ? "今日放假" : res.Plan?.ShortTag ?? "调休上课"))
+            : "";
         DayTagBox.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show) return;
         DayTagBox.Background = new System.Windows.Media.SolidColorBrush(res.IsOff
             ? System.Windows.Media.Color.FromRgb(0xC0, 0x39, 0x2B)
             : System.Windows.Media.Color.FromRgb(0x2E, 0x7D, 0x32));
+        // 周次行让位后胶囊顶到行首，左边距收回，不然标题区会空出一块
+        DayTagBox.Margin = weekLineIsTag ? new Thickness(0, 1, 0, 0) : new Thickness(8, 0, 0, 0);
         DayTagBox.ToolTip = res.Plan?.Describe() ?? res.DayTag;
     }
 
@@ -2961,6 +3005,20 @@ public partial class ScheduleWindow : Window, IGlassSurface
         return $"TwoFinger={_twoFingerScroll} PanningMode={ScheduleScroll?.PanningMode} "
              + $"ScrollableHeight={ScheduleScroll?.ScrollableHeight:0.#} Viewport={ScheduleScroll?.ViewportHeight:0.#} "
              + $"systemPressHold={ph} systemFlicks={fl} slop={GestureSlop} hold={TouchHoldMs}ms";
+    }
+
+    /// <summary>
+    /// 诊断（--ui-check）用：按给定的一天刷新「周次行 / 校历胶囊」，返回可断言的状态。
+    /// <para>r143 的规则是「有校历标签时只显示一处」，所以要能分别看到周次行是否让位、
+    /// 胶囊文案是不是完整句、字号与字重够不够醒目。</para>
+    /// </summary>
+    internal (bool weekShown, string tag, double size, bool bold) DiagDayTagState(TodayResult res)
+    {
+        ApplyDayTag(res);
+        return (TxtWeek == null || TxtWeek.Visibility == Visibility.Visible,
+                TxtDayTag?.Text ?? "",
+                TxtDayTag?.FontSize ?? 0,
+                TxtDayTag?.FontWeight == FontWeights.Bold);
     }
 
     private void StartPressTimer()

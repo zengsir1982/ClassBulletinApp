@@ -35,6 +35,9 @@ public class BoardSyncWindow : Window
     };
     readonly Wpf.ComboBox _view = new();
     readonly Wpf.TextBlock _configHint = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12 };
+    // r147：待办概览条——双击托盘进来时一眼看到「哪几类、各几条」，点一下直接筛到那一类
+    readonly Wpf.TextBlock _todoBar = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12.5 };
+    Wpf.Button[]? _todoButtons;
     // 设置项全部集中到控制面板「信息管理」页，这里只保留发布入口，界面不再堆一排输入框。
     readonly Wpf.Button _send = new() { Content = "＋ 发布信息", Padding = new Thickness(12, 5, 12, 5) };
 
@@ -84,9 +87,10 @@ public class BoardSyncWindow : Window
         var grid = new Wpf.Grid { Margin = new Thickness(14) };
         grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 0 顶栏
         grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 1 设置条
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 2 快照提示
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3 主体
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 4 状态栏
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 2 r147 待办分组条
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 3 快照提示
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 4 主体
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 5 状态栏
         Content = grid;
 
         // ---- 顶栏 ----
@@ -141,10 +145,41 @@ public class BoardSyncWindow : Window
         Wpf.Grid.SetRow(cfg, 1);
         grid.Children.Add(cfg);
 
+        // r147：待办分组条。三个按钮按「身份相关」只显示有用的那类：
+        // 教室机 → 待裁决 + 冲突；教师机 → 待核对 + 冲突。点了切到对应视图并置顶未办项。
+        var todoWrap = new Wpf.WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        todoWrap.Children.Add(_todoBar);
+        var btnJudge = new Wpf.Button
+        {
+            Content = "待裁决 →", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(10, 0, 0, 0),
+            ToolTip = "切到收件箱并选中第一条待裁决的变更单"
+        };
+        btnJudge.Click += (_, _) => JumpToTodo("in", r =>
+            !r.Order.IsRevoke && string.IsNullOrWhiteSpace(r.Decision) && r.Status != BoardSyncConsts.StConflict);
+        var btnVerify = new Wpf.Button
+        {
+            Content = "待核对 →", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "切到发送箱并选中第一条待核对的信息"
+        };
+        btnVerify.Click += (_, _) => JumpToTodo("out", r =>
+            !r.Order.IsRevoke && !r.IsTerminal && r.Status != BoardSyncConsts.StConflict);
+        var btnConflict = new Wpf.Button
+        {
+            Content = "冲突 →", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "切到冲突项：核对不一致 / 缺 dataVersion，需要人工看一眼"
+        };
+        btnConflict.Click += (_, _) => JumpToTodo(null, r => r.Status == BoardSyncConsts.StConflict);
+        todoWrap.Children.Add(btnJudge);
+        todoWrap.Children.Add(btnVerify);
+        todoWrap.Children.Add(btnConflict);
+        Wpf.Grid.SetRow(todoWrap, 2);
+        grid.Children.Add(todoWrap);
+        _todoButtons = new[] { btnJudge, btnVerify, btnConflict };
+
         _snapshotBar.FontSize = 12;
         _snapshotBar.Margin = new Thickness(0, 0, 0, 10);
         _snapshotBar.Foreground = new SolidColorBrush(Muted);
-        Wpf.Grid.SetRow(_snapshotBar, 2);
+        Wpf.Grid.SetRow(_snapshotBar, 3);
         grid.Children.Add(_snapshotBar);
 
         // ---- 主体 ----
@@ -189,13 +224,13 @@ public class BoardSyncWindow : Window
         Wpf.Grid.SetColumn(right, 1);
         body.Children.Add(right);
 
-        Wpf.Grid.SetRow(body, 3);
+        Wpf.Grid.SetRow(body, 4);
         grid.Children.Add(body);
 
         // ---- 状态栏 ----
         _status.FontSize = 12;
         _status.Foreground = new SolidColorBrush(Ink);
-        Wpf.Grid.SetRow(_status, 4);
+        Wpf.Grid.SetRow(_status, 5);
         grid.Children.Add(_status);
     }
 
@@ -358,6 +393,48 @@ public class BoardSyncWindow : Window
         Refresh();
     }
 
+    /// <summary>r147：刷新待办分组条。数字与托盘 / 悬浮课表同一口径（PendingTodoService）。</summary>
+    void RefreshTodoBar()
+    {
+        try
+        {
+            var c = PendingTodoService.Compute();
+            // 与 PendingTodoService 默认口径一致：用 IsClassroomMachine，不能只看当前登录角色
+            string role = BoardSyncService.IsClassroomMachine ? "教室机" : "教师机";
+            _todoBar.Text = c.Any
+                ? $"{role}待办 {c.Todo} 条：待裁决 {c.NeedDecision} · 待核对 {c.NeedVerify}"
+                  + (c.Conflict > 0 ? $" · 冲突 {c.Conflict}" : "")
+                : $"{role}当前没有待办（办结后数字会自动减）";
+            _todoBar.Foreground = new SolidColorBrush(c.Any
+                ? Color.FromRgb(0x8A, 0x5A, 0x00) : Color.FromRgb(0x77, 0x88, 0x99));
+            if (_todoButtons != null)
+            {
+                _todoButtons[0].IsEnabled = c.NeedDecision > 0;
+                _todoButtons[1].IsEnabled = c.NeedVerify > 0;
+                _todoButtons[2].IsEnabled = c.Conflict > 0;
+            }
+        }
+        catch { _todoBar.Text = "待办统计暂不可用"; }
+    }
+
+    /// <summary>点待办分组：切视图（传 null 保持当前），选中第一条符合条件的记录。</summary>
+    void JumpToTodo(string? view, Func<BoardMessageRecord, bool> pred)
+    {
+        try
+        {
+            if (view != null)
+                for (int i = 0; i < _view.Items.Count; i++)
+                    if ((_view.Items[i] as Wpf.ComboBoxItem)?.Tag as string == view)
+                    { _view.SelectedIndex = i; break; }
+
+            Refresh();
+            for (int i = 0; i < _records.Count; i++)
+                if (pred(_records[i])) { _list.SelectedIndex = i; _list.ScrollIntoView(_list.SelectedItem); break; }
+            ShowDetail();
+        }
+        catch { }
+    }
+
     void Refresh()
     {
         try
@@ -386,6 +463,8 @@ public class BoardSyncWindow : Window
                 _list.SelectedIndex = prev >= 0 && prev < _records.Count ? prev : 0;
             else
                 ShowDetail();
+
+            RefreshTodoBar();
         }
         catch (Exception ex)
         {

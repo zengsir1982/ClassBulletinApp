@@ -39,16 +39,21 @@ public static class BoardBuilder
     public static TodayResult Build(string? selectedClass, string semesterStart, ScheduleFile? schedule,
         DateTime displayDate, List<LessonOverride>? overrides = null, bool showAlternateWeek = true)
     {
+        // r133 校历：先问「今天按哪天的课表上课」，再由 plan 决定 dayIdx / 单双周 / 是否补课放假。
+        // ★ 顺序很重要：plan 必须在下面的提前 return 之前算出来，否则没选班时大屏就看不到调休标签。
+        var plan = SchoolCalendar.Resolve(schedule, displayDate, semesterStart);
+        // r137：调休日不展示「今天第几周 星期六」——课表关注的是什么课在上，
+        // 直接显示「按第12周周三上课」。真实日期仍在 DateText 那一行，不会丢。
+        string weekLine = plan.IsMakeup && plan.AsDate.HasValue
+            ? plan.TagText
+            : $"{WeekHelper.WeekLabel(displayDate, semesterStart)}　{DayName(displayDate.DayOfWeek)}";
         var res = new TodayResult
         {
             DisplayDate = displayDate,
             DateText = $"{displayDate:yyyy年M月d日}",
-            WeekLine = $"{WeekHelper.WeekLabel(displayDate, semesterStart)}　{DayName(displayDate.DayOfWeek)}",
+            WeekLine = weekLine,
             ClassName = selectedClass ?? ""
         };
-        // r133 校历：先问「今天按哪天的课表上课」，再由 plan 决定 dayIdx / 单双周 / 是否补课放假。
-        // ★ 顺序很重要：plan 必须在下面的提前 return 之前算出来，否则没选班时大屏就看不到「按周三上课」的标签。
-        var plan = SchoolCalendar.Resolve(schedule, displayDate, semesterStart);
         res.Plan = plan;
         res.DayTag = plan.TagText;
         res.IsMakeup = plan.IsMakeup;
@@ -318,7 +323,7 @@ public class TodayResult
     public List<PeriodRow> Rows { get; } = new();
     public string DateHeader { get; set; } = "";     // 兼容旧引用
     public string DateText { get; set; } = "";        // 日期，如 2026年10月26日
-    public string WeekLine { get; set; } = "";        // 单双周 + 星期，如 双周 星期一
+    public string WeekLine { get; set; } = "";        // 普通日「第12周　星期三」；调休日「按第12周周三上课」
     public string ClassName { get; set; } = "";
     public bool IsWeekend { get; set; }
     public DateTime DisplayDate { get; set; } = DateTime.Now;  // 实际显示依据的那一天
@@ -326,7 +331,7 @@ public class TodayResult
     // ===== r133 校历 / 调休 =====
     /// <summary>这一天的校历结论（补课 / 放假 / 普通日），渲染层用它判断标签与底色。</summary>
     public DayPlan? Plan { get; set; }
-    /// <summary>大屏标签：「按周三课表上课」「今日放假」，普通日为空。</summary>
+    /// <summary>大屏标签：「按第12周周三上课」「今日放假」，普通日为空。</summary>
     public string DayTag { get; set; } = "";
     public bool IsMakeup { get; set; }
     public bool IsOff { get; set; }

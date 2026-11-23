@@ -22,8 +22,8 @@ public partial class ScheduleTargetWindow : Window
     {
         InitializeComponent();
 
-        _teachers = Names(Store.LoadTeacherSchedule());
-        _classes = Names(Store.LoadSchedule());
+        _teachers = TeacherNames(Store.LoadTeacherSchedule());
+        _classes = ClassNames(Store.LoadSchedule());
 
         var s = Store.LoadSettings();
         bool teacherMode = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase) && _teachers.Count > 0;
@@ -46,13 +46,29 @@ public partial class ScheduleTargetWindow : Window
     
         GlassChrome.Prepare(this);}
 
-    static List<string> Names(ScheduleCore.Models.ScheduleFile? sf)
+    /// <summary>教师按中文姓名排（姓在前，符合老师找人的习惯）。</summary>
+    static List<string> TeacherNames(ScheduleCore.Models.ScheduleFile? sf)
     {
         if (sf?.Classes == null) return new List<string>();
         return sf.Classes
             .Select(c => c.ClassName)
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .OrderBy(n => n, TeacherExtractor.ZhComparer())
+            .ToList();
+    }
+
+    /// <summary>
+    /// 班级按「年级 → 班号数值」排。
+    /// <para>★ 这里绝不能跟着教师用中文字符串比较：那会把 七年级(10)班 排到 七年级(2)班 前面，
+    /// 28 个班的年级一眼就看乱了。规则与 <see cref="ScheduleImporter.SortClasses"/> 完全一致。</para>
+    /// </summary>
+    static List<string> ClassNames(ScheduleCore.Models.ScheduleFile? sf)
+    {
+        if (sf?.Classes == null) return new List<string>();
+        return sf.Classes
+            .Select(c => c.ClassName)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .OrderBy(n => n, ScheduleImporter.ClassNameComparer())
             .ToList();
     }
 

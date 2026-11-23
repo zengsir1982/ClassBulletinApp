@@ -9,6 +9,12 @@ public class ScheduleFile
     public string SourceFile { get; set; } = "";
 
     /// <summary>
+    /// r136：学期 / 课表版本名称（如「2026 学年第一学期」）。只从导入表标题猜建议值、由人确认，
+    /// 与本机「课表方案」(SavedSchedulePlan，格子模板) 是两回事。随课表下发。
+    /// </summary>
+    public string TermName { get; set; } = "";
+
+    /// <summary>
     /// 参与合并的源文件名（如七/八/九年级三份总课表）。
     /// 旧数据只有 <see cref="SourceFile"/>，此处为空；合并导入时逐份追加。
     /// </summary>
@@ -38,6 +44,56 @@ public class ScheduleFile
     /// <para>为空时渲染链完全走旧路径（二一 FixedByGrade → Lesson.TimeRange），升级零变化。</para>
     /// </summary>
     public BellSchedule? Bell { get; set; }
+
+    /// <summary>
+    /// r136：基础数据权威清单（班级 / 科目 / 教师）。自动提取 + 手动维护的来源标记与墓碑都在这里，
+    /// 与 Classes（真正排课内容）分开：Classes 仍是渲染的唯一数据源，这三份清单只用于集中维护与展示。
+    /// <para>随课表下发；包 Apply 时用 <see cref="MergeBaseDataFrom"/> 并回本机的手动 / 已排除项。</para>
+    /// </summary>
+    public List<BaseDataEntry> ClassEntries { get; set; } = new();
+    public List<BaseDataEntry> SubjectEntries { get; set; } = new();
+    public List<BaseDataEntry> TeacherEntries { get; set; } = new();
+
+    /// <summary>
+    /// r136：整包 Apply 时把本机清单里的「手动 / 已排除」项并回包内清单。
+    /// <para>与 <see cref="MergeManualFrom"/> 同理：包是整份覆盖，不并回来的话管理员手填的名单、
+    /// 以及人工排除（墓碑）会被包冲掉，下次整理又把旧名字捞回来。</para>
+    /// </summary>
+    /// <returns>并回的项数（班级 / 科目 / 教师合计）。</returns>
+    public int MergeBaseDataFrom(ScheduleFile? previous)
+    {
+        if (previous == null || ReferenceEquals(previous, this)) return 0;
+        int kept = 0;
+        MergeList(ClassEntries, previous.ClassEntries, ref kept);
+        MergeList(SubjectEntries, previous.SubjectEntries, ref kept);
+        MergeList(TeacherEntries, previous.TeacherEntries, ref kept);
+        return kept;
+    }
+
+    private static void MergeList(List<BaseDataEntry> target, List<BaseDataEntry> source, ref int kept)
+    {
+        foreach (var e in source.Where(e => e.Origin != BaseDataOrigin.Auto).ToList())
+        {
+            var existing = target.FirstOrDefault(x =>
+                string.Equals(x.Name, e.Name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                // 本机已存在同名：手动 / 排除优先级高于包里的自动项
+                if (existing.Origin == BaseDataOrigin.Auto)
+                {
+                    existing.Origin = e.Origin;
+                    existing.Tombstoned = e.Tombstoned;
+                    existing.RenamedTo = e.RenamedTo;
+                    kept++;
+                }
+            }
+            else
+            {
+                target.Add(e);
+                kept++;
+            }
+        }
+    }
 
     /// <summary>
     /// 把 <paramref name="previous"/> 里的「手动录入」班级并回本对象（同名以本对象为准）。

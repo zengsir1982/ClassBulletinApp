@@ -87,11 +87,31 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ③ 同步 -->
+                <!-- ③ 教学日历（r143）：调休 / 放假日 + 开学日，跟设置走独立通道，不必重发整包 -->
                 <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="18,16" Margin="0,0,0,14">
                     <StackPanel>
-                        <TextBlock Text="③ 班级内容同步" FontSize="15" FontWeight="Bold"
+                        <TextBlock Text="③ 教学日历（调休 / 放假 + 开学日）" FontSize="15" FontWeight="Bold"
+                                   Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ChkCalendar" Content="随本次下发教学日历（本机当前校历）" FontSize="13"
+                                  Checked="ChkCalendar_Changed" Unchecked="ChkCalendar_Changed"/>
+                        <TextBlock FontSize="11.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap"
+                                   Margin="22,6,0,0" LineHeight="18"
+                                   Text="学校的「第几周」全靠开学日推算，所以开学日跟调休一起下发。要改请先在本机「校历」里改好（或点下面的按钮），再回到这里勾选下发。教室机下次检查时自动生效，大屏立刻按新校历显示。"/>
+                        <TextBlock x:Name="TxtCalendarSummary" FontSize="12"
+                                   Foreground="{DynamicResource BodyBrush}" Margin="22,8,0,0" TextWrapping="Wrap"/>
+                        <Button x:Name="BtnOpenCalendar" Content="打开本机校历…" Click="BtnOpenCalendar_Click"
+                                Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="12"
+                                HorizontalAlignment="Left" Margin="22,10,0,0"
+                                ToolTip="在这里改完调休/放假，回到本窗口会自动刷新预览；确认无误后点最下方「下发」"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ④ 同步 -->
+                <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="18,16" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="④ 班级内容同步" FontSize="15" FontWeight="Bold"
                                    Foreground="{DynamicResource InkBrush}" Margin="0,0,0,12"/>
                         <WrapPanel Orientation="Horizontal">
                             <CheckBox x:Name="ChkSyncEnabled" Content="启用班级内容同步" FontSize="13" Margin="0,0,22,10"/>
@@ -103,11 +123,11 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ④ 更新来源（危险区） -->
+                <!-- ⑤ 更新来源（危险区） -->
                 <Border Background="#FDF3F2" BorderBrush="#C0392B" BorderThickness="1.4"
                         CornerRadius="10" Padding="18,16" Margin="0,0,0,14">
                     <StackPanel>
-                        <TextBlock Text="④ 更新来源与同步路径（改错会断掉教室机的更新通道）"
+                        <TextBlock Text="⑤ 更新来源与同步路径（改错会断掉教室机的更新通道）"
                                    FontSize="15" FontWeight="Bold" Foreground="#C0392B" Margin="0,0,0,8"/>
                         <CheckBox x:Name="ChkIncludeSource" FontSize="13" Foreground="#8A2B20"
                                   Content="随本次下发这几项（默认不勾，仅在换数据源 / 换服务器时临时勾选）"/>
@@ -189,6 +209,29 @@
                     </StackPanel>
                 </Border>
 
+                <!-- ⑥ 代次重置（r144）：教室机的代次虚高时，正常的「下发」永远追不上。
+                     这条指令让教室机把高水位清零，之后的正常下发与整包才重新生效。 -->
+                <Border Background="#FFFAEE" BorderBrush="#D9A23B" BorderThickness="1.2"
+                        CornerRadius="10" Padding="18,16" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="⑥ 重置教室机代次（高级 · 只在「下发了没反应」时用）"
+                                   FontSize="15" FontWeight="Bold" Foreground="#8A5A00" Margin="0,0,0,8"/>
+                        <CheckBox x:Name="ChkResetRev" FontSize="13" Foreground="#8A5A00"
+                                  Content="随本次下发，让教室机清零「已应用代次」"
+                                  Checked="ChkResetRev_Changed" Unchecked="ChkResetRev_Changed"/>
+                        <TextBlock FontSize="11.5" Foreground="#8A5A00" TextWrapping="Wrap"
+                                   Margin="22,6,0,8" LineHeight="18"
+                                   Text="教室机各自累加「已应用设置代次 / 已应用教学日历代次」，新内容比它大才生效。恢复过备份、换过机器或改过配置的教室机可能把它顶到很大的值（例如 999），发布端才 3 —— 这时不管发多少遍都没反应，页面也不会报错。勾上这项会把它们清零。"/>
+                        <CheckBox x:Name="ChkResetPackage" FontSize="13" Foreground="#8A5A00" IsEnabled="False"
+                                  Content="同时让教室机重新下载一次课表包（清空已下载摘要）" Margin="22,0,0,0"/>
+                        <TextBlock FontSize="11.5" Foreground="#8A5A00" TextWrapping="Wrap"
+                                   Margin="44,6,0,8" LineHeight="18"
+                                   Text="只影响「有没有更新」的判断：清掉后教室机下次检查会认为有新版本，重下一遍整包。课表内容本身不会被改坏，但会多一次下载。"/>
+                        <TextBlock x:Name="TxtRevSummary" FontSize="12" Foreground="{DynamicResource BodyBrush}"
+                                   TextWrapping="Wrap" Margin="22,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
 
@@ -202,6 +245,11 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <!-- r148：下发前把「装了什么 / 跟本机差在哪 / 有没有危险项」摊开，避免盲发 -->
+                    <Border Background="#F0F4FB" CornerRadius="6" Padding="9,7" Margin="0,0,12,7">
+                        <TextBlock x:Name="TxtPushPreview" FontSize="11.5" Foreground="{DynamicResource BodyBrush}"
+                                   TextWrapping="Wrap" LineHeight="17" Text="本次下发：正在计算…"/>
+                    </Border>
                     <CheckBox x:Name="ChkForce" FontSize="12.5" Foreground="{DynamicResource BodyBrush}"
                               Content="强制重新下发（内容没变也重推一次，用于拉回被改乱的教室机）"/>
                     <TextBlock x:Name="TxtResult" FontSize="12" Foreground="{DynamicResource MutedBrush}"

@@ -103,11 +103,12 @@ public partial class NotificationEditWindow : Window
         return existingIsSchool;
     }
 
-    // ---------- 便签主题风格（r79d）：并进「文字格式」那一行，不另起一行 ----------
+    // ---------- 便签外观（r79d 主题 / r144 字号）：并进「文字格式」那一行，不另起一行 ----------
     //
     // 形态与 HomeworkEditWindow 的「主题风格」一致：ComboBox + 色块/名称项。
-    // 字号不在这里给：左边那条 TextStylePicker 已经管「当前这一条通知」的字号，
-    // 便签整体的字号倍率仍由「便签管理 → 风格…」那个独立窗管，两处职责别混。
+    // 字号分两层，别混：左边那条 TextStylePicker 管「当前这一条通知」的字号档位（随内容走），
+    // 右边这个「字号」下拉管「整块便签」的缩放倍率（本机偏好，存 NoticeNoteScale）。
+    // r144：原来这两项都在「便签管理 → 风格…」那个独立窗里，用户嫌重复（编辑窗已有风格）→ 合并进来，独立窗删除。
 
     /// <summary>主题下拉项：色块画刷预先解析好，XAML 里只做 Fill 绑定。</summary>
     private sealed class ThemeOption
@@ -120,14 +121,26 @@ public partial class NotificationEditWindow : Window
     /// <summary>待落盘的便签主题键（跟 settings.json 的 NoticeNoteTheme 同步）。</summary>
     private string _noteTheme = "blue";
 
+    /// <summary>整块便签的字号倍率（跟 settings.json 的 NoticeNoteScale 同步）。</summary>
+    private double _noteScale = 1.0;
+
     /// <summary>构造期填下拉时别把「回填选中项」当成老师改了设置，否则打开窗口就写一次盘。</summary>
     private bool _appearanceLoading;
 
-    /// <summary>构造期调用：读出当前主题并填充下拉。</summary>
+    /// <summary>构造期调用：读出当前主题与字号并填充两个下拉。</summary>
     private void BuildAppearance()
     {
-        try { _noteTheme = NormalizeTheme(Store.LoadSettings().NoticeNoteTheme); }
-        catch { _noteTheme = "blue"; }
+        try
+        {
+            var s = Store.LoadSettings();
+            _noteTheme = NormalizeTheme(s.NoticeNoteTheme);
+            _noteScale = NormalizeScale(s.NoticeNoteScale);
+        }
+        catch
+        {
+            _noteTheme = "blue";
+            _noteScale = 1.0;
+        }
 
         _appearanceLoading = true;
         try
@@ -141,8 +154,34 @@ public partial class NotificationEditWindow : Window
                 })
                 .ToList();
             CbNoteTheme.SelectedIndex = HomeworkThemes.IndexOf(_noteTheme);
+            CbNoteScale.SelectedIndex = ScaleIndex(_noteScale);
         }
         finally { _appearanceLoading = false; }
+    }
+
+    /// <summary>
+    /// 字号倍率归一化：只认三档（0.9 / 1 / 1.15）。
+    /// <para>★ 老数据里可能是别的值（甚至 0，表示"从没设过"），一律折到最接近的那一档，
+    /// 免得下拉显示空白。真正写回磁盘时用折好的值，别把无意义的小数留在设置里。</para>
+    /// </summary>
+    private static double NormalizeScale(double v)
+    {
+        if (v <= 0.01) return 1.0;
+        if (v < 0.95) return 0.9;
+        if (v > 1.07) return 1.15;
+        return 1.0;
+    }
+
+    private static int ScaleIndex(double scale)
+        => scale < 0.95 ? 0 : scale > 1.07 ? 2 : 1;
+
+    private void CbNoteScale_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_appearanceLoading || CbNoteScale.SelectedItem is not ComboBoxItem item) return;
+        if (!double.TryParse(item.Tag?.ToString(), out double v)) return;
+        if (Math.Abs(_noteScale - v) < 0.0001) return;
+        _noteScale = v;
+        CommitAppearance();
     }
 
     /// <summary>未知键一律回落到「清新蓝」（与 NoticeWindow.LoadStyle 的口径一致）。</summary>
@@ -166,9 +205,8 @@ public partial class NotificationEditWindow : Window
     /// <summary>
     /// 立即落盘并让背后那块真便签重绘。
     /// <para>本窗没有「取消」按钮（只有「关闭」），所以按显示设置页的规矩做「逐项落盘」。</para>
-    /// <para>★ 只写 <c>NoticeNoteTheme</c>，<b>绝不顺手写 NoticeNoteScale</b>：字号倍率由
-    /// 「便签管理 → 风格…」那个独立窗负责，这里若拿打开窗口时的旧值回填，会把老师在别处
-    /// 刚改过的字号悄悄冲掉。</para>
+    /// <para>r144：主题与字号一起写。两者现在是同一组外观，谁也不许"只写自己那项"——
+    /// 那样另一个下拉刚改的值会被打开窗口时的旧值悄悄冲掉（原来分两处就踩过这个坑）。</para>
     /// </summary>
     private void CommitAppearance()
     {
@@ -176,6 +214,7 @@ public partial class NotificationEditWindow : Window
         {
             var s = Store.LoadSettings();
             s.NoticeNoteTheme = _noteTheme;
+            s.NoticeNoteScale = _noteScale;
             if (Store.EnablePersistence) Store.SaveSettings(s);
 
             // 让已经打开的通知公告便签立刻重绘（所见即所得）。
@@ -203,6 +242,16 @@ public partial class NotificationEditWindow : Window
     internal int DiagThemeItemCount => CbNoteTheme?.Items.Count ?? 0;
     internal string DiagNoteTheme => _noteTheme;
     internal void DiagPickTheme(string key) => CbNoteTheme.SelectedIndex = HomeworkThemes.IndexOf(key);
+
+    /// <summary>字号下拉当前映射到的倍率（走真实 ComboBox 选中，不绕过 UI）。</summary>
+    internal double DiagPickScale(int index)
+    {
+        CbNoteScale.SelectedIndex = index;
+        return _noteScale;
+    }
+
+    /// <summary>字号下拉的档位数与当前项（1 = 标准）。</summary>
+    internal (int Count, int Selected) DiagScaleState => (CbNoteScale?.Items.Count ?? 0, CbNoteScale?.SelectedIndex ?? -1);
 
     /// <summary>窗口仍是 4 行（标题 / 列表 / 表单 / 按钮），没有为外观多起一行。</summary>
     internal int DiagRowCount => RootGrid.RowDefinitions.Count;

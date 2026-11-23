@@ -42,6 +42,9 @@ public partial class MainWindow : Window
     private bool _schOn, _notOn, _hwOn, _msOn, _cdOn, _dutyOn, _noticeOn;
     private System.Windows.Forms.NotifyIcon? _tray;
 
+    // r147：待办角标。_lastTodo 只用来判断「从 0 变正」才闪，不做永久闪。
+    private int _lastTodo = -1;
+
     // 教师个人课表下拉（支持输入姓名查询）
     private List<string> _allTeachers = new();
     private bool _teacherGuard;
@@ -582,6 +585,25 @@ public partial class MainWindow : Window
         }
         catch { }
 
+        // r147：台账一变就回 UI 线程重算角标（SaveState 在后台线程触发，不能直接碰控件）
+        try
+        {
+            BoardSyncService.LedgerChanged += () =>
+            {
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        RefreshTrayBadge();
+                        // r148：今日页正开着就把待办卡同步刷新；不在这一页时不打扰用户。
+                        if (MainTabs != null && MainTabs.SelectedIndex == 9) RefreshTodayPage();
+                    }));
+                }
+                catch { /* 正在退出 */ }
+            };
+        }
+        catch { }
+
         // 托盘初始化失败不应拖垮主窗口
         try { SetupTray(); }
         catch (Exception ex) { TxtStatus.Text += " [托盘初始化失败：" + ex.Message + "]"; }
@@ -988,32 +1010,6 @@ public partial class MainWindow : Window
 
     private void BtnEditNotice_Click(object sender, RoutedEventArgs e) => OpenNotificationEditor();
 
-    /// <summary>
-    /// 通知公告便签的「风格」：配色预设 + 字号，只写本机 settings.json（不进数据包）。
-    /// 保存后立即让已打开的便签重绘，不用重启也不用等 30 秒轮询。
-    /// </summary>
-    private void BtnStyleNotice_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dlg = new NoticeStyleWindow { Owner = this };
-            if (dlg.ShowDialog() != true || string.IsNullOrEmpty(dlg.ResultTheme)) return;
-
-            var s = Store.LoadSettings();
-            s.NoticeNoteTheme = dlg.ResultTheme!;
-            s.NoticeNoteScale = dlg.ResultScale;
-            if (Store.EnablePersistence) Store.SaveSettings(s);
-
-            _noticeWin?.Reload();
-            string name = ScheduleCore.Models.HomeworkThemes.Find(s.NoticeNoteTheme).Name;
-            TxtStatus.Text = $"已更新通知公告便签风格：{name} · {ScaleName(s.NoticeNoteScale)}（仅本机）。";
-        }
-        catch (Exception ex) { TxtStatus.Text = "设置便签风格失败：" + ex.Message; }
-    }
-
-    static string ScaleName(double scale)
-        => scale < 0.999 ? "小字号" : scale > 1.001 ? "大字号" : "标准字号";
-
     /// <summary>打开通知编辑窗口（便签管理页与事项便签共用同一入口）。</summary>
     private void OpenNotificationEditor()
     {
@@ -1211,19 +1207,37 @@ public partial class MainWindow : Window
         // 手动录入基础课表：整班覆盖底表 = 导入级操作，走 ManageData。
         // （时间表与科目设置的入口已挪进手动录入窗口，数据管理页不再单独放按钮）
         Set(BtnManualSchedule, canData, UserSession.DenyManageData);
-        // 校历 / 调休：改的是"全校上哪天的课"，与课表同等重要，走同一权限。
+        // r136：校历 / 调休改的是"全校上哪天的课"，与课表同等重要，走同一权限。
+        // r142：开学日期回到标题栏（原本就在这），权限同样跟数据管理走；
+        //       没权限时禁用而不是隐藏 —— 位置固定，用户不会以为功能被删了。
         Set(BtnSchoolCalendar, canData, UserSession.DenyManageData);
+        DpSemester.IsEnabled = canData;
+        DpSemester.ToolTip = canData
+            ? "开学那天（不必是周一）：用于计算「第几周」教学周，同一周都算第 1 周。改完要发布 / 同步才到教室机。"
+            : "没有「数据管理」权限，不能修改开学日期。" + UserSession.DenyManageData;
 
         // 下载导入模板 = 导入的前置辅助，跟着智能导入同一权限。
         Set(BtnDownloadTemplates, canData, UserSession.DenyManageData);
+        // r144：智能导入会整班覆盖底表，影响面与「总课表 / 清除课表」同级 → 并入 ManageData。
+        //   ★ 之前只锁了旁边的「下载模板」，主按钮反而敞着，等于留了个后门（权限表形同虚设）。
+        Set(BtnImportSmart, canData, UserSession.DenyManageData);
 
         // 发布 / 同步策略（一次点击影响 30 台机器）；名单管理能给自己升管理员 —— 这两项恒只给管理员
         // ★ 自动更新设置（BtnUpdateSettings）走 CanManageUpdate：所有角色默认都能改本机更新来源，
         //   否则教室机改了共享文件夹就再也收不到更新（需求三）。
         Set(BtnUpdateSettings, UserSession.CanManageUpdate, UserSession.DenyManageUpdate);
+        // r148：「立即检查更新」会真正应用整包，跟自动更新设置同一权限。
+        //   悬浮课表走 OnQuickCheckUpdate，已有同一道闸；这里补主窗按钮这一道。
+        Set(BtnUpdateCheck, UserSession.CanManageUpdate, UserSession.DenyManageUpdate);
+        // r144：代次维护管的是「本机记住的已应用代次」，不写任何内容，风险最低，
+        //   但最需要它的人恰恰是教室机上的电教管理员（默认没有 ManageData）。
+        //   因此跟「自动更新设置」同一权限：所有角色默认开着，现场才能自救。
+        Set(BtnResetRev, UserSession.CanManageUpdate, UserSession.DenyManageUpdate);
         Set(BtnPublishNow, canPublish, UserSession.DenyPublish);
         // 设置下发会覆盖所有教室机的显示 / 同步 / 数据源，等同发布级操作 → 仅管理员
         Set(BtnPushSettings, canPublish, UserSession.DenyPublish);
+        // r146：回执面板含机器名 / 部署信息，只读但属于发布端总览 → 同下发设置，仅管理员
+        Set(BtnUpdateReceipts, canPublish, UserSession.DenyPublish);
         Set(BtnManageUsers, UserSession.CanManageUsers, "只有管理员可以管理用户。");
 
         // 发全校通知的勾选框：无权限时禁用并强制本班（需求一）。
@@ -1267,6 +1281,18 @@ public partial class MainWindow : Window
         // 「信息管理」页的发布按钮（含三类快发）也按同一套权限刷新：
         // 电教管理员默认没有发布权限，切换账号后必须立刻变灰，不能等重启。
         ApplyInfoPermissions();
+
+        // r148：今日页只显示当前身份能用的更新入口，避免看到点了又被拒的按钮。
+        if (BtnTodayCheckUpdate != null)
+            BtnTodayCheckUpdate.Visibility = UserSession.CanManageUpdate ? Visibility.Visible : Visibility.Collapsed;
+        if (BtnTodayReceipts != null)
+            BtnTodayReceipts.Visibility = UserSession.CanPublish ? Visibility.Visible : Visibility.Collapsed;
+        // r149：待办卡里的「发布内容」跟信息管理页的发布入口同一把权限；
+        // 没有发布权时连卡片说明都不提它，免得看到一句点不了的提示。
+        if (BtnTodayPublish != null)
+            BtnTodayPublish.Visibility = UserSession.CanPublishInfo ? Visibility.Visible : Visibility.Collapsed;
+        if (TxtTodayTodoDetail != null)
+            RefreshTodayTodoCard();
     }
 
     /// <summary>
@@ -2284,7 +2310,91 @@ public partial class MainWindow : Window
             Visible = true
         };
         RebuildTrayMenu();
-        _tray.DoubleClick += (_, _) => ShowMainWindow();
+        // r147：双击托盘 = 有待办进信息管理，没待办进控制面板「今日」页
+        _tray.DoubleClick += (_, _) => OpenTrayLanding();
+        RefreshTrayBadge(initial: true);
+    }
+
+    /// <summary>
+    /// 双击托盘的落地页：有待办 → 信息管理页（能直接逐条办掉）；
+    /// 没待办 → 控制面板「今日」页（看当天安排，不弹一堆空台账）。
+    /// </summary>
+    public void OpenTrayLanding()
+    {
+        var c = PendingTodoService.Compute();
+        ShowMainWindow();
+        if (c.Any)
+        {
+            // 直接进消息台账窗（就是「信息管理器」），顶部有待办分组，一键跳到对应筛选
+            try { new BoardSyncWindow().Show(); }
+            catch (Exception ex) { TxtStatus.Text = "打不开信息管理器：" + ex.Message; }
+            TxtStatus.Text = $"有 {c.Todo} 条待办：在消息台账里逐条裁决 / 核对。";
+        }
+        else
+        {
+            MainTabs.SelectedIndex = 9;   // 今日
+            RefreshTodayPage();
+            TxtStatus.Text = "没有待办，已打开「今日」页。";
+        }
+    }
+
+    /// <summary>
+    /// 重画托盘角标。<paramref name="initial"/> = 首次装载（只更新、不闪）；
+    /// 之后待办数从 0 变正才闪几下，数字变化只换图标不吵人。
+    /// </summary>
+    public void RefreshTrayBadge(bool initial = false)
+    {
+        if (_tray == null) return;
+        try
+        {
+            var c = PendingTodoService.Compute();
+            int n = c.Todo;
+            bool grew = !initial && _lastTodo <= 0 && n > 0;
+            bool changed = _lastTodo != n;
+            _lastTodo = n;
+
+            SetTrayIcon(n > 0 ? TrayBadgeService.Badged(n) : TrayBadgeService.Plain);
+
+            string label = n > 0
+                ? $"班级公布栏 · {n} 条待办（双击查看）"
+                : "班级公布栏 · 双击打开今日";
+            _tray.Text = label.Length <= 63 ? label : label[..63];  // WinForms ToolTip 上限
+            UpdateTodoViews(c);
+
+            if (grew)
+                TrayFlash.Start(flashOn =>
+                    SetTrayIcon(flashOn ? TrayBadgeService.Badged(n) : TrayBadgeService.Plain));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[Tray badge] " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 换托盘图标：<b>先</b>让 NotifyIcon 指向新 Icon，<b>再</b>释放旧的自绘 Icon。
+    /// 系统共享图标（Plain）绝不释放。闪动的每一帧都走这里，句柄不会越攒越多。
+    /// </summary>
+    private void SetTrayIcon(System.Drawing.Icon next)
+    {
+        if (_tray == null) return;
+        var old = _tray.Icon;
+        _tray.Icon = next;
+        if (old != null && !TrayBadgeService.IsSystemIcon(old))
+        {
+            try { old.Dispose(); } catch { }
+        }
+    }
+
+    /// <summary>把待办数字同步到信息管理页与悬浮课表胶囊（两处都从同一份口径取）。</summary>
+    private void UpdateTodoViews(PendingTodoService.Counts c)
+    {
+        if (TxtInfoTodo != null)
+            TxtInfoTodo.Text = c.Any
+                ? $"待办 {c.Todo} 条：待裁决 {c.NeedDecision} · 待核对 {c.NeedVerify}"
+                  + (c.Conflict > 0 ? $" · 冲突 {c.Conflict}" : "")
+                : "当前没有待办";
+        try { _schWin?.RefreshTodoBadge(c.Todo); } catch { }
     }
 
     /// <summary>
@@ -2843,15 +2953,237 @@ public partial class MainWindow : Window
         catch { }
     }
 
+    /// <summary>
+    /// r148：今日页四卡刷新。只读本机状态与既有台账，不在这里写盘、不另算口径。
+    /// </summary>
     private void RefreshTodayPage()
     {
-        if (TxtTodaySubtitle == null) return;
-        string[] weeks = { "日", "一", "二", "三", "四", "五", "六" };
-        var now = DateTime.Now;
-        string cls = (CbClass?.SelectedItem as string) ?? "";
-        TxtTodaySubtitle.Text = $"{now:yyyy 年 M 月 d 日} 周{weeks[(int)now.DayOfWeek]}"
-            + (string.IsNullOrWhiteSpace(cls) ? "" : " · " + cls)
-            + " · 课表与便签按当前显示日期刷新";
+        if (TxtTodaySubtitle == null || TxtTodayTodoValue == null) return;
+        try
+        {
+            var st = Store.LoadSettings();
+            var today = DateTime.Today;
+            string cls = CurrentDisplayClass();
+            var schedule = Store.LoadSchedule();
+            var board = BoardBuilder.Build(cls, st.SemesterStartMonday, schedule, today, null, false);
+
+            // 顶栏上下文：日期 / 星期 / 班级 / 教学周 / 单双周，调休与放假单独补一句
+            string[] weeks = { "日", "一", "二", "三", "四", "五", "六" };
+            string week = board.Plan?.SourceWeekLabel ?? WeekHelper.WeekLabel(today, st.SemesterStartMonday);
+            string parity = board.Plan?.Parity == 1 ? "单周" : board.Plan?.Parity == 2 ? "双周" : "";
+            TxtTodaySubtitle.Text = $"{today:yyyy 年 M 月 d 日} 星期{weeks[(int)today.DayOfWeek]}"
+                + (string.IsNullOrWhiteSpace(cls) ? "" : " · " + cls)
+                + (string.IsNullOrWhiteSpace(week) ? "" : " · " + week)
+                + (string.IsNullOrWhiteSpace(parity) ? "" : " · " + parity)
+                + (board.IsMakeup ? " · " + board.DayTag : board.IsOff ? " · 今日放假" : "");
+
+            RefreshTodayTodoCard();
+            RefreshTodayLessonCard(board, cls, schedule == null);
+            RefreshTodayUpdateCard(st);
+            RefreshTodayStatusCard(st);
+        }
+        catch (Exception ex)
+        {
+            TxtTodaySubtitle.Text = "今日概览暂时不可用：" + ex.Message;
+        }
+    }
+
+    private void RefreshTodayTodoCard()
+    {
+        var c = PendingTodoService.Compute();
+        TxtTodayTodoValue.Text = c.Todo > 0 ? $"{c.Todo} 条待办" : "没有待办";
+        string role = BoardSyncService.IsClassroomMachine ? "教室机" : "教师机";
+        TxtTodayTodoDetail.Text = c.Todo > 0
+            ? $"{role}：待裁决 {c.NeedDecision} · 待核对 {c.NeedVerify}"
+              + (c.Conflict > 0 ? $" · 冲突 {c.Conflict}" : "")
+            : $"{role}收发信息都已办结，托盘角标也会自动清空。"
+              + (UserSession.CanPublishInfo ? "要发新内容点「发布内容」。" : "");
+        SetTodayPill(PillTodayTodo, TxtTodayTodoPill, c.Todo > 0 ? "需处理" : "正常",
+            c.Todo > 0 ? R("DangerBrush") : R("SuccessSoftBrush"),
+            c.Todo > 0 ? System.Windows.Media.Brushes.White : R("SuccessBrush"));
+    }
+
+    private void RefreshTodayLessonCard(TodayResult board, string cls, bool noSchedule)
+    {
+        var rows = board.Rows.Where(r => !r.IsFixed && r.Period > 0 && r.Lessons.Count > 0).ToList();
+        int changed = rows.Count(r => r.Lessons.Any(l => l.IsOverridden));
+        var now = DateTime.Now.TimeOfDay;
+        PeriodRow? focus = null;
+        bool ongoing = false;
+        foreach (var r in rows)
+        {
+            if (!TryParseTime(r.TimeRange, out var start, out var end)) continue;
+            if (now >= start && now <= end) { focus = r; ongoing = true; break; }
+            if (start > now && focus == null) focus = r;
+        }
+
+        string value, detail, pill;
+        System.Windows.Media.Brush pillBg, pillFg;
+        if (string.IsNullOrWhiteSpace(cls))
+        {
+            value = "尚未选择班级";
+            detail = "在顶栏选中班级后，这里会显示今天的课。";
+            pill = "待选班";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
+        }
+        else if (noSchedule)
+        {
+            value = "暂无课表数据";
+            detail = "请先导入 / 发布课表。";
+            pill = "无课表";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
+        }
+        else if (board.IsOff)
+        {
+            value = "今日放假";
+            detail = string.IsNullOrWhiteSpace(board.Plan?.Note) ? "校历标记为放假日，不上课。" : board.Plan!.Note;
+            pill = "放假";
+            pillBg = R("SuccessSoftBrush"); pillFg = R("SuccessBrush");
+        }
+        else if (rows.Count == 0)
+        {
+            value = board.IsMakeup ? "补课日暂无数据" : "今天没有课";
+            detail = board.IsMakeup ? board.DayTag : "可以放心安排其它事情。";
+            pill = "无课";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
+        }
+        else if (focus == null)
+        {
+            value = "今日课程已结束";
+            detail = $"今日 {rows.Count} 节 · 调代 {changed} 处";
+            pill = "已结束";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("MutedBrush");
+        }
+        else
+        {
+            var lesson = focus.Lessons.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l.DisplaySubject))
+                         ?? focus.Lessons[0];
+            string subject = lesson.OverrideType == "代" ? "代课" : lesson.DisplaySubject;
+            value = (ongoing ? "正在上 · " : "下一节 · ") + subject;
+            string time = string.IsNullOrWhiteSpace(focus.TimeRange)
+                ? focus.PeriodText
+                : focus.TimeRange.Replace("-", "–");
+            detail = $"{time}" + (string.IsNullOrWhiteSpace(lesson.Teacher) ? "" : " · " + lesson.Teacher)
+                     + $"\n今日 {rows.Count} 节 · 调代 {changed} 处";
+            pill = board.IsMakeup ? "补课日" : "今日有课";
+            pillBg = board.IsMakeup ? R("WarningBrush") : R("PrimaryBrush");
+            pillFg = System.Windows.Media.Brushes.White;
+        }
+
+        TxtTodayLessonValue.Text = value;
+        TxtTodayLessonDetail.Text = detail;
+        SetTodayPill(PillTodayLesson, TxtTodayLessonPill, pill, pillBg, pillFg);
+    }
+
+    private void RefreshTodayUpdateCard(AppSettings st)
+    {
+        string raw = (st.LastUpdateCheckInfo ?? "").Trim();
+        string value, pill;
+        System.Windows.Media.Brush pillBg, pillFg;
+        var src = FeedSourceFactory.Create(st);
+        if (!st.AutoUpdateEnabled)
+        {
+            value = "自动更新未开启";
+            pill = "未开启";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("MutedBrush");
+        }
+        else if (src == null)
+        {
+            value = "更新源未配置";
+            pill = "待配置";
+            pillBg = R("WarningBrush"); pillFg = System.Windows.Media.Brushes.White;
+        }
+        else if (raw.Contains("失败", StringComparison.Ordinal) || raw.Contains("出错", StringComparison.Ordinal))
+        {
+            value = "最近检查失败";
+            pill = "需排查";
+            pillBg = R("DangerBrush"); pillFg = System.Windows.Media.Brushes.White;
+        }
+        else if (raw.Contains("已是最新", StringComparison.Ordinal))
+        {
+            value = "课表已是最新";
+            pill = "正常";
+            pillBg = R("SuccessSoftBrush"); pillFg = R("SuccessBrush");
+        }
+        else if (raw.Contains("发现新版本", StringComparison.Ordinal))
+        {
+            value = "发现新版本";
+            pill = "待更新";
+            pillBg = R("WarningBrush"); pillFg = System.Windows.Media.Brushes.White;
+        }
+        else
+        {
+            value = "更新状态待确认";
+            pill = "待确认";
+            pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
+        }
+
+        string detail = $"数据源：{ShortenOneLine(UpdateService.DescribeSource(st), 34)}\n"
+                        + $"最近检查：{ShortenOneLine(string.IsNullOrEmpty(raw) ? "尚未检查过" : raw, 42)}";
+        if (UserSession.CanPublish && src != null)
+        {
+            try
+            {
+                string sha = "";
+                var manifest = SchedulePackage.ParseManifest(src.ReadManifest());
+                if (manifest != null) sha = manifest.DataSha256 ?? "";
+                var (sum, _) = UpdateReceiptService.Collect(src, sha, st.UpdateIntervalMinutes, persistSeen: false);
+                detail += sum.Total == 0
+                    ? "\n设备回执：暂无上报"
+                    : $"\n设备回执：{sum.Latest} 最新 · {sum.Behind + sum.Failed + sum.Stale} 需关注";
+            }
+            catch
+            {
+                detail += "\n设备回执：暂不可用";
+            }
+        }
+
+        TxtTodayUpdateValue.Text = value;
+        TxtTodayUpdateDetail.Text = detail;
+        SetTodayPill(PillTodayUpdate, TxtTodayUpdatePill, pill, pillBg, pillFg);
+    }
+
+    private void RefreshTodayStatusCard(AppSettings st)
+    {
+        bool locked = _locked;
+        string layout = st.ScheduleLayout.TopMost ? "课表置顶" : "课表置底";
+        string hide = st.NotificationLayout.AutoHideDuringClass ? "通知上课自动隐藏" : "通知常驻";
+        string board = !st.DoodleRestoreOnStart ? "黑板默认关闭"
+            : st.DoodleStartCollapsed ? "黑板收起启动" : "黑板启动恢复";
+        TxtTodayStatusValue.Text = locked ? "展示已锁定" : "展示正常";
+        TxtTodayStatusDetail.Text = $"{layout} · {hide}\n{board}"
+                                   + (st.BoardSyncEnabled ? " · 同步已启用" : " · 同步未启用");
+        SetTodayPill(PillTodayStatus, TxtTodayStatusPill, locked ? "锁定" : "正常",
+            locked ? R("WarningBrush") : R("SuccessSoftBrush"),
+            locked ? System.Windows.Media.Brushes.White : R("SuccessBrush"));
+    }
+
+    private System.Windows.Media.Brush R(string key)
+        => TryFindResource(key) as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent;
+
+    private static void SetTodayPill(Border pill, TextBlock text, string label,
+        System.Windows.Media.Brush bg, System.Windows.Media.Brush fg)
+    {
+        if (pill == null || text == null) return;
+        pill.Background = bg;
+        text.Text = label;
+        text.Foreground = fg;
+    }
+
+    /// <summary>今日卡用：把可能带换行的状态描述压成一行（与「关于」页那个 Shorten 用途不同）。</summary>
+    private static string ShortenOneLine(string s, int max)
+    {
+        s = (s ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+        return s.Length <= max ? s : s[..max] + "…";
+    }
+
+    private static bool TryParseTime(string range, out TimeSpan start, out TimeSpan end)
+    {
+        start = end = TimeSpan.Zero;
+        var parts = (range ?? "").Split('-');
+        return parts.Length == 2
+               && TimeSpan.TryParse(parts[0], out start)
+               && TimeSpan.TryParse(parts[1], out end);
     }
 
     /// <summary>切换一级导航组：更新高亮与二级分段条，可选切到该组默认页。</summary>
@@ -2908,6 +3240,8 @@ public partial class MainWindow : Window
             case "week": ApplyNavGroup(1, true); break;
             case "publish": OnQuickOpenPublish(); break;
             case "ledger": OnQuickOpenInfoLedger(); break;
+            case "receipts": BtnUpdateReceipts_Click(this, args); break;
+            case "checkupdate": BtnUpdateCheck_Click(this, args); break;
             case "pull": BtnInfoPull_Click(this, args); break;
             case "layout": BtnLayout_Click(this, args); break;
             case "backdrop": BtnWpSettings_Click(this, args); break;
@@ -3131,6 +3465,7 @@ public partial class MainWindow : Window
             ApplyBoardPermissions();
         }
         AppEvents.RaiseScheduleChanged();
+        RefreshTodayPage();
     }
 
     // ---------- 教师选择（切换到教师个人课表；可输入姓名查询） ----------
@@ -3275,6 +3610,48 @@ public partial class MainWindow : Window
         teacherCount = ExtractTeachers(sf);
         RefreshTeacherCombo();
         UpdateModeIndicator();
+
+        // r136：导入 / 手动录入后自动整理基础数据清单，状态栏给出可见摘要。
+        // 删除手动班（markExcel=false）不算导入，不重排清单 —— 否则手工维护的项会被刷掉。
+        if (markExcel) AutoOrganizeBaseData(sf);
+    }
+
+    /// <summary>
+    /// r136：导入后自动整理基础数据。只刷新班级 / 科目 / 教师清单（三态合并保留手动 / 排除项），
+    /// 学期名只在空时填建议值；作息节次只在 Bell 还没设过时回填 —— 绝不覆盖用户已设的作息。
+    /// </summary>
+    private void AutoOrganizeBaseData(ScheduleFile sf)
+    {
+        try
+        {
+            var r = BaseDataExtractor.Extract(sf);
+            sf.ClassEntries = r.Classes;
+            sf.SubjectEntries = r.Subjects;
+            sf.TeacherEntries = r.Teachers;
+            if (string.IsNullOrWhiteSpace(sf.TermName) && !string.IsNullOrWhiteSpace(r.SuggestedTermName))
+                sf.TermName = r.SuggestedTermName;
+            if ((sf.Bell == null || sf.Bell.IsEmpty) && (r.BellPeriods.Count > 0 || r.BellFixedSlots.Count > 0)
+                && r.Conflicts.Count == 0)   // 有分歧就不自动写，等人在基础数据页裁决
+            {
+                sf.Bell = new BellSchedule
+                {
+                    Name = "从课表整理", UpdatedAt = DateTime.Now, UpdatedFrom = "导入自动整理",
+                    Periods = r.BellPeriods.OrderBy(x => x.Index).ToList(),
+                    FixedSlots = r.BellFixedSlots.OrderBy(x => x.AfterPeriod).ToList()
+                };
+            }
+            Store.SaveSchedule(sf);   // 清单写回底表（上面 SaveSchedule 已写一次，这里补写整理结果）
+            TxtStatus.Text = (TxtStatus.Text ?? "").TrimEnd() + "　｜　基础数据已整理："
+                + $"班级 {r.Classes.Count(x => x.IsActive)}、科目 {r.Subjects.Count(x => x.IsActive)}、"
+                + $"教师 {r.Teachers.Count(x => x.IsActive)}、作息识别 {r.BellPeriods.Count} 节"
+                + (r.Conflicts.Count > 0 ? $"，{r.Conflicts.Count} 节时间不一致、未自动写入作息（可在「手动录入基础课表」左栏选一份作息，设为全校作息）" : "")
+                + "。";
+        }
+        catch (Exception ex)
+        {
+            // 自动整理失败不能影响导入本身，只是没整理而已
+            TxtStatus.Text = (TxtStatus.Text ?? "").TrimEnd() + "　｜　基础数据自动整理未完成：" + ex.Message;
+        }
     }
 
     /// <summary>由已导入课表反向整理教师个人课表并保存，返回教师人数。</summary>
@@ -3345,6 +3722,14 @@ public partial class MainWindow : Window
 
     private void BtnImportSmart_Click(object sender, RoutedEventArgs e)
     {
+        // 按钮已被 ApplyPermissions 禁掉，这里是第二道闸：
+        // 万一以后有人改成隐藏按钮 / 走快捷键调用，权限判定仍然只认 UserSession。
+        if (!UserSession.CanManageData)
+        {
+            MessageBox.Show(UserSession.DenyManageData, "无权", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Filter = "Excel 工作簿 (*.xlsx)|*.xlsx",
@@ -3504,7 +3889,7 @@ public partial class MainWindow : Window
 
         AppEvents.RaiseScheduleChanged();
         TxtStatus.Text = (isNew ? "已新增班级「" : "已更新班级「") + edited.ClassName
-            + "」的基础课表（手动录入，与导入的课表分开存放；教师 " + teacherCount + " 人）。";
+            + "」的基础课表（手录版，与导入的课表分开存放、互不覆盖；教师 " + teacherCount + " 人）。";
     }
 
     /// <summary>
@@ -4551,6 +4936,9 @@ public partial class MainWindow : Window
         TxtUpdateStatus.Text =
             $"自动更新：每 {mins} 分钟检查　数据源：{UpdateService.DescribeSource(st)}\n" +
             $"上次：{last}{applied}" + pub + settingsInfo;
+
+        // r148：更新状态一变，今日页那张卡跟着走。RefreshTodayPage 不会再调这里，无递归。
+        RefreshTodayPage();
     }
 
     private void BtnUpdateSettings_Click(object sender, RoutedEventArgs e)
@@ -4571,6 +4959,14 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task ManualCheckUpdateAsync()
     {
+        // r148：第二道闸。按钮已经按权限禁用，这里再拦一次，
+        // 防止以后加快捷键 / 从别的入口绕过按钮时把整包悄悄应用了。
+        if (!UserSession.CanManageUpdate)
+        {
+            TxtStatus.Text = UserSession.DenyManageUpdate;
+            return;
+        }
+
         var st = Store.LoadSettings();
         var src = FeedSourceFactory.Create(st);
         if (src == null)
@@ -4598,7 +4994,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            BtnUpdateCheck.IsEnabled = true;
+            // 不能无条件打开：低权限账号走完一次流程后，按钮会自己"长回来"。
+            BtnUpdateCheck.IsEnabled = UserSession.CanManageUpdate && !_exiting;
         }
     }
 
@@ -4617,9 +5014,25 @@ public partial class MainWindow : Window
         // 否则用户看到的只是按钮弹回去，不知道到底更新没更新。
         bool ok = true;
         string report = "";
+        // r146：回执草稿。每个分支只填自己知道的那几项，finally 里统一写一次 ——
+        // 不让「写回执」散落到十条 return 上，更不许它反过来把更新流程搞崩。
+        var receipt = new UpdateReceipt
+        {
+            AppVersion = AppInfo.VersionText,
+            State = "checked"
+        };
         try
         {
             var chk = await Task.Run(() => UpdateService.Check(src, st));
+
+            receipt.TargetSha = chk.RemoteSha ?? "";
+            if (chk.Manifest != null)
+            {
+                receipt.TargetBuiltAt = chk.Manifest.BuiltAt;
+                receipt.TargetRev = chk.Manifest.Rev;
+                receipt.TargetBuiltBy = chk.Manifest.BuiltBy ?? "";
+                receipt.ClassCount = chk.Manifest.ClassCount;
+            }
 
             // 把"上次检查结果"落盘，重启后状态行仍能看到
             var st2 = Store.LoadSettings();
@@ -4633,6 +5046,9 @@ public partial class MainWindow : Window
             {
                 ok = false;
                 report = chk.Message;
+                receipt.State = "failed";
+                receipt.ReasonCode = UpdateReceiptService.ReasonCode(chk.Message);
+                receipt.ReasonText = UpdateReceiptService.SafeReason(chk.Message);
                 return;
             }
 
@@ -4645,6 +5061,8 @@ public partial class MainWindow : Window
             {
                 var pr = await Task.Run(() => SettingsPushService.ApplyFromManifest(chk.Manifest));
                 if (!pr.Applied) return "";
+                receipt.SettingsDone = true;
+                if (pr.ResetDone) receipt.RevResetDone = true;
                 st = Store.LoadSettings();     // 重新取一次，后续流程按新设置走
                 ApplyPermissions();
                 // ★ r114/r115：下发只写磁盘，界面控件不会自己变。按"真的变了哪一组"精确重载：
@@ -4657,6 +5075,14 @@ public partial class MainWindow : Window
                 {
                     if (pr.ReminderTouched) ReloadReminderUi();
                     if (pr.SyncTouched) LoadInfoSettings();
+                    // r143 教学日历：校历已经落到 schedule.json、开学日也写进设置了，
+                    // 但这只是"磁盘上变了"——大屏 / 悬浮课表 / 周视图都还拿着旧数据。
+                    // 统一用 ScheduleChanged 让它们各自重读（和本机改开学日是同一个信号）。
+                    if (pr.CalendarTouched)
+                    {
+                        LoadTitleBarSettings();       // 顶栏「开学日」跟着走
+                        AppEvents.RaiseScheduleChanged();
+                    }
                 }
                 RefreshUpdateStatus();
                 ShowAppliedSettingsToast(pr.Message);
@@ -4669,6 +5095,7 @@ public partial class MainWindow : Window
                 string pm = await ApplyPushAsync();
                 if (pm.Length > 0)
                 {
+                    receipt.State = "applied";   // 没换课表，但设置下发真的落地了
                     report = pm;
                     if (!silent) TxtStatus.Text = pm;
                 }
@@ -4710,6 +5137,8 @@ public partial class MainWindow : Window
             if (!apply)
             {
                 string pm = await ApplyPushAsync();   // 课表没换，但设置下发照样要生效
+                receipt.ReasonCode = "USER_CANCEL";
+                receipt.ReasonText = "用户在确认框里取消了这次课表包更新（设置下发照常）";
                 report = "已取消更新（数据源上的新版本没有下载）。" + (pm.Length > 0 ? "　设置下发：" + pm : "");
                 if (!silent) TxtStatus.Text = report;
                 return;
@@ -4719,13 +5148,25 @@ public partial class MainWindow : Window
             if (!outp.Ok)
             {
                 ok = false;
+                receipt.State = "failed";
+                receipt.ReasonCode = UpdateReceiptService.ReasonCode(outp.Message);
+                receipt.ReasonText = UpdateReceiptService.SafeReason(outp.Message);
                 string pm = await ApplyPushAsync();   // 包下载失败不影响设置下发
+                if (pm.Length > 0) receipt.State = "partial";
                 report = outp.Message + (pm.Length > 0 ? "　设置下发：" + pm : "");
                 TxtStatus.Text = report;
                 return;
             }
 
             var ap = outp.Applied!;
+            receipt.PackageDone = true;
+            receipt.State = "applied";
+            receipt.OverrideAdded = ap.OverrideAdded;
+            receipt.OverrideRemoved = ap.OverrideRemoved;
+            receipt.NoticeAdded = ap.NoticeAdded;
+            receipt.UserCount = ap.UserCount;
+            receipt.ManualSuspended = ap.ManualSuspended;
+            if (ap.ClassCount > 0) receipt.ClassCount = ap.ClassCount;
             var sf = outp.Package!.Schedule;
             if (sf != null)
             {
@@ -4778,6 +5219,9 @@ public partial class MainWindow : Window
         {
             ok = false;
             report = "检查更新出错：" + ex.Message;
+            receipt.State = "failed";
+            receipt.ReasonCode = UpdateReceiptService.ReasonCode(ex.Message);
+            receipt.ReasonText = UpdateReceiptService.SafeReason(ex.Message);
             TxtStatus.Text = report;
         }
         finally
@@ -4785,7 +5229,35 @@ public partial class MainWindow : Window
             _updBusy = false;
             // 后台静默检查不发通知：没人看着，弹提示只会打扰上课
             if (!silent && report.Length > 0) AppEvents.RaiseQuickCheckUpdateDone(ok, report);
+
+            // r146：统一写回执。手写 Times 不进这里 —— 所有 return 分支都走这一处。
+            // ★ 写失败只留本地，绝不让它把「已经成功的更新」变成失败。
+            try
+            {
+                if (Store.EnablePersistence)
+                {
+                    var stNow = Store.LoadSettings();
+                    receipt.ActorId = BoardSyncService.EnsureActorId();
+                    receipt.AppliedSha = stNow.LastAppliedSha ?? "";
+                    receipt.AppliedSettingsRev = stNow.AppliedSettingsRev;
+                    receipt.AppliedCalendarRev = stNow.AppliedCalendarRev;
+                    receipt.LastSettingsPushId = stNow.LastSettingsPushId ?? "";
+
+                    bool due = !silent                        // 手动点检查：总是写
+                               || receipt.State != "checked"   // 有实际落地 / 失败：总是写
+                               || ReceiptHeartbeatDue(src, receipt.ActorId);
+                    if (due) UpdateReceiptService.Write(src, receipt);
+                }
+            }
+            catch { /* 数据源不可写时，回执写不出去是「不知道」，不是更新失败 */ }
         }
+    }
+
+    /// <summary>心跳节流：没有任何变化的最多每 30 分钟写一次，证明「这台机器还活着」。</summary>
+    private static bool ReceiptHeartbeatDue(IFeedSource src, string actorId)
+    {
+        var last = UpdateReceiptService.LastWrittenAt(src, actorId);
+        return !last.HasValue || (DateTime.Now - last.Value).TotalMinutes >= 30;
     }
 
     /// <summary>
@@ -4819,6 +5291,48 @@ public partial class MainWindow : Window
         var w = new SettingsPushWindow { Owner = this };
         w.ShowDialog();
         RefreshUpdateStatus();
+    }
+
+    /// <summary>
+    /// r144：代次维护。不碰任何内容，只清本机记住的高水位，用于「下发了却没反应」的现场。
+    /// <para>权限跟「自动更新设置」走（所有角色默认开）：教室机上的电教管理员没有数据管理权，
+    /// 但最需要这个工具的就是他。</para>
+    /// </summary>
+    private void BtnResetRev_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dlg = new RevResetWindow { Owner = this };
+            dlg.ShowDialog();
+            if (!dlg.DidReset) return;
+
+            string brief = dlg.Messages.Count == 0 ? "无改动" : string.Join("；", dlg.Messages.Take(2))
+                + (dlg.Messages.Count > 2 ? $" 等 {dlg.Messages.Count} 项" : "");
+            TxtStatus.Text = "已重置代次：" + brief;
+            RefreshUpdateStatus();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "重置代次失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>r146：打开发布端的教室机更新回执面板（只读，不改任何数据）。</summary>
+    private void BtnUpdateReceipts_Click(object sender, RoutedEventArgs e)
+    {
+        if (!UserSession.CanPublish)
+        {
+            TxtStatus.Text = UserSession.DenyPublish;
+            return;
+        }
+        try
+        {
+            new UpdateReceiptWindow { Owner = this }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            TxtStatus.Text = "打不开更新回执：" + ex.Message;
+        }
     }
 
     private async void BtnPublishNow_Click(object sender, RoutedEventArgs e)

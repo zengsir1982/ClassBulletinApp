@@ -185,6 +185,12 @@ public static class SchedulePackage
                 settings.SettingsPublishFingerprint = fp;
             }
 
+            // r143 教学日历：校历本身随这份 schedule.json 一起进包，这里只记"这一版日历有多新"。
+            // ★ 内容没变就沿用旧代次：否则每次发课表都涨代次，管理员刚用「下发设置」推的调休
+            //   会被下一版课表包按"代次更高"冲回旧值。
+            meta.CalendarIncluded = true;
+            meta.CalendarRev = NextCalendarRev(settings, settings?.SemesterStartMonday, schedule.Calendar);
+
             // 包覆盖的时间范围：导入时用它决定"清掉本机哪一段的旧调代课"。
             // 即使包内没有任何调代课，也要给一个范围（当前周）——
             // 否则"这周全校都取消调课"这种情形下，各机上的旧记录永远清不掉、会一直显示。
@@ -676,6 +682,89 @@ public static class SchedulePackage
     }
 
     /// <summary>
+    /// 把本机「教学日历」装进下发白名单（r143）。只在下发面板勾了「教学日历」时调用。
+    /// <para>开学日取本机设置，校历取本机 schedule.json —— 管理员的操作顺序就是
+    /// 「先在本机把校历改好 → 再来这里勾上下发」。</para>
+    /// </summary>
+    public static void IncludeCalendarGroup(PackageSettings ps, AppSettings settings, ScheduleFile? schedule)
+    {
+        ps.CalendarIncluded = true;
+        ps.SemesterStartMonday = settings.SemesterStartMonday ?? "";
+        ps.Calendar = (schedule?.Calendar ?? new List<SchoolCalendarRule>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Date))
+            .OrderBy(r => r.Date, StringComparer.Ordinal)
+            .Select(r => new SchoolCalendarRule
+            {
+                Date = r.Date, Kind = r.Kind, AsDate = r.AsDate,
+                InheritOverrides = r.InheritOverrides, Note = r.Note
+            })
+            .ToList();
+        ps.CalendarRev = NextCalendarRev(settings, ps.SemesterStartMonday, ps.Calendar);
+    }
+
+    /// <summary>
+    /// 教学日历内容指纹（r143）：只认「开学日 + 校历规则」，与学期名/备注/顺序无关。
+    /// <para>用途和 <see cref="SettingsFingerprint"/> 一样——内容没变就不涨代次，
+    /// 免得每次发课表都把代次推高、把管理员刚下发的调休冲掉。</para>
+    /// </summary>
+    public static string CalendarFingerprint(string? semesterStart, IEnumerable<SchoolCalendarRule>? rules)
+    {
+        var sb = new StringBuilder();
+        sb.Append('S').Append('=').Append(semesterStart ?? "").Append('\n');
+        foreach (var r in (rules ?? Enumerable.Empty<SchoolCalendarRule>())
+                     .OrderBy(r => r.Date ?? "", StringComparer.Ordinal))
+        {
+            sb.Append('R').Append('=')
+              .Append(r.Date ?? "").Append(',')
+              .Append(r.Kind ?? "").Append(',')
+              .Append(r.AsDate ?? "").Append(',')
+              .Append(r.InheritOverrides ? '1' : '0')
+              .Append('\n');
+        }
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    /// <summary>
+    /// 发布端：算出「这一版教学日历的代次」，并把计数器/指纹写回 <paramref name="settings"/>。
+    /// <para>导出整包与「下发设置」走同一份逻辑，两条通道的代次才可比。</para>
+    /// </summary>
+    public static int NextCalendarRev(AppSettings? settings, string? semesterStart,
+        IEnumerable<SchoolCalendarRule>? rules)
+    {
+        string fp = CalendarFingerprint(semesterStart, rules);
+        if (settings == null) return 1;
+        bool changed = !string.Equals(fp, settings.CalendarPublishFingerprint, StringComparison.Ordinal);
+        int rev = changed ? Math.Max(1, settings.CalendarPublishRev + 1)
+                          : Math.Max(1, settings.CalendarPublishRev);
+        settings.CalendarPublishRev = rev;
+        settings.CalendarPublishFingerprint = fp;
+        return rev;
+    }
+
+    /// <summary>
+    /// 教室机：把校历写进本机 schedule.json（只换 Calendar，其它字段一个不碰）。
+    /// <para>★ 调用方必须先判代次；这里不做裁决，只负责落盘。</para>
+    /// </summary>
+    /// <returns>写入的规则条数；课表还没加载时返回 -1（调用方不要抬高代次）。</returns>
+    public static int ApplyCalendarToLocalSchedule(IEnumerable<SchoolCalendarRule>? rules)
+    {
+        var sf = Store.LoadSchedule();
+        if (sf == null) return -1;
+        sf.Calendar = (rules ?? Enumerable.Empty<SchoolCalendarRule>())
+            .Where(r => !string.IsNullOrWhiteSpace(r.Date))
+            .Select(r => new SchoolCalendarRule
+            {
+                Date = r.Date, Kind = r.Kind, AsDate = r.AsDate,
+                InheritOverrides = r.InheritOverrides, Note = r.Note
+            })
+            .OrderBy(r => r.Date, StringComparer.Ordinal)
+            .ToList();
+        Store.SaveSchedule(sf);
+        return sf.Calendar.Count;
+    }
+
+    /// <summary>
     /// 白名单内容指纹（稳定序列化后取 SHA-256）。
     /// <para>只比对"会被下发的内容"，不含代次 / 时间戳等易变字段，
     /// 因此同一份设置反复导出必得同一指纹。</para>
@@ -726,7 +815,11 @@ public static class SchedulePackage
     }
 
     /// <summary>把包内设置白名单逐项写入本机设置（只碰白名单字段，其余一律不动）。</summary>
-    public static void ApplyPackageSettings(AppSettings st, PackageSettings ps)
+    /// <param name="includeCalendar">
+    /// 是否连「教学日历」组的开学日一起写。独立下发通道在日历代次不够时会传 false ——
+    /// 校历不让覆盖，开学日也跟着不能让，否则周次会被旧值算歪。
+    /// </param>
+    public static void ApplyPackageSettings(AppSettings st, PackageSettings ps, bool includeCalendar = true)
     {
         st.WeekStartDay = ps.WeekStartDay;
         st.ShowPanelOnStart = ps.ShowPanelOnStart;
@@ -755,6 +848,11 @@ public static class SchedulePackage
             st.UpdateStartupDelaySeconds = ps.UpdateStartupDelaySeconds;
             st.BoardSyncRoot = ps.BoardSyncRoot;
         }
+
+        // r143 教学日历组：这里只写「开学日」（它在 settings.json 里）。
+        // 校历本体住在 schedule.json，由调用方按代次判定后另写（见 ApplyCalendarToLocalSchedule）。
+        if (includeCalendar && ps.CalendarIncluded && !string.IsNullOrWhiteSpace(ps.SemesterStartMonday))
+            st.SemesterStartMonday = ps.SemesterStartMonday;
     }
 
     /// <summary>
@@ -785,8 +883,30 @@ public static class SchedulePackage
             //    ★ r129：手动录入的班级不在包里（或包还是旧版本）时保留本机那份，否则一次自动更新
             //      就把用户手排的课表抹掉了。只保留「本机能查到它的课程设置」的班 —— 说明是在这台
             //      机器上手排的；从别的机器同步过来的手动班仍以包为准，发布端删了教室机也会跟着消失。
-            pkg.Schedule.MergeManualFrom(Store.LoadSchedule(),
+            var localSchedule = Store.LoadSchedule();
+            pkg.Schedule.MergeManualFrom(localSchedule,
                 c => Store.LoadScheduleTemplates().FindSetup(c.ClassName) != null);
+            // r136：基础数据清单里的手动 / 已排除项也要并回，否则一次更新会把管理员手填的
+            // 班级 / 科目 / 教师名单冲掉，人工排除（墓碑）的名字下次整理又活过来。
+            pkg.Schedule.MergeBaseDataFrom(localSchedule);
+
+            // r143 教学日历：校历是"整份 replacement"这条线上唯一需要单独裁决的东西。
+            //   包里那份可能是老的（管理员改完校历后用「下发设置」推过一次，随后才发课表），
+            //   这时候必须保留本机那份更新的，否则管理员刚推的调休会被静默冲回旧值。
+            bool calendarAccept = true;
+            int appliedCalRev = 0;
+            if (pkg.Meta is { CalendarIncluded: true })
+            {
+                appliedCalRev = Store.LoadSettings().AppliedCalendarRev;
+                if (pkg.Meta.CalendarRev <= appliedCalRev)
+                {
+                    calendarAccept = false;
+                    pkg.Schedule.Calendar = localSchedule?.Calendar ?? new List<SchoolCalendarRule>();
+                    res.Warnings.Add($"包内教学日历代次 {pkg.Meta.CalendarRev} 不高于本机已应用 "
+                                   + $"{appliedCalRev}，已保留本机校历（多半是「下发设置」推过来的更新的那份）。");
+                }
+            }
+
             Store.SaveSchedule(pkg.Schedule);
             res.ClassCount = pkg.Schedule.Classes.Count;
 
@@ -936,9 +1056,18 @@ public static class SchedulePackage
                 bool touched = false;
 
                 if (!string.IsNullOrWhiteSpace(pkg.Meta.SemesterStartMonday) &&
-                    st.SemesterStartMonday != pkg.Meta.SemesterStartMonday)
+                    st.SemesterStartMonday != pkg.Meta.SemesterStartMonday &&
+                    calendarAccept)   // r143：开学日和校历同一组，代次不让就用本机的
                 {
                     st.SemesterStartMonday = pkg.Meta.SemesterStartMonday!;
+                    touched = true;
+                }
+
+                // r143：本包的日历被采纳时抬高本机高水位，下次更旧的包就再也盖不回来。
+                if (pkg.Meta is { CalendarIncluded: true } && calendarAccept &&
+                    pkg.Meta.CalendarRev > st.AppliedCalendarRev)
+                {
+                    st.AppliedCalendarRev = pkg.Meta.CalendarRev;
                     touched = true;
                 }
                 if (!string.IsNullOrWhiteSpace(pkg.Meta.Theme) && st.Theme != pkg.Meta.Theme)
@@ -1095,10 +1224,25 @@ public class PackageManifest
     /// <summary>下发的设置内容（完整白名单，含更新来源组）。</summary>
     public PackageSettings? Settings { get; set; }
 
-    public List<PackageFile> Files { get; set; } = new();
-}
+    // ── 代次重置指令（r144）────────────────────────────────────────────────
+    // 教室机的代次是本地累加的数字，一旦虚高（恢复备份 / 换机 / 手改 settings.json），
+    // 管理员再怎么下发都追不上，而且现场看不出错误。这条指令让教室机把自己的高水位清零。
 
-public class PackageFile
+    /// <summary>
+    /// 一次性重置指令的令牌。教室机存 <c>LastRevResetId</c>，两者不同才执行一次。
+    /// <para>★ 刻意<b>不</b>在下次普通下发时清掉：离线的教室机上线后还要能补执行，
+    /// 幂等性靠令牌保证，不靠"这条字段还在不在"。</para>
+    /// </summary>
+    public string RevResetId { get; set; } = "";
+
+    /// <summary>清零教室机的「已应用设置代次 + 已应用教学日历代次」。</summary>
+    public bool RevResetApplied { get; set; }
+
+    /// <summary>清空教室机记住的整包摘要（= 让它下次检查时重新下载一次课表包）。</summary>
+    public bool RevResetPackage { get; set; }
+
+    public List<PackageFile> Files { get; set; } = new();
+}public class PackageFile
 {
     public string Name { get; set; } = "";
     public string Sha256 { get; set; } = "";
@@ -1122,8 +1266,20 @@ public class PackageMeta
     public int SettingsRev { get; set; }
 
     public PackageSettings? Settings { get; set; }
-}
 
+    /// <summary>
+    /// r143：本包是否带「教学日历」代次（false = 老包，教室机一律按"包里那份更新"处理，即旧行为）。
+    /// <para>校历本身随 schedule.json 走，这里只记"这一版的日历有多新"，
+    /// 好让教室机判断：是要用包里的校历，还是保留「下发设置」推过来的那份更新的。</para>
+    /// </summary>
+    public bool CalendarIncluded { get; set; }
+
+    /// <summary>
+    /// 教学日历代次（开学日 + 调休/放假日的内容指纹驱动，内容没变就不涨）。
+    /// <para>教室机只在 <c>CalendarRev &gt; AppliedCalendarRev</c> 时才用本包的校历覆盖本机。</para>
+    /// </summary>
+    public int CalendarRev { get; set; }
+}
 /// <summary>
 /// 随包下发的设置白名单——只含"换台电脑也想一样"的项。
 /// <para>★ 绝不含：密码 / FTP 凭据 / BoardSyncActorId（设备身份）/ 窗口布局 / 显示班级 /
@@ -1168,4 +1324,24 @@ public class PackageSettings
     public bool BoardSyncFullScreenReminder { get; set; }
     public bool BoardSyncVoiceReminder { get; set; }
     public bool BoardSyncAutoApply { get; set; }
+
+    // ── 教学日历（校历 + 开学日，r143）──────────────────────────────────
+    // ★ 为什么单独一组而不是塞进「显示 9 项」：校历写在 schedule.json 里，不在 settings.json。
+    //   应用它等于跨文件写盘 + 立刻刷屏，跟"改几个开关"不是一回事，必须能单独勾选/单独回执。
+    // ★ 开学日跟着这一组走：学校的"第几周"全靠它推算，只发调休不发开学日，教室机周次会对不上。
+
+    /// <summary>本组是否随本次下发（false = 完全不动教室机的校历与开学日）。</summary>
+    public bool CalendarIncluded { get; set; }
+
+    /// <summary>
+    /// 教学日历代次（内容指纹驱动，见 <see cref="AppSettings.CalendarPublishRev"/>）。
+    /// <para>教室机要求 <c>&gt;= AppliedCalendarRev</c> 才写（同代次重发也算 —— 现场被改乱了要能推回去）。</para>
+    /// </summary>
+    public int CalendarRev { get; set; }
+
+    /// <summary>开学那天（yyyy-MM-dd），不必是周一。</summary>
+    public string SemesterStartMonday { get; set; } = "";
+
+    /// <summary>校历规则（调休补课 / 放假）。</summary>
+    public List<SchoolCalendarRule> Calendar { get; set; } = new();
 }

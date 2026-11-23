@@ -30,6 +30,19 @@ public sealed class DayPlan
     /// <summary>补课按哪一天（null = 不是补课日或规则没指定）。</summary>
     public DateTime? AsDate { get; init; }
 
+    /// <summary>
+    /// 「按哪一天上课」所属的教学周序号（1=第 1 周；补课日按 <see cref="AsDate"/> 那周，
+    /// 普通日按 <see cref="Date"/> 那周）。单双周课程不同，光说「周三」会认错课，必须带上周次。
+    /// </summary>
+    public int SourceWeek { get; init; }
+
+    /// <summary>「第12周」；没设开学日期时为「未开学」。</summary>
+    public string SourceWeekLabel => SourceWeek >= 1 ? $"第{SourceWeek}周" : "未开学";
+
+    /// <summary>按哪天上课的紧凑写法：「第12周周三」。</summary>
+    public string SourceDayLabel => (SourceWeek >= 1 ? $"第{SourceWeek}周" : "未开学")
+        + SchoolCalendar.DayNameShort(AsDate ?? Date);
+
     /// <summary>补课日是否沿用被指向那天的临时调课/代课。</summary>
     public bool InheritOverrides { get; init; } = true;
 
@@ -42,15 +55,30 @@ public sealed class DayPlan
     /// <summary>这天是否还要看调代课（补课且明确"不沿用"时整片忽略）。</summary>
     public bool UsesOverrides => !(IsMakeup && !InheritOverrides);
 
-    /// <summary>大屏上的小标签文案：补课「按周三课表上课」；放假「今日放假」；普通日空串。</summary>
+    /// <summary>大屏上的小标签文案：补课「按第12周周三上课」；放假「今日放假」；普通日空串。</summary>
     public string TagText
     {
         get
         {
             if (IsOff) return "今日放假";
             if (!IsMakeup) return "";
-            string d = AsDate.HasValue ? SchoolCalendar.DayNameShort(AsDate.Value) : "指定日";
-            return "按" + d + "课表上课";
+            if (!AsDate.HasValue) return "按指定日课表上课";
+            // 没设开学日期时退化成具体日期，仍然不会丢掉「是哪一周的周三」这个信息
+            string prefix = SourceWeek >= 1 ? SourceWeekLabel : AsDate.Value.ToString("MM-dd");
+            return "按" + prefix + SchoolCalendar.DayNameShort(AsDate.Value) + "上课";
+        }
+    }
+
+    /// <summary>标题栏 / 周视图表头用的短标签：「按12周周三」；普通日空串。</summary>
+    public string ShortTag
+    {
+        get
+        {
+            if (IsOff) return "放假";
+            if (!IsMakeup) return "";
+            if (!AsDate.HasValue) return "调休上课";
+            string prefix = SourceWeek >= 1 ? SourceWeek + "周" : AsDate.Value.ToString("MM-dd");
+            return "按" + prefix + SchoolCalendar.DayNameShort(AsDate.Value);
         }
     }
 
@@ -91,6 +119,7 @@ public static class SchoolCalendar
             Date = date,
             DayIdx = DayIdxOf(date),
             Parity = WeekHelper.GetParity(date, semesterStartMonday),
+            SourceWeek = WeekHelper.TeachingWeek(date, semesterStartMonday),
             InheritOverrides = true
         };
 
@@ -101,6 +130,7 @@ public static class SchoolCalendar
             return new DayPlan
             {
                 Date = date, DayIdx = plan.DayIdx, Parity = plan.Parity,
+                SourceWeek = plan.SourceWeek,
                 IsOff = true, Note = rule.Note ?? ""
             };
 
@@ -113,6 +143,7 @@ public static class SchoolCalendar
             Date = date,
             DayIdx = DayIdxOf(asDate.Value),
             Parity = WeekHelper.GetParity(asDate.Value, semesterStartMonday),
+            SourceWeek = WeekHelper.TeachingWeek(asDate.Value, semesterStartMonday),
             IsMakeup = true,
             AsDate = asDate.Value,
             InheritOverrides = rule.InheritOverrides,

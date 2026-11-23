@@ -25,6 +25,27 @@
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
+        <!-- r148：今日四卡的统一文字层级，保持信息密度但不压眼睛 -->
+        <Style x:Key="TodayCardTitle" TargetType="TextBlock" BasedOn="{StaticResource TextSection}">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+        <Style x:Key="TodayCardValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="TodayCardMeta" TargetType="TextBlock" BasedOn="{StaticResource TextHint}">
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="LineHeight" Value="19"/>
+        </Style>
+        <Style x:Key="TodayPill" TargetType="Border">
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Padding" Value="8,3"/>
+            <Setter Property="Background" Value="{DynamicResource PrimarySoftBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -54,11 +75,11 @@
                                   Foreground="{DynamicResource InkBrush}"
                                   ToolTip="选择班级后悬浮课表切换为该班的课表"/>
                         <TextBlock x:Name="TxtCurrentMode" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" FontSize="13" Margin="6,0,0,0"/>
-                        <TextBlock Text="开学周" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="20,0,6,0" FontSize="13"/>
+                        <TextBlock Text="开学日期" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="20,0,6,0" FontSize="13"/>
                         <DatePicker x:Name="DpSemester" Width="132" FontSize="13" VerticalAlignment="Center" SelectedDateFormat="Short"
                                     Foreground="{DynamicResource InkBrush}"
                                     SelectedDateChanged="DpSemester_SelectedDateChanged"
-                                    ToolTip="开学第一周星期一：用于计算「第几周」教学周，与学校开学时间对齐。"/>
+                                    ToolTip="开学那天（不必是周一）：用于计算「第几周」教学周，同一周都算第 1 周。改完要发布 / 同步才到教室机。"/>
                         <CheckBox x:Name="ChkAutoStartTitle" Content="开机自启" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="13"
                                   Checked="ChkAutoStartTitle_Changed" Unchecked="ChkAutoStartTitle_Changed"
                                   ToolTip="把本程序写入当前用户开机启动项"/>
@@ -168,7 +189,7 @@
                                     <!-- r77：问号不再单独占一行，一律并到它所说明的标题 / 选项行末 -->
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                         <TextBlock Text="课表数据" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
-                                        <ctl:HelpBubble PopupTitle="课表导入与调代课" Text="说明：推荐用「智能导入课表」，它能自动识别不同学校/系统的课表模板（横排、纵列、单班），先预览解析结果、可微调参数，确认无误再导入。&#10;&#10;「二一课表专用导入」把原来的总课表 / 临时 / 单班 / 教师四个入口合并成一个：选好文件后，程序按文件名猜一个类型（如含「临时」「教师」「班」），你确认或改选即可。&#10;&#10;· 全校总课表：可一次多选七 / 八 / 九年级，更新基础课表并自动整理教师课表。&#10;· 临时课表：只识别带（调）/（代）标记的课生成调代覆盖，不改基础课表，需选生效区间。&#10;· 单个班级 / 单个教师课表：只更新这一个班 / 这一位教师。&#10;&#10;.xls 老格式请先用 Excel/WPS 另存为 .xlsx 再导入。&#10;&#10;调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。&#10;&#10;没有 Excel 课表也能用「手动录入基础课表」：选班级、套用节次模板，逐格填科目/教师/周次（全周/单周/双周），按住格子拖到另一格可直接移动或交换，保存只替换这一个班。窗口左侧的「时间表与科目设置…」可自定义作息时间表（节次时间，以及大课间 / 眼保健操 / 午休这些不占节次的公共时间）、常用科目库，或把录好的课表存成方案反复套用。" Margin="6,0,0,0"/>
+                                        <ctl:HelpBubble PopupTitle="课表导入与调代课" Text="说明：推荐用「智能导入课表」，它能自动识别不同学校/系统的课表模板（横排、纵列、单班），先预览解析结果、可微调参数，确认无误再导入。&#10;&#10;「二一课表专用导入」把原来的总课表 / 临时 / 单班 / 教师四个入口合并成一个：选好文件后，程序按文件名猜一个类型（如含「临时」「教师」「班」），你确认或改选即可。&#10;&#10;· 全校总课表：可一次多选七 / 八 / 九年级，更新基础课表并自动整理教师课表。&#10;· 临时课表：只识别带（调）/（代）标记的课生成调代覆盖，不改基础课表，需选生效区间。&#10;· 单个班级 / 单个教师课表：只更新这一个班 / 这一位教师。&#10;&#10;.xls 老格式请先用 Excel/WPS 另存为 .xlsx 再导入。&#10;&#10;调课 / 代课记录可在「周课程表」标签的周视图中右键安排；需要整体清除时使用「清除全部临时调课 / 代课」按钮。&#10;&#10;没有 Excel 课表也能用「手动录入基础课表」：选班级、选作息时间，逐格填科目/教师/周次（全周/单周/双周），按住格子拖到另一格可直接移动或交换，保存只替换这一个班。整份排好的课表还能「另存为手录课表方案」，下次在左栏「课表方案」下拉里直接套用；作息时间表与常用科目库在录入窗口左栏那两行右边的编辑图标里维护。" Margin="6,0,0,0"/>
                                     </StackPanel>
                                     <!-- r130：「下载模板」是「智能导入」的前置小工具，改成紧跟其后的文字链接
                                          + 一颗问号说明作用；之前做成独立描边按钮，看着像另一个平级功能，容易被误读 -->
@@ -198,7 +219,14 @@
                                 </StackPanel>
 
                                 <StackPanel Grid.Column="1" MaxWidth="600">
-                                    <TextBlock Text="数据包分发（离线版 / 多教室机同步）" FontSize="17" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,10"/>
+                                    <!-- r145：常显说明全部收进问号（单击展开），标题行只留标题 + 一颗问号 -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <TextBlock Text="数据包分发（离线版 / 多教室机同步）" FontSize="17" FontWeight="Bold"
+                                                   Foreground="{DynamicResource InkBrush}" VerticalAlignment="Center"/>
+                                        <ctl:HelpBubble PopupTitle="数据包里到底装了什么"
+                                                        VerticalAlignment="Center" Margin="8,0,0,0" BubbleWidth="440"
+                                                        Text="数据包是一个 .cbpack 压缩包（离线版的核心，用 U 盘拷或走共享盘都行），里面只有五样东西：&#10;&#10;① schedule.json —— 全校各班课表、课表作息（每节几点到几点）、教学日历与开学日、科目 / 教师 / 班级清单。&#10;② overrides.json —— 带生效区间的调课 / 代课记录；本机手工调整的默认不会被冲掉（导出时可勾选覆盖，导入方也只是标记为「已停用」，随时能恢复）。&#10;③ notices.json —— 只含标记为「全校」的通知，本班通知不会被打包、也不会被别的班看到。&#10;④ users.json（可选）—— 用户名 / 密码哈希 / 角色 / 角色权限配置，绝不含明文密码。&#10;⑤ manifest.json —— 班级数、调代课数量、内容代次与整包摘要；教室机靠它判断「有没有新东西」，没变化就不下载。&#10;&#10;不会被打包的（属于每台机器自己）：窗口布局与显示班级、登录密码、作业公示、缺交名单、本班便签、板书笔迹、更新凭据、本机课表方案与作息模板。&#10;&#10;每次导入前会自动把当前数据备份到 backup 目录（保留最近 20 份），可在「备份与恢复」里回滚。"/>
+                                    </StackPanel>
                                     <Button x:Name="BtnExportPackage" Content="导出数据包（发到其他教室机）" Margin="0,0,0,10"
                                             Style="{StaticResource AppPrimarySoftButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnExportPackage_Click"/>
                                     <CheckBox x:Name="ChkExportSettings" Content="同时携带观感设置（显示 / 同步开关；提醒与数据源路径不随包）"
@@ -218,10 +246,33 @@
                                             Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnUpdateCheck_Click"/>
                                     <Button x:Name="BtnPublishNow" Content="发布到数据源（供其他教室机更新）" Margin="0,0,0,10"
                                             Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnPublishNow_Click"/>
-                                    <Button x:Name="BtnPushSettings" Content="下发设置到教室机…" Margin="0,0,0,4"
-                                            Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15" HorizontalAlignment="Left" Click="BtnPushSettings_Click"/>
-                                    <TextBlock FontSize="11.5" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,10" MaxWidth="560"
-                                               Text="只推送设置、不重下课表。教室机下次检查时自动应用，无人值守也能生效。"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="BtnPushSettings" Content="下发设置到教室机…"
+                                                Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15"
+                                                VerticalAlignment="Center" Click="BtnPushSettings_Click"/>
+                                        <ctl:HelpBubble PopupTitle="「下发设置」会改教室机的什么"
+                                                        VerticalAlignment="Center" Margin="8,0,0,0" BubbleWidth="440"
+                                                        Text="只推送设置、不重下课表，也不动教室机的课表数据。教室机下次检查更新时自动应用，无人值守也能生效。&#10;&#10;能下发什么（在选择窗里逐项勾）：显示 / 同步开关、提醒、黑板、班级内容同步、教学日历与开学日、数据源路径（这项要单独勾，因为教室机的路径常与发布机不同）。&#10;&#10;不会覆盖：窗口布局、显示班级、登录密码、作业公示、缺交名单、本班便签、板书笔迹。&#10;&#10;发完看教室机的「已应用」回执才算真到了。若那边一直没反应，多半是本机代次虚高（恢复过备份 / 换过机器），用下面「代次维护」清零后再发一次。"/>
+                                    </StackPanel>
+                                    <!-- r144：代次维护。「下发了没反应」时的救火入口 -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="BtnResetRev" Content="代次维护（重置高水位）…"
+                                                Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15"
+                                                VerticalAlignment="Center" Click="BtnResetRev_Click"
+                                                ToolTip="查看并清零本机记住的代次。教室机「明明下发了却毫无反应」时，多半是这里的值虚高了"/>
+                                        <ctl:HelpBubble PopupTitle="代次是什么，为什么要重置"
+                                                        VerticalAlignment="Center" Margin="8,0,0,0" BubbleWidth="440"
+                                                        Text="代次 = 每台机器各自累加的数字，新内容必须比本机记的代次「更大」才会生效（独立下发看推送凭据，不看大小）。它一旦虚高（恢复过备份 / 换过机器 / 手改过配置 / 旧版本留下的脏值），教室机就永远追不上发布端 —— 现场表现是「明明下发了，那边一点反应都没有」，而且不报错。&#10;&#10;这个窗口列出本机记住的 7 个高水位（教室机侧 4 项 / 发布端 3 项），勾选后一键清零；也能在「下发设置」里勾「重置教室机代次」远程清零。&#10;&#10;注意：① 清零不可撤销；② 清完「已应用代次」后，教室机会把发布端现有设置当新的重新应用一遍（观感 / 权限整体刷新一次，属正常现象）；③ 同一道远程指令每台机器只执行一次（按令牌去重），重复下发不会重复执行。"/>
+                                    </StackPanel>
+                                    <!-- r146：发布端查看各教室机的更新回执（只读，不含班级内容） -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <Button x:Name="BtnUpdateReceipts" Content="查看更新回执（各教室机状态）…"
+                                                Style="{StaticResource AppGhostButton}" Padding="18,11" FontSize="15"
+                                                VerticalAlignment="Center" Click="BtnUpdateReceipts_Click"/>
+                                        <ctl:HelpBubble PopupTitle="回执是怎么来的，怎么看"
+                                                        VerticalAlignment="Center" Margin="8,0,0,0" BubbleWidth="440"
+                                                        Text="每台教室机每次检查更新后，会在更新数据源根目录的 status/ 下写一份 u-设备Id.json，里面记着「这次回的是哪个包、做成了什么、班级数 / 调代数等读数」。它不进数据包、不改任何代次；没配数据源或连不上时写不出去，那就只是「不知道」。&#10;&#10;四种显示：✅最新 = 回执里的包摘要和当前包一致；⏳版本落后 = 机器在线但还停在旧包；⚠失败 = 本机报了错误码，点开看详情；💤失联 = 超过两个检查周期没上报（不等于没更新）。&#10;&#10;「教室别名」只存在你这台发布机本地，不随包下发。墙钟只用来显示，判定靠回执序号与包摘要。"/>
+                                    </StackPanel>
                                     <TextBlock x:Name="TxtUpdateStatus" Text="自动更新：未配置" FontSize="13" Foreground="{DynamicResource BodyBrush}" TextWrapping="Wrap" Margin="0,2,0,12" LineHeight="19"/>
                                 </StackPanel>
                             </Grid>
@@ -959,13 +1010,12 @@
                                             <Button x:Name="BtnToggleNotice" Content="显示通知公告便签" Style="{StaticResource AppGhostButton}" Padding="10,5" FontSize="13" Margin="0,0,8,0"
                                                      Click="BtnToggleNotice_Click"
                                                     ToolTip="在屏幕上显示 / 隐藏通知公告悬浮便签（可拖动、可拉边改大小）"/>
-                                            <Button x:Name="BtnStyleNotice" Content="风格…" Padding="12,5" FontSize="13" Margin="0,0,8,0"
-                                                    Background="White" BorderBrush="{DynamicResource InputBorderBrush}" Click="BtnStyleNotice_Click"
-                                                    ToolTip="选这张便签的配色与字号（只影响本机，不随数据包同步）"/>
+                                            <!-- r144：原来的「风格…」按钮删掉了 —— 配色与字号已在「编辑…」
+                                                 弹窗的「主题风格 / 便签字号」里，这里只留 显隐 + 编辑，与上面三项一致。 -->
                                             <Button x:Name="BtnEditNotice" Content="编辑…" Padding="12,5" FontSize="13"
                                                     Background="White" BorderBrush="{DynamicResource InputBorderBrush}"
                                                     Click="BtnEditNotice_Click"
-                                                    ToolTip="打开通知编辑窗口：新增事项、改内容与范围、设截止日期（到期自动撤下，数据保留）"/>
+                                                    ToolTip="打开通知编辑窗口：新增事项、改内容与范围、设截止日期（到期自动撤下，数据保留）；便签的主题风格与字号也在这里改"/>
                                         </StackPanel>
                                         <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
                                             <TextBlock Text="📌 通知公告" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource InkBrush}"/>
@@ -986,7 +1036,18 @@
                     <ScrollViewer Margin="14" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="980">
                             <!-- 标题。r79：通用「发布信息」入口回到下面工具栏首位（用户要求「放在立即检查前边」） -->
-                            <TextBlock Text="📨 信息管理" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,12"/>
+                            <TextBlock Text="📨 信息管理" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,8"/>
+                            <!-- r147：待办概览。与托盘 / 悬浮课表角标同一口径，双击托盘有待办也落到这里 -->
+                            <Border Background="#FFF4E5" BorderBrush="#E8B874" BorderThickness="1" CornerRadius="8"
+                                    Padding="12,9" Margin="0,0,0,12">
+                                <DockPanel>
+                                    <TextBlock x:Name="TxtInfoTodo" FontSize="13" FontWeight="Bold" Foreground="#8A5A00"
+                                               Text="当前没有待办" VerticalAlignment="Center"/>
+                                    <TextBlock Text="在台账里逐条裁决 / 核对，办完数字自动减"
+                                               FontSize="11.5" Foreground="#9A6B22" HorizontalAlignment="Right"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                </DockPanel>
+                            </Border>
 
                             <!-- 菜单栏：一行常用动作 + 状态 -->
                             <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="10" Padding="12,10" Margin="0,0,0,14">
@@ -1325,41 +1386,137 @@
                     <ScrollViewer Margin="20" PanningMode="VerticalOnly">
                         <StackPanel>
                             <TextBlock Text="今日" Style="{StaticResource TextPageTitle}"/>
-                            <TextBlock x:Name="TxtTodaySubtitle" Text="" Style="{StaticResource TextHint}" Margin="0,4,0,20"/>
+                            <TextBlock x:Name="TxtTodaySubtitle" Text="" Style="{StaticResource TextHint}" Margin="0,4,0,18"/>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Style="{StaticResource AppCard}" Margin="0,0,8,0">
-                                    <StackPanel>
-                                        <TextBlock Text="课表与展示" Style="{StaticResource TextSection}" Margin="0,0,0,10"/>
-                                        <TextBlock Text="课表、便签和通知条按当前显示日期刷新；展示模式锁定后仍照常显示。"
-                                                   Style="{StaticResource TextBody}"/>
-                                        <Button Content="打开周课程表" Tag="week" Style="{StaticResource AppGhostButton}"
-                                                HorizontalAlignment="Left" Margin="0,14,0,0" Click="NavTodayAction_Click"/>
-                                    </StackPanel>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- ① 待办 -->
+                                <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource AppCard}"
+                                        MinHeight="172" Margin="0,0,8,10">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <DockPanel>
+                                            <TextBlock Text="需要你处理" Style="{StaticResource TodayCardTitle}"/>
+                                            <Border x:Name="PillTodayTodo" Style="{StaticResource TodayPill}"
+                                                    HorizontalAlignment="Right" Margin="8,0,0,0">
+                                                <TextBlock x:Name="TxtTodayTodoPill" Text="正常" FontSize="12"
+                                                           Foreground="{DynamicResource SuccessBrush}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,13,0,0">
+                                            <TextBlock x:Name="TxtTodayTodoValue" Text="没有待办" Style="{StaticResource TodayCardValue}"/>
+                                            <TextBlock x:Name="TxtTodayTodoDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,7,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                                            <Button Content="打开消息台账" Tag="ledger" Style="{StaticResource AppGhostButton}"
+                                                    Padding="10,6" Margin="0,0,8,0" Click="NavTodayAction_Click"/>
+                                            <Button x:Name="BtnTodayPublish" Content="发布内容" Tag="publish"
+                                                    Style="{StaticResource AppGhostButton}" Padding="10,6" Click="NavTodayAction_Click"/>
+                                        </StackPanel>
+                                    </Grid>
                                 </Border>
-                                <Border Grid.Column="1" Style="{StaticResource AppCard}" Margin="8,0,0,0">
-                                    <StackPanel>
-                                        <TextBlock Text="消息与变更" Style="{StaticResource TextSection}" Margin="0,0,0,10"/>
-                                        <TextBlock Text="教师机发来的变更单在收件箱里逐条确认；勾选「直接增加」的通知会由教室机自动收下。"
-                                                   Style="{StaticResource TextBody}"/>
-                                        <Button Content="打开消息台账" Tag="ledger" Style="{StaticResource AppGhostButton}"
-                                                HorizontalAlignment="Left" Margin="0,14,0,0" Click="NavTodayAction_Click"/>
-                                    </StackPanel>
+
+                                <!-- ② 课程 -->
+                                <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource AppCard}"
+                                        MinHeight="172" Margin="8,0,0,10">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <DockPanel>
+                                            <TextBlock Text="今天怎么上" Style="{StaticResource TodayCardTitle}"/>
+                                            <Border x:Name="PillTodayLesson" Style="{StaticResource TodayPill}"
+                                                    HorizontalAlignment="Right" Margin="8,0,0,0">
+                                                <TextBlock x:Name="TxtTodayLessonPill" Text="课表" FontSize="12"
+                                                           Foreground="{DynamicResource PrimaryBrush}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,13,0,0">
+                                            <TextBlock x:Name="TxtTodayLessonValue" Text="暂无课程信息" Style="{StaticResource TodayCardValue}"/>
+                                            <TextBlock x:Name="TxtTodayLessonDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,7,0,0"/>
+                                        </StackPanel>
+                                        <Button Grid.Row="2" Content="打开周课程表" Tag="week" Style="{StaticResource AppGhostButton}"
+                                                HorizontalAlignment="Left" Padding="10,6" Margin="0,10,0,0" Click="NavTodayAction_Click"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- ③ 更新与同步 -->
+                                <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource AppCard}"
+                                        MinHeight="172" Margin="0,0,8,0">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <DockPanel>
+                                            <TextBlock Text="更新与同步" Style="{StaticResource TodayCardTitle}"/>
+                                            <Border x:Name="PillTodayUpdate" Style="{StaticResource TodayPill}"
+                                                    HorizontalAlignment="Right" Margin="8,0,0,0">
+                                                <TextBlock x:Name="TxtTodayUpdatePill" Text="待确认" FontSize="12"
+                                                           Foreground="{DynamicResource WarningBrush}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,13,0,0">
+                                            <TextBlock x:Name="TxtTodayUpdateValue" Text="更新状态待确认" Style="{StaticResource TodayCardValue}"/>
+                                            <TextBlock x:Name="TxtTodayUpdateDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,7,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                                            <Button x:Name="BtnTodayCheckUpdate" Content="检查更新" Tag="checkupdate"
+                                                    Style="{StaticResource AppGhostButton}" Padding="10,6" Margin="0,0,8,0" Click="NavTodayAction_Click"/>
+                                            <Button x:Name="BtnTodayReceipts" Content="更新回执" Tag="receipts"
+                                                    Style="{StaticResource AppGhostButton}" Padding="10,6" Click="NavTodayAction_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
+                                <!-- ④ 本机状态 -->
+                                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource AppCard}"
+                                        MinHeight="172" Margin="8,0,0,0">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <DockPanel>
+                                            <TextBlock Text="本机状态" Style="{StaticResource TodayCardTitle}"/>
+                                            <Border x:Name="PillTodayStatus" Style="{StaticResource TodayPill}"
+                                                    HorizontalAlignment="Right" Margin="8,0,0,0">
+                                                <TextBlock x:Name="TxtTodayStatusPill" Text="正常" FontSize="12"
+                                                           Foreground="{DynamicResource SuccessBrush}"/>
+                                            </Border>
+                                        </DockPanel>
+                                        <StackPanel Grid.Row="1" Margin="0,13,0,0">
+                                            <TextBlock x:Name="TxtTodayStatusValue" Text="展示正常" Style="{StaticResource TodayCardValue}"/>
+                                            <TextBlock x:Name="TxtTodayStatusDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,7,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                                            <Button x:Name="BtnTodayReminder" Content="提醒设置" Tag="3"
+                                                    Style="{StaticResource AppGhostButton}" Padding="10,6" Margin="0,0,8,0"
+                                                    Click="NavTodayAction_Click"/>
+                                            <Button Content="布局与显示" Tag="layout" Style="{StaticResource AppGhostButton}"
+                                                    Padding="10,6" Click="NavTodayAction_Click"/>
+                                        </StackPanel>
+                                    </Grid>
                                 </Border>
                             </Grid>
 
-                            <TextBlock Text="快捷动作" Style="{StaticResource TextSection}" Margin="0,24,0,10"/>
-                            <WrapPanel>
-                                <Button Content="发布内容" Tag="publish" Style="{StaticResource AppGhostButton}" Margin="0,0,8,8" Click="NavTodayAction_Click"/>
-                                <Button Content="布局与显示" Tag="layout" Style="{StaticResource AppGhostButton}" Margin="0,0,8,8" Click="NavTodayAction_Click"/>
-                                <Button Content="桌面背景排版" Tag="backdrop" Style="{StaticResource AppGhostButton}" Margin="0,0,8,8" Click="NavTodayAction_Click"/>
-                                <Button Content="立即检查消息" Tag="pull" Style="{StaticResource AppGhostButton}" Margin="0,0,8,8" Click="NavTodayAction_Click"/>
-                            </WrapPanel>
-                            <TextBlock Text="更多设置与原有页面都在左侧导航里，内容与操作没有改动。"
+                            <TextBlock Text="四张卡只汇总状态，不在这里改数据；点卡片里的按钮会回到原来的页面处理。"
                                        Style="{StaticResource TextHint}" Margin="0,16,0,0"/>
                         </StackPanel>
                     </ScrollViewer>

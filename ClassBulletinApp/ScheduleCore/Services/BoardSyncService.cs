@@ -83,6 +83,18 @@ public static class BoardSyncService
 
     static BoardSyncState FreshState() => new() { ActorId = EnsureActorId() };
 
+    /// <summary>
+    /// 台账写盘成功通知（r147）。角标 / 今日页 / 落地页都靠它刷新。
+    /// <para>★ 在锁内触发，订阅者只许 <c>Dispatcher.BeginInvoke</c> 转 UI 线程，别在回调里再碰台账。</para>
+    /// </summary>
+    public static event Action? LedgerChanged;
+
+    static void RaiseLedgerChanged()
+    {
+        try { LedgerChanged?.Invoke(); }
+        catch { /* UI 订阅者出错不能反过来让台账保存失败 */ }
+    }
+
     public static bool SaveState(BoardSyncState st)
     {
         if (!Store.WriteJsonAtomic(StatePath, st))
@@ -91,6 +103,7 @@ public static class BoardSyncService
             return false;
         }
         LastError = null;
+        RaiseLedgerChanged();
         return true;
     }
 

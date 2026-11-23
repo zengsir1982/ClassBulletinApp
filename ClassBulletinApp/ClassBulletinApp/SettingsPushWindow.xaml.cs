@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using ScheduleCore.Models;
 using ScheduleCore.Services;
 
@@ -12,6 +13,7 @@ using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
 using CheckBox = System.Windows.Controls.CheckBox;
 using TextBox = System.Windows.Controls.TextBox;
 using TextBlock = System.Windows.Controls.TextBlock;
+using TextBoxBase = System.Windows.Controls.Primitives.TextBoxBase;
 
 namespace ClassBulletinApp;
 
@@ -39,6 +41,38 @@ public partial class SettingsPushWindow : Window
         ChkIncludeSource.Unchecked += (_, _) => SetSourcePanelEnabled(false);
         ChkReminder.Checked += (_, _) => UpdateReminderSummary();
         ChkReminder.Unchecked += (_, _) => UpdateReminderSummary();
+        UpdateRevSummary();
+
+        // r148：底栏预览跟着任何勾选 / 输入变化走。用冒泡路由一次性挂上，
+        // 不用逐控件订阅（六组里光 CheckBox 就有二十来个，漏一个预览就会说谎）。
+        AddHandler(ToggleButton.CheckedEvent, new RoutedEventHandler((_, _) => UpdatePushPreview()));
+        AddHandler(ToggleButton.UncheckedEvent, new RoutedEventHandler((_, _) => UpdatePushPreview()));
+        AddHandler(TextBoxBase.TextChangedEvent, new RoutedEventHandler((_, _) => UpdatePushPreview()));
+        AddHandler(Selector.SelectionChangedEvent, new SelectionChangedEventHandler((_, _) => UpdatePushPreview()));
+        Loaded += (_, _) => UpdatePushPreview();
+    }
+
+    /// <summary>r144：⑥ 代次重置。勾上主项才放开「重下整包」子项（依赖关系要看得见）。</summary>
+    void ChkResetRev_Changed(object sender, RoutedEventArgs e)
+    {
+        if (ChkResetPackage == null) return;       // XAML 解析期可能先触发一次
+        bool on = ChkResetRev.IsChecked == true;
+        ChkResetPackage.IsEnabled = on;
+        if (!on) ChkResetPackage.IsChecked = false;
+        UpdateRevSummary();
+    }
+
+    /// <summary>把本机当前的代次摊开给人看 —— 管理员据此判断该不该清。</summary>
+    void UpdateRevSummary()
+    {
+        if (TxtRevSummary == null) return;
+        try
+        {
+            var st = Store.LoadSettings();
+            TxtRevSummary.Text = $"本机当前：已应用设置代次 {st.AppliedSettingsRev} · 已应用教学日历代次 {st.AppliedCalendarRev}"
+                               + $" · 课表包摘要 {(string.IsNullOrEmpty(st.LastAppliedSha) ? "空" : "已记")}";
+        }
+        catch { TxtRevSummary.Text = ""; }
     }
 
     void SetSourcePanelEnabled(bool on)
@@ -69,6 +103,8 @@ public partial class SettingsPushWindow : Window
         ChkDoodleCollapsed.IsChecked = _s.DoodleStartCollapsed;
 
         ChkReminder.IsChecked = true;
+        ChkCalendar.IsChecked = true;
+        UpdateCalendarSummary();
 
         ChkSyncEnabled.IsChecked = _s.BoardSyncEnabled;
         ChkSyncPopup.IsChecked = _s.BoardSyncPopupDuringBreak;
@@ -113,6 +149,50 @@ public partial class SettingsPushWindow : Window
         TxtReminderSummary.Foreground = (System.Windows.Media.Brush)FindResource("BodyBrush");
     }
 
+    /// <summary>r143：教学日历预览。开学日 + 条数 + 前 3 条，让管理员下发前能对一眼。</summary>
+    void UpdateCalendarSummary()
+    {
+        if (TxtCalendarSummary == null) return;
+        if (ChkCalendar.IsChecked != true)
+        {
+            TxtCalendarSummary.Text = "不下发教学日历，教室机保持原样。";
+            TxtCalendarSummary.Foreground = (System.Windows.Media.Brush)FindResource("MutedBrush");
+            return;
+        }
+
+        var sf = Store.LoadSchedule();
+        var rules = (sf?.Calendar ?? new System.Collections.Generic.List<SchoolCalendarRule>())
+            .OrderBy(r => r.Date, StringComparer.Ordinal).ToList();
+        string start = string.IsNullOrWhiteSpace(_s.SemesterStartMonday)
+            ? "未设置（教室机会按系统日历周估算）"
+            : _s.SemesterStartMonday;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("将下发：开学日 ").Append(start).Append(" · 校历 ").Append(rules.Count).Append(" 条");
+        foreach (var r in rules.Take(3)) sb.Append("\n· ").Append(r.DisplayText);
+        if (rules.Count > 3) sb.Append($"\n· 另有 {rules.Count - 3} 条…");
+
+        TxtCalendarSummary.Text = sb.ToString();
+        TxtCalendarSummary.Foreground = (System.Windows.Media.Brush)FindResource("BodyBrush");
+    }
+
+    void ChkCalendar_Changed(object sender, RoutedEventArgs e) => UpdateCalendarSummary();
+
+    /// <summary>就地打开校历窗口改完再回来 —— 改的是本机的那份，回来后预览自动刷新。</summary>
+    void BtnOpenCalendar_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            new SchoolCalendarWindow(DateTime.Today) { Owner = this }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("打开校历失败：" + ex.Message, "校历", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        _s = Store.LoadSettings();      // 开学日可能被改过
+        UpdateCalendarSummary();
+    }
+
     void SelectWeekStart(int day)
     {
         foreach (var o in CmbWeekStart.Items.OfType<ComboBoxItem>())
@@ -140,7 +220,9 @@ public partial class SettingsPushWindow : Window
         CmbSourceKind.SelectedIndex = 0;
     }
 
-    PackageSettings BuildPayload()
+    /// <param name="saveCalendarRev">true = 真正下发时把校历代次写回本机（下次不再涨）；
+    /// false = 仅用于界面预览，只读不落盘，免得浏览一遍就把代次顶高了。</param>
+    PackageSettings BuildPayload(bool saveCalendarRev = true)
     {
         int weekStart = 1;
         if (CmbWeekStart.SelectedItem is ComboBoxItem wi && int.TryParse(wi.Tag?.ToString(), out int wv))
@@ -178,28 +260,101 @@ public partial class SettingsPushWindow : Window
             ps.BoardSyncRoot = TxtSyncRoot.Text.Trim();
         }
 
+        // r143 教学日历：开学日 + 校历整组。代次按内容指纹算，内容没变就不涨 ——
+        // 否则每次下发都把代次推高，教室机就得跟着重刷一遍校历。
+        if (ChkCalendar.IsChecked == true)
+        {
+            var st = Store.LoadSettings();               // 用最新那份算代次，算完写回，代次才连续
+            SchedulePackage.IncludeCalendarGroup(ps, st, Store.LoadSchedule());
+            if (saveCalendarRev) Store.SaveSettings(st);
+        }
+
         return ps;
     }
 
     static int ParseInt(string s, int fallback)
         => int.TryParse((s ?? "").Trim(), out int v) ? v : fallback;
 
+    /// <summary>r144：代次重置指令（只在勾选时带）。★ 它不是设置内容，走 manifest 上的独立字段，
+    /// 所以不会污染内容指纹、也不会让「内容一致就不重发」的判断失效。</summary>
+    SettingsPushService.RevResetRequest BuildResetRequest() => new()
+    {
+        Applied = ChkResetRev.IsChecked == true,
+        PackageSha = ChkResetRev.IsChecked == true && ChkResetPackage.IsChecked == true
+    };
+
+    /// <summary>r148：所有「会影响所有教室机」的选项统一在这里登记，供预览和确认共用一份文案。</summary>
+    List<string> CollectWarnings(PackageSettings ps, SettingsPushService.RevResetRequest reset)
+    {
+        var list = new List<string>();
+        if (ps.SourceGroupIncluded)
+            list.Add("更新来源 / 同步根目录会被发布机的值覆盖（"
+                     + $"来源 {ps.UpdateSourceKind}"
+                     + (string.IsNullOrWhiteSpace(ps.UpdateFolderPath) ? "" : $"，共享路径 {ps.UpdateFolderPath}")
+                     + (string.IsNullOrWhiteSpace(ps.UpdateFtpUrl) ? "" : $"，FTP {ps.UpdateFtpUrl}")
+                     + (string.IsNullOrWhiteSpace(ps.BoardSyncRoot) ? "" : $"，同步根 {ps.BoardSyncRoot}")
+                     + "）。填错会让教室机再也拉不到更新。");
+        if (ChkForce.IsChecked == true)
+            list.Add("强制重新下发：内容与远端一致也会重写 manifest，所有教室机下次检查都会重新应用一遍设置。");
+        if (reset.Any)
+            list.Add(RevResetService.Describe(reset.Applied, reset.PackageSha)
+                     + "。清零不可撤销，教室机会把收到的内容全部当成新的应用一遍。");
+        return list;
+    }
+
+    /// <summary>r148：底栏实时预览。读本机设置但不写盘，纯展示。</summary>
+    void UpdatePushPreview()
+    {
+        if (TxtPushPreview == null) return;
+        try
+        {
+            var ps = BuildPayload(saveCalendarRev: false);
+            var changes = SettingsPushService.DescribeChanges(Store.LoadSettings(), ps);
+            var warnings = CollectWarnings(ps, BuildResetRequest());
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("本次下发：").Append(SettingsPushService.Summary(ps));
+            if (ps.CalendarIncluded)
+                sb.Append($"（校历代次 {ps.CalendarRev} · {ps.Calendar?.Count ?? 0} 条）");
+            sb.Append("\n相对本机：").Append(DescribeForPreview(changes));
+            if (warnings.Count > 0) sb.Append("\n⚠ ").Append(string.Join("；", warnings));
+
+            TxtPushPreview.Text = sb.ToString();
+            TxtPushPreview.Foreground = (System.Windows.Media.Brush)FindResource(
+                warnings.Count > 0 ? "DangerBrush" : "BodyBrush");
+        }
+        catch (Exception ex)
+        {
+            TxtPushPreview.Text = "预览失败：" + ex.Message;
+        }
+    }
+
+    static string DescribeForPreview(List<string> changes) => changes.Count == 0
+        ? "无改动"
+        : string.Join("、", changes.Take(5)) + (changes.Count > 5 ? $" 等 {changes.Count} 项" : "");
+
     async void BtnPush_Click(object sender, RoutedEventArgs e)
     {
         if (_busy || _src == null) return;
 
         var ps = BuildPayload();
+        var reset = BuildResetRequest();
 
-        if (ps.SourceGroupIncluded)
+        // r148：三处危险项（更新来源覆盖 / 强制重推 / 重置代次）共用一次确认，
+        // 原先是两三个弹窗连着弹，管理员容易一路点确认过去。
+        var warnings = CollectWarnings(ps, reset);
+        if (warnings.Count > 0)
         {
-            string tip = "本次会连同「更新来源 / 同步根目录」一起下发，将覆盖所有教室机的数据源设置。\n\n"
-                       + $"来源类型：{ps.UpdateSourceKind}\n"
-                       + (string.IsNullOrWhiteSpace(ps.UpdateFolderPath) ? "" : $"共享路径：{ps.UpdateFolderPath}\n")
-                       + (string.IsNullOrWhiteSpace(ps.UpdateFtpUrl) ? "" : $"FTP 地址：{ps.UpdateFtpUrl}\n")
-                       + (string.IsNullOrWhiteSpace(ps.BoardSyncRoot) ? "" : $"同步根目录：{ps.BoardSyncRoot}\n")
-                       + "\n如果填错，教室机会再也拉不到更新。确定继续吗？";
+            var sb = new System.Text.StringBuilder();
+            sb.Append("本次下发会影响所有教室机，请核对后再继续。\n\n");
+            sb.Append("下发内容：").Append(SettingsPushService.Summary(ps)).Append('\n');
+            sb.Append("相对本机改动：")
+              .Append(DescribeForPreview(SettingsPushService.DescribeChanges(Store.LoadSettings(), ps)))
+              .Append("\n\n危险项：\n");
+            foreach (var w in warnings) sb.Append("· ").Append(w).Append('\n');
+            sb.Append("\n确定继续吗？");
 
-            if (MessageBox.Show(tip, "确认下发数据源设置", MessageBoxButton.OKCancel,
+            if (MessageBox.Show(sb.ToString(), "确认下发设置", MessageBoxButton.OKCancel,
                     MessageBoxImage.Warning) != MessageBoxResult.OK)
                 return;
         }
@@ -211,9 +366,9 @@ public partial class SettingsPushWindow : Window
 
         try
         {
-            bool force = ChkForce.IsChecked == true;
+            bool force = ChkForce.IsChecked == true || reset.Any;
             var r = await System.Threading.Tasks.Task.Run(
-                () => SettingsPushService.Push(_src!, ps, force));
+                () => SettingsPushService.Push(_src!, ps, force, reset));
 
             if (!r.Ok)
             {

@@ -92,7 +92,7 @@ public static class TeacherExtractor
     /// 归一化教师名：去掉括号内容、（调）/（代）标记与空白；
     /// 命中明显非人名（含数字/字母、过长、场地关键字）时返回空串以跳过。
     /// </summary>
-    static string NormalizeTeacherName(string? raw)
+    public static string NormalizeTeacherName(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "";
         var s = Regex.Replace(raw, @"[\(（][^）)]*[\)）]", "").Trim();

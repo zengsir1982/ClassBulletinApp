@@ -56,13 +56,40 @@ public static class SettingsPushService
 
         /// <summary>本次写入改动了「班级内容同步」组（主窗信息管理页需要重载）。</summary>
         public bool SyncTouched { get; set; }
+
+        /// <summary>本次写入改动了「教学日历」（校历已落到 schedule.json，大屏 / 周视图要立刻重画）。</summary>
+        public bool CalendarTouched { get; set; }
+
+        /// <summary>本次落地的校历条数（-1 = 本机还没课表，什么都没写）。</summary>
+        public int CalendarCount { get; set; }
+
+        /// <summary>本次执行了代次重置指令（教室机侧高水位已清零）。</summary>
+        public bool ResetDone { get; set; }
+    }
+
+    /// <summary>
+    /// 下发时附带的「重置教室机代次」请求（r144）。
+    /// <para>用独立类型而不是复用 <see cref="PackageSettings"/>：重置是<b>一次性指令</b>，
+    /// 不属于设置内容，绝不能被算进内容指纹（否则每次下发都被判成"内容变了"）。</para>
+    /// </summary>
+    public class RevResetRequest
+    {
+        /// <summary>清零教室机的已应用设置代次 + 已应用教学日历代次。</summary>
+        public bool Applied { get; set; }
+
+        /// <summary>清空教室机记住的整包摘要（让它下次检查重新下载课表包）。</summary>
+        public bool PackageSha { get; set; }
+
+        public bool Any => Applied || PackageSha;
     }
 
     /// <summary>
     /// 发布端：把设置写进数据源的 manifest 并单独上传（不动 data.cbpack）。
     /// </summary>
     /// <param name="force">true = 即使内容与远端一致也重新下发（用于把被改乱的教室机拉回统一值）。</param>
-    public static PushResult Push(IFeedSource src, PackageSettings ps, bool force = false)
+    /// <param name="reset">同时下发「重置教室机代次」指令；带指令时强制写入 manifest（内容一样也要写）。</param>
+    public static PushResult Push(IFeedSource src, PackageSettings ps, bool force = false,
+        RevResetRequest? reset = null)
     {
         var r = new PushResult { ItemCount = CountItems(ps) };
         try
@@ -73,6 +100,10 @@ public static class SettingsPushService
                 r.Message = "数据源上没有可用的 manifest.json —— 请先「发布到数据源」一次，再来下发设置。";
                 return r;
             }
+
+            bool withReset = reset?.Any == true;
+            // 带重置指令时必须写 manifest，否则指令根本发不出去（指纹相同的分支会直接返回）
+            if (withReset) force = true;
 
             string fp = SchedulePackage.SettingsFingerprint(ps);
             string remoteFp = man is { SettingsIncluded: true, Settings: not null }
@@ -96,12 +127,22 @@ public static class SettingsPushService
             man.SettingsRev = Math.Max(1, man.SettingsRev + 1);
             man.SettingsPushId = Guid.NewGuid().ToString("N");
 
+            if (withReset)
+            {
+                man.RevResetId = Guid.NewGuid().ToString("N");
+                man.RevResetApplied = reset!.Applied;
+                man.RevResetPackage = reset.PackageSha;
+            }
+
             src.UploadManifestOnly(SchedulePackage.SerializeManifest(man));
 
             r.Ok = true;
             r.Rev = man.SettingsRev;
             r.PushId = man.SettingsPushId;
             r.Message = $"设置已下发（代次 {man.SettingsRev}，共 {r.ItemCount} 项）。"
+                      + (withReset
+                          ? "并附带「重置代次」指令：" + RevResetService.Describe(reset!.Applied, reset.PackageSha) + "。"
+                          : "")
                       + "教室机下次检查时自动应用，不会重下课表包。";
             return r;
         }
@@ -120,7 +161,7 @@ public static class SettingsPushService
     {
         var r = new ApplyResult();
 
-        if (man == null || !man.SettingsIncluded || man.Settings == null)
+        if (man == null)
         {
             r.Ok = true;
             r.Message = "数据源没有单独下发的设置。";
@@ -129,11 +170,34 @@ public static class SettingsPushService
 
         var st = Store.LoadSettings();
 
+        // ★ r144：重置代次指令必须最先处理，而且要在「已应用过这次下发」的早退之前 ——
+        //   管理员点「下发 + 重置」时，内容很可能与上次完全一样（PushId 不同但设置相同），
+        //   早退就会把指令吞掉，现场表现是"点了没反应"。
+        bool didReset = RevResetService.ApplyInstruction(man.RevResetId,
+            man.RevResetApplied, man.RevResetPackage, st);
+        if (didReset)
+        {
+            Store.SaveSettings(st);          // 令牌先落盘：不能因为下面任何一条早退路径丢掉它
+            r.ResetDone = true;
+            r.Applied = true;
+        }
+
+        if (!man.SettingsIncluded || man.Settings == null)
+        {
+            r.Ok = true;
+            r.Message = didReset
+                ? "已按管理员指令重置本机代次（本次下发不带设置内容）。"
+                : "数据源没有单独下发的设置。";
+            return r;
+        }
+
         if (!string.IsNullOrEmpty(man.SettingsPushId) &&
             string.Equals(man.SettingsPushId, st.LastSettingsPushId, StringComparison.Ordinal))
         {
             r.Ok = true;
-            r.Message = "已应用过这次设置下发。";
+            r.Message = didReset
+                ? "已按管理员指令重置本机代次（这次下发的设置内容与上次相同，未重复应用）。"
+                : "已应用过这次设置下发。";
             return r;
         }
 
@@ -141,13 +205,42 @@ public static class SettingsPushService
         if (string.IsNullOrEmpty(man.SettingsPushId) && man.SettingsRev <= st.AppliedSettingsRev)
         {
             r.Ok = true;
-            r.Message = $"设置代次 {man.SettingsRev} 未高于本机 {st.AppliedSettingsRev}，已保留本机设置。";
+            r.Message = didReset
+                ? "已按管理员指令重置本机代次（设置代次仍低于本机，保留了本机设置）。"
+                : $"设置代次 {man.SettingsRev} 未高于本机 {st.AppliedSettingsRev}，已保留本机设置。";
             return r;
         }
 
         var changes = DescribeChanges(st, man.Settings);
         var touched = TouchedGroups(st, man.Settings);
-        SchedulePackage.ApplyPackageSettings(st, man.Settings);
+        if (didReset) changes.Insert(0, RevResetService.Describe(man.RevResetApplied, man.RevResetPackage));
+
+        // r143 教学日历：校历本体不在 settings.json，得单独写进 schedule.json。
+        // ★ 代次判定与整包侧方向相反：整包要求"更严"(>)，下发要求">=" ——
+        //   同代次重发也要生效，否则现场被改乱的教室机永远推不回去。
+        bool calTouched = false;
+        int calCount = 0;
+        bool calAccept = true;
+        if (man.Settings.CalendarIncluded)
+        {
+            calAccept = man.Settings.CalendarRev >= st.AppliedCalendarRev;
+            if (calAccept)
+            {
+                calCount = SchedulePackage.ApplyCalendarToLocalSchedule(man.Settings.Calendar);
+                if (calCount >= 0)
+                {
+                    st.AppliedCalendarRev = Math.Max(st.AppliedCalendarRev, man.Settings.CalendarRev);
+                    calTouched = true;
+                    changes.Add($"教学日历 {calCount} 条（代次 {man.Settings.CalendarRev}）");
+                }
+            }
+            else
+            {
+                changes.Add($"教学日历代次 {man.Settings.CalendarRev} 低于本机已应用 {st.AppliedCalendarRev}，已保留本机校历");
+            }
+        }
+
+        SchedulePackage.ApplyPackageSettings(st, man.Settings, includeCalendar: calAccept);
         st.AppliedSettingsRev = Math.Max(st.AppliedSettingsRev, man.SettingsRev);
         st.LastSettingsPushId = man.SettingsPushId ?? "";
         st.LastAppliedSettingsInfo =
@@ -163,6 +256,8 @@ public static class SettingsPushService
         r.Changes = changes;
         r.ReminderTouched = touched.Reminder;
         r.SyncTouched = touched.Sync;
+        r.CalendarTouched = calTouched;
+        r.CalendarCount = calCount;
         r.Message = changes.Count == 0
             ? $"已应用设置下发（代次 {man.SettingsRev}），内容与本机一致。"
             : $"已应用设置下发（代次 {man.SettingsRev}）：{string.Join("、", changes.Take(4))}"
@@ -174,11 +269,12 @@ public static class SettingsPushService
         return r;
     }
 
-    /// <summary>本次下发包含多少项设置（更新来源组按 7 项计）。</summary>
+    /// <summary>本次下发包含多少项设置（更新来源组按 7 项计，教学日历按 1 组计）。</summary>
     public static int CountItems(PackageSettings ps)
     {
         int n = 9 + 1 /* Reminder */ + 5 /* 同步开关 */;
         if (ps.SourceGroupIncluded) n += 7;
+        if (ps.CalendarIncluded) n += 1;
         return n;
     }
 
@@ -187,6 +283,7 @@ public static class SettingsPushService
     {
         var parts = new List<string> { "显示 9 项", "提醒 1 组", "同步 5 项" };
         if (ps.SourceGroupIncluded) parts.Add("更新来源 7 项");
+        if (ps.CalendarIncluded) parts.Add("教学日历 1 组");
         return string.Join(" · ", parts);
     }
 

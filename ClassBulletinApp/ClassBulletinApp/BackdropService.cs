@@ -365,9 +365,12 @@ public static class BackdropService
                                      showAlternateWeek: s.ShowAlternateWeekLessons);
         string title = string.IsNullOrWhiteSpace(res.ClassName) ? name : res.ClassName;
         if (teacher && !string.IsNullOrWhiteSpace(title)) title = title + " 老师";
-        // r133：调休补课 / 放假的标签跟标题行一起画进背景，远看就能知道"今天按周三上课"
+        // r133/r137：调休补课 / 放假的标签跟标题行一起画进背景，远看就知道「今天按第12周周三上课」
         string weekText = res.WeekLine;
-        if (!string.IsNullOrWhiteSpace(res.DayTag)) weekText += "　" + res.DayTag;
+        // r137 起 WeekLine 在调休日已经就是完整标签，别再拼一遍变成「按…上课　按…上课」
+        if (!string.IsNullOrWhiteSpace(res.DayTag)
+            && !weekText.EndsWith(res.DayTag, StringComparison.Ordinal))
+            weekText += "　" + res.DayTag;
         return (res, title, res.DateText, weekText);
     }
 

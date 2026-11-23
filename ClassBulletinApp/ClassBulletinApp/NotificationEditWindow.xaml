@@ -43,13 +43,16 @@
             <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="6"
                     Padding="10,6" Margin="0,0,0,8">
                 <DockPanel LastChildFill="False">
-                    <!-- 右组：主题风格下拉（与作业公示便签同一形态：色块 + 名称） -->
+                    <!-- 右组：整块便签的外观（主题风格 + 字号）——与上面「文字格式」是两码事：
+                         左边管「当前这一条通知」的字，右边管「整块便签」的配色与大小，都只在本机生效。
+                         r144：字号从「便签管理 → 风格…」搬到这里，那个独立窗已删除。 -->
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="7,0,0,0">
                         <Border Width="1" Height="18" Background="{DynamicResource LineBrush}" Margin="0,0,7,0"/>
                         <TextBlock Text="主题风格" FontSize="13" Foreground="{DynamicResource MutedBrush}"
                                    VerticalAlignment="Center" Margin="0,0,6,0"
                                    ToolTip="整块通知公告便签的配色。只在本机生效，不随数据包同步；不是当前这一条通知的文字格式。"/>
-                        <ComboBox x:Name="CbNoteTheme" Width="118" FontSize="13" SelectionChanged="CbNoteTheme_Changed">
+                        <ComboBox x:Name="CbNoteTheme" Width="118" FontSize="13" Margin="0,0,8,0"
+                                  SelectionChanged="CbNoteTheme_Changed">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Margin="2">
@@ -60,6 +63,15 @@
                                     </StackPanel>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBlock Text="字号" FontSize="13" Foreground="{DynamicResource MutedBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="整块便签的字号档位（小 / 标准 / 大）。只在本机生效，不随数据包同步。"/>
+                        <ComboBox x:Name="CbNoteScale" Width="72" FontSize="13"
+                                  SelectionChanged="CbNoteScale_Changed">
+                            <ComboBoxItem Content="小" Tag="0.9"/>
+                            <ComboBoxItem Content="标准" Tag="1"/>
+                            <ComboBoxItem Content="大" Tag="1.15"/>
                         </ComboBox>
                     </StackPanel>
 

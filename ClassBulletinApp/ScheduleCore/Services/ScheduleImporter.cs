@@ -31,17 +31,28 @@ public static class ScheduleImporter
     public static void SortClasses(ScheduleFile sf)
     {
         if (sf?.Classes == null || sf.Classes.Count < 2) return;
-        sf.Classes.Sort((a, b) =>
-        {
-            var (ga, na) = SplitClassName(a.ClassName);
-            var (gb, nb) = SplitClassName(b.ClassName);
-            int c = ga.CompareTo(gb);
-            if (c != 0) return c;
-            c = na.CompareTo(nb);
-            if (c != 0) return c;
-            return string.Compare(a.ClassName, b.ClassName, StringComparison.Ordinal);
-        });
+        sf.Classes.Sort((a, b) => CompareClassNames(a.ClassName, b.ClassName));
     }
+
+    /// <summary>
+    /// 两个班名的排序比较（年级 → 班号数值 → 原名）。
+    /// <para>★ 只拿到一串班名的地方（悬浮课表换班窗、各种下拉）必须用这个，
+    /// 不能直接用 <c>StringComparer(zh-CN)</c>：字符串比较会把「(10)班」排在「(2)班」前面，
+    /// 老师一眼就看出顺序不对。</para>
+    /// </summary>
+    public static int CompareClassNames(string? a, string? b)
+    {
+        var (ga, na) = SplitClassName(a);
+        var (gb, nb) = SplitClassName(b);
+        int c = ga.CompareTo(gb);
+        if (c != 0) return c;
+        c = na.CompareTo(nb);
+        if (c != 0) return c;
+        return string.Compare(a ?? "", b ?? "", StringComparison.Ordinal);
+    }
+
+    /// <summary>班名比较器，供 <c>OrderBy(n => n, ...)</c> 之类的链式调用使用。</summary>
+    public static IComparer<string> ClassNameComparer() => Comparer<string>.Create(CompareClassNames);
 
     /// <summary>拆出「年级序号, 班号」用于排序。七年级=0、八年级=1、九年级=2，其它=90。</summary>
     static (int grade, int number) SplitClassName(string? name)

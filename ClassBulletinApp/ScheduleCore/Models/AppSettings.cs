@@ -95,6 +95,12 @@ public class AppSettings
     public string SemesterStartMonday { get; set; } = "";
 
     /// <summary>
+    /// r136：已由人确认过的学期 / 课表版本名称。导入表标题只能给建议值（存 ScheduleFile.TermName），
+    /// 与这里比对，不一致就在概览横幅提示「待确认」，避免把机器猜的名字当事实。
+    /// </summary>
+    public string TermNameConfirmed { get; set; } = "";
+
+    /// <summary>
     /// 一周从星期几开始（0=周日、1=周一 … 6=周六）。默认 <b>周日</b>：
     /// 周日晚就能看到下周一的课。只影响"周视图的列顺序"与"本周是哪 7 天"，
     /// 不影响课表格子的 DayIdx（0=周一..6=周日，数据层永远按周一编号）。
@@ -493,6 +499,19 @@ public class AppSettings
     public double? ScheduleHandWidth { get; set; }
 
     /// <summary>
+    /// 板书书写区底色档位（r145）：paper / white / cream / mint / sky / green / slate。
+    /// <para>★ 本机观感，不进数据包、不下发：教室机的灯和屏幕各不相同，底色纯看现场。</para>
+    /// </summary>
+    public string ScheduleHandTheme { get; set; } = "paper";
+
+    /// <summary>
+    /// 板书笔色（#RRGGBB）。空 = 跟着底色档位的默认笔色走。
+    /// <para>存它是因为老师往往固定用一支笔（红笔批注 / 白笔写深色板），
+    /// 每次启动都回到黑色等于每次都要重选一遍。</para>
+    /// </summary>
+    public string ScheduleHandPenColor { get; set; } = "";
+
+    /// <summary>
     /// 启动时是否自动打开上次没关的黑板。
     /// <para>默认 true（保持老行为）。关掉之后每次启动黑板都是关的，
     /// 要在控制面板「显示设置 → 黑板」里点一下「黑板：开」才出来 —— 给「平时不用黑板」的班用。</para>
@@ -722,6 +741,36 @@ public class AppSettings
 
     /// <summary>最近一次独立下发应用的回执（数据管理页可见，便于回溯是哪一版改了什么）。</summary>
     public string LastAppliedSettingsInfo { get; set; } = "";
+
+    /// <summary>
+    /// 已经执行过的「重置代次」指令令牌（<see cref="SchedulePackage.PackageManifest.RevResetId"/>）。
+    /// <para>★ 为什么要令牌：重置指令会一直留在 manifest 里（这样离线的教室机上线后也能补执行），
+    /// 但同一台机器只能执行一次 —— 否则每次轮询都把 <see cref="AppliedSettingsRev"/> 清零，
+    /// 教室机本地调整的设置会被下发值无休止地覆盖。</para>
+    /// </summary>
+    public string LastRevResetId { get; set; } = "";
+
+    // ── 教学日历（校历 + 开学日）的代次（r143）──────────────────────────────
+    // 为什么单独一套代次：校历会随两种途径到教室机 —— ① 整包（schedule.json 里那份）
+    // ② 「下发设置」里的「教学日历」组。如果共用一个计数器，任何一方写入都会把另一方判成"旧"，
+    // 结果就是「刚下发的调休被随后一版课表包冲回去」。所以给日历自己一套高水位。
+
+    /// <summary>
+    /// 本机已应用过的「教学日历代次」（0 = 从未应用）。
+    /// <para>整包只在 <c>meta.CalendarRev &gt; 此值</c> 时才用自己的校历覆盖本机；
+    /// 独立下发则要求 <c>ps.CalendarRev &gt;= 此值</c>（同代次重发也算，便于纠正现场）。</para>
+    /// </summary>
+    public int AppliedCalendarRev { get; set; }
+
+    /// <summary>发布端「教学日历代次」计数器：内容真的变了才 +1（同 <see cref="SettingsPublishRev"/>）。</summary>
+    public int CalendarPublishRev { get; set; }
+
+    /// <summary>
+    /// 上次导出/下发时那份「教学日历」的内容指纹（开学日 + 全部校历规则）。
+    /// <para>★ 内容没变就沿用旧代次 —— 否则每次发课表都会把代次推高，
+    /// 管理员刚下发的调休会被下一版课表包按"代次更高"冲掉。</para>
+    /// </summary>
+    public string CalendarPublishFingerprint { get; set; } = "";
 
     /// <summary>
     /// 访问 Gitee 仓库所需的口令（可留空）。仅在仓库为<b>私有</b>时用于「检查软件更新」；

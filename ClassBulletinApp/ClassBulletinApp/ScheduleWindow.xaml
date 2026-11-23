@@ -190,6 +190,18 @@
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
         </Style>
+
+        <!-- 页码行按钮（r146 放大）：教室大屏用手指点，r145 那套 30×30 太小。
+             现在 44×44（触屏目标 ≥44px），图标同步放大到 24；手写区最窄 280 时
+             页码行仍能放下「‹ 1/2 › ＋ －」五颗，所以不能再大了。 -->
+        <Style x:Key="HandPageButton" TargetType="Button" BasedOn="{StaticResource HandToolButton}">
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="MinWidth" Value="44"/>
+            <Setter Property="Width" Value="44"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="FontSize" Value="15"/>
+        </Style>
     </Window.Resources>
     <Grid x:Name="Shell">
         <Grid.ColumnDefinitions>
@@ -216,23 +228,30 @@
 
                 <Border x:Name="HandHeader" Grid.Row="0" Background="{DynamicResource PrimaryBrush}" Padding="12,8">
                     <Grid>
-                        <StackPanel VerticalAlignment="Center" Margin="0,0,96,0">
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,150,0">
                             <TextBlock x:Name="TxtHandClass" FontSize="16" FontWeight="Bold" Foreground="White"
                                        TextTrimming="CharacterEllipsis"/>
                             <TextBlock x:Name="TxtHandSub" FontSize="12" Foreground="#B9CBEA" Margin="0,2,0,0"
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
-                        <Button x:Name="BtnHandCollapse" Content="收起" HorizontalAlignment="Right"
-                                VerticalAlignment="Center" Click="BtnHandCollapse_Click"
-                                Style="{StaticResource FloatScheduleButton}"
-                                Height="34" MinWidth="76" FontSize="13.5" Padding="12,0"
-                                ToolTip="收起左边这块板书，回到简洁模式（笔迹每天一份，7 天内都在）"/>
+                        <!-- r145：右组 =「底色」+「收起」。底色按钮左边一块当前底色的色块，一眼看出现在是哪种板 -->
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button x:Name="BtnHandTheme" VerticalAlignment="Center" Click="BtnHandTheme_Click"
+                                    Style="{StaticResource FloatScheduleButton}"
+                                    Height="34" MinWidth="72" FontSize="12.5" Padding="10,0" Margin="0,0,8,0"
+                                    ToolTip="书写区底色（点一下可换）"/>
+                            <Button x:Name="BtnHandCollapse" Content="收起" VerticalAlignment="Center"
+                                    Click="BtnHandCollapse_Click"
+                                    Style="{StaticResource FloatScheduleButton}"
+                                    Height="34" MinWidth="66" FontSize="13.5" Padding="12,0"
+                                    ToolTip="收起左边这块板书，回到简洁模式（笔迹每天一份，7 天内都在）"/>
+                        </StackPanel>
                     </Grid>
                 </Border>
 
                 <Grid Grid.Row="1" ClipToBounds="True">
-                    <!-- 淡横线：像备忘纸，写满也一眼能对齐；用平铺绘图刷，不用逐个 Canvas 画线 -->
-                    <Border>
+                    <!-- 底色 + 淡横线：底色由 ApplyHandTheme() 换（7 档），横线层 HandPaper 会被重建成同色系 -->
+                    <Border x:Name="HandPaper">
                         <Border.Background>
                             <DrawingBrush TileMode="Tile" Stretch="None"
                                           Viewport="0,0,1000,44" ViewportUnits="Absolute"
@@ -260,35 +279,61 @@
                     板书工具条（r107 放大）：原先 11 号字 + 7,2 内边距的小按钮，
                     教室里 3~4 米外看不清、手指也点不准。现在 48 高、图标 + 文字，
                     图标由 StyleHandToolBar() 在代码里装配（Path 跟着主题换色）。
+                    r145：上面多了一条页码行（‹ 1/2 › / ＋ 删页），写满了往右加页，不用清掉重写。
                 -->
                 <Border x:Name="HandBar" Grid.Row="2" Background="#F8FAFC" BorderBrush="#E2E8F0"
-                        BorderThickness="0,1,0,0" Padding="10,7">
-                    <DockPanel LastChildFill="False">
-                        <!-- 右：笔 / 橡皮 / 撤销 / 清空。
-                             ★ 先停靠右边：DockPanel 按加入顺序排，日期那组在后面能拿到的余量才不会被工具组吃掉。
-                             ★ 竖排「图标 + 小字」：手写区最窄时（约 420）也放得下四个 52 宽的大按钮。 -->
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="BtnHandClear" Style="{StaticResource HandToolButton}"
-                                    Click="BtnHandClear_Click" ToolTip="清空这一天的板书（会先问一次）"/>
-                            <Button x:Name="BtnHandUndo" Style="{StaticResource HandToolButton}"
-                                    Click="BtnHandUndo_Click" ToolTip="撤销刚才写的那一笔"/>
-                            <Button x:Name="BtnHandEraser" Style="{StaticResource HandToolButton}"
-                                    Click="BtnHandEraser_Click" ToolTip="橡皮：擦掉写错的地方"/>
-                            <Button x:Name="BtnHandPen" Style="{StaticResource HandToolButton}"
-                                    Click="BtnHandPen_Click" ToolTip="点一下选中笔，再点一次换颜色与粗细"/>
-                        </StackPanel>
-                        <!-- 左：日期翻页 ‹ 日期 › -->
-                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="BtnHandPrev" Style="{StaticResource HandNavButton}"
-                                    Click="BtnHandPrev_Click" ToolTip="前一天"/>
-                            <TextBlock x:Name="TxtHandDate" VerticalAlignment="Center" FontSize="15" FontWeight="Bold"
-                                       Margin="6,0" Cursor="Hand" TextTrimming="CharacterEllipsis"
-                                       MouseLeftButtonDown="TxtHandDate_MouseLeftButtonDown"
-                                       ToolTip="点一下回到今天"/>
-                            <Button x:Name="BtnHandNext" Style="{StaticResource HandNavButton}"
-                                    Click="BtnHandNext_Click" ToolTip="后一天"/>
-                        </StackPanel>
-                    </DockPanel>
+                        BorderThickness="0,1,0,0" Padding="10,6">
+                    <StackPanel>
+                        <!-- 页码行：左「‹ 第几页/共几页 ›」，右「＋ / －」。
+                             点中间的数字可直接跳页；只有 1 页时「－」自动灰掉。 -->
+                        <DockPanel x:Name="HandPageBar" LastChildFill="False" Margin="0,0,0,6">
+                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnHandPagePrev" Style="{StaticResource HandPageButton}"
+                                        Click="BtnHandPagePrev_Click" ToolTip="上一页"/>
+                                <!-- r146：页码数字包一层透明命中区（44 高），手指点数字本身也能弹出跳页菜单 -->
+                                <Border VerticalAlignment="Center" Background="Transparent" Cursor="Hand"
+                                        Padding="8,4" MouseLeftButtonDown="TxtHandPage_MouseLeftButtonDown"
+                                        ToolTip="点击可跳到指定页">
+                                    <TextBlock x:Name="TxtHandPage" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                               FontSize="17" FontWeight="Bold" Foreground="#3C4B5C"/>
+                                </Border>
+                                <Button x:Name="BtnHandPageNext" Style="{StaticResource HandPageButton}"
+                                        Click="BtnHandPageNext_Click" ToolTip="下一页"/>
+                            </StackPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnHandPageAdd" Style="{StaticResource HandPageButton}"
+                                        Click="BtnHandPageAdd_Click" ToolTip="在这天后面加一页（写满了用）"/>
+                                <Button x:Name="BtnHandPageDel" Style="{StaticResource HandPageButton}"
+                                        Click="BtnHandPageDel_Click" ToolTip="删除本页（会先问一次；至少保留 1 页）"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <DockPanel LastChildFill="False">
+                            <!-- 右：笔 / 橡皮 / 撤销 / 清空。
+                                 ★ 先停靠右边：DockPanel 按加入顺序排，日期那组在后面能拿到的余量才不会被工具组吃掉。
+                                 ★ 竖排「图标 + 小字」：手写区最窄时（约 420）也放得下四个 52 宽的大按钮。 -->
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnHandClear" Style="{StaticResource HandToolButton}"
+                                        Click="BtnHandClear_Click" ToolTip="清空这一页的板书（会先问一次）"/>
+                                <Button x:Name="BtnHandUndo" Style="{StaticResource HandToolButton}"
+                                        Click="BtnHandUndo_Click" ToolTip="撤销刚才写的那一笔"/>
+                                <Button x:Name="BtnHandEraser" Style="{StaticResource HandToolButton}"
+                                        Click="BtnHandEraser_Click" ToolTip="橡皮：擦掉写错的地方"/>
+                                <Button x:Name="BtnHandPen" Style="{StaticResource HandToolButton}"
+                                        Click="BtnHandPen_Click" ToolTip="点一下选中笔，再点一次换颜色与粗细"/>
+                            </StackPanel>
+                            <!-- 左：日期翻页 ‹ 日期 › -->
+                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnHandPrev" Style="{StaticResource HandNavButton}"
+                                        Click="BtnHandPrev_Click" ToolTip="前一天"/>
+                                <TextBlock x:Name="TxtHandDate" VerticalAlignment="Center" FontSize="15" FontWeight="Bold"
+                                           Margin="6,0" Cursor="Hand" TextTrimming="CharacterEllipsis"
+                                           MouseLeftButtonDown="TxtHandDate_MouseLeftButtonDown"
+                                           ToolTip="点一下回到今天"/>
+                                <Button x:Name="BtnHandNext" Style="{StaticResource HandNavButton}"
+                                        Click="BtnHandNext_Click" ToolTip="后一天"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>
@@ -369,12 +414,16 @@
                                            TextTrimming="CharacterEllipsis"/>
                             </Grid>
                             <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
-                                <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" VerticalAlignment="Center"/>
-                                <!-- r133 校历标签：调休补课「按周三课表上课」（绿）、放假「今日放假」（红） -->
-                                <Border x:Name="DayTagBox" Visibility="Collapsed" CornerRadius="4"
-                                        Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center"
+                                <TextBlock x:Name="TxtWeek" FontSize="14" Foreground="#E3ECFB" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <!-- r133/r137 校历标签：调休补课「按第12周周三上课」（绿）、放假「今日放假」（红）。
+                                     r143：补课日「周次行」与这个胶囊说的是同一句话（都带"按第几周周几"），
+                                     只留胶囊一处，并加粗放大一档，远看才抓得住。 -->
+                                <Border x:Name="DayTagBox" Visibility="Collapsed" CornerRadius="6"
+                                        Padding="9,2" Margin="8,0,0,0" VerticalAlignment="Center"
                                         Background="#2E7D32">
-                                    <TextBlock x:Name="TxtDayTag" FontSize="12" Foreground="White"/>
+                                    <TextBlock x:Name="TxtDayTag" FontSize="13" FontWeight="Bold" Foreground="White"
+                                               TextTrimming="CharacterEllipsis"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -512,7 +561,17 @@
                         <Button x:Name="BtnQaInfo" Style="{StaticResource QuickActionBtn}" Click="BtnQaInfo_Click"
                                 Background="#F0F4FF" BorderBrush="#B8C6EC"
                                 ToolTip="打开「信息管理」的消息台账 / 回执窗口（教室里是收件箱，老师这边是发送箱）">
-                            <TextBlock Text="📨 信息"/>
+                            <Grid>
+                                <TextBlock x:Name="TxtQaInfoLabel" Text="📨 信息" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                <!-- r147：待办角标。默认收起，有未处理事项才出现；红底白字，和托盘一个口径 -->
+                                <Border x:Name="BadgeQaInfo" Visibility="Collapsed" HorizontalAlignment="Right"
+                                        VerticalAlignment="Top" Margin="0,-8,-6,0" MinWidth="17" Height="17"
+                                        CornerRadius="9" Background="#C0392B" BorderBrush="#FFFFFF" BorderThickness="1.5"
+                                        IsHitTestVisible="False" Padding="1,0">
+                                    <TextBlock x:Name="TxtQaInfoBadge" Text="0" FontSize="10.5" FontWeight="Bold"
+                                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
                         </Button>
                         <!-- 三个「开关型」入口：板书 / 通知公告便签 / 黑板。按钮高亮即表示当前已开启；
                              显隐与顺序同样由 QuickActionCatalog 按角色决定，所有角色默认显示。 -->

@@ -66,6 +66,14 @@ public partial class ScheduleWindow
     private bool _handLoading;
     private string _handPenColor = "#1F2A37";
     private double _handPenWidth = 2.6;
+    /// <summary>
+    /// 当前写的是这一天的第几页（r145）。
+    /// <para>★ 一天可以有好多页：一张黑板写满了就翻页，不用清掉前面的。
+    /// 页码与日期是两个正交的维度 —— 日期管「哪一天的」，页码管「那天第几块板」。</para>
+    /// </summary>
+    private int _handPage = 1;
+    /// <summary>这一天的总页数（由磁盘上的文件算出来，见 <see cref="CountHandPages"/>）。</summary>
+    private int _handPageCount = 1;
 
     // ---------- 拖动 ----------
     /// <summary>0 = 没在拖；1 = 拖窗口左沿（改手写区宽）；2 = 拖两区中间那条缝（改课表宽）。</summary>
@@ -95,7 +103,25 @@ public partial class ScheduleWindow
     // ---------- 存储 ----------
     private static string HandDir => Path.Combine(Store.AppDir, "handink");
 
-    private static string HandFile(DateTime d) => Path.Combine(HandDir, d.ToString("yyyyMMdd") + ".isf");
+    /// <summary>
+    /// 某天第 <paramref name="page"/> 页的笔迹文件。
+    /// <para>★ 第 1 页沿用旧文件名 <c>yyyyMMdd.isf</c> —— r145 之前写下的板书必须原地认出来，
+    /// 不能因为加了分页就把老师的旧笔迹弄丢。第 2 页起才是 <c>yyyyMMdd-p2.isf</c>。</para>
+    /// </summary>
+    private static string HandFile(DateTime d, int page = 1) => Path.Combine(HandDir,
+        page <= 1 ? d.ToString("yyyyMMdd") + ".isf" : d.ToString("yyyyMMdd") + "-p" + page + ".isf");
+
+    /// <summary>
+    /// 这一天一共有几页：从第 1 页往后数，数到第一个缺号为止（删页时会重编号，所以是连续的）。
+    /// <para>空页也落盘（见 <see cref="SaveHandInkNow"/>），否则「新建第 2 页但没写字」
+    /// 一重启就退回到 1 页，老师的页数白加了。</para>
+    /// </summary>
+    private static int CountHandPages(DateTime d)
+    {
+        int n = 0;
+        while (n < 50 && File.Exists(HandFile(d, n + 1))) n++;
+        return Math.Max(1, n);
+    }
 
     // ======================================================================
     //  模式切换
@@ -493,6 +519,7 @@ public partial class ScheduleWindow
         if (_handDate.Date == DateTime.Today) return;
         SaveHandInkNow();
         _handDate = DateTime.Today;
+        _handPage = 1;                       // 换日期一律从第 1 页开始（页码是那一天的，不跟着走）
         LoadHandInk(_handDate);
         UpdateHandHeader();
     }
@@ -509,8 +536,147 @@ public partial class ScheduleWindow
         if (target < oldest || target > newest) return;
 
         _handDate = target;
+        _handPage = 1;
         LoadHandInk(_handDate);
         UpdateHandHeader();
+    }
+
+    // ======================================================================
+    //  页码（r145）：同一天可以有好几页
+    // ======================================================================
+
+    private void BtnHandPagePrev_Click(object sender, RoutedEventArgs e) => GotoHandPage(_handPage - 1);
+
+    private void BtnHandPageNext_Click(object sender, RoutedEventArgs e) => GotoHandPage(_handPage + 1);
+
+    /// <summary>跳到某一天的第 <paramref name="page"/> 页（越界直接忽略，不做循环）。</summary>
+    private void GotoHandPage(int page)
+    {
+        page = Math.Clamp(page, 1, _handPageCount);
+        if (page == _handPage) return;
+
+        SaveHandInkNow();
+        _handPage = page;
+        LoadHandInk(_handDate, _handPage);
+        UpdateHandHeader();
+    }
+
+    /// <summary>
+    /// 加一页：插在最后，并立刻落一个空文件占位。
+    /// <para>★ 必须马上落盘：空页没有文件，「共几页」就数不出来，
+    /// 一重启老师会以为刚加的页丢了。空 StrokeCollection 存出来是合法的小文件。</para>
+    /// </summary>
+    private void AddHandPage()
+    {
+        SaveHandInkNow();
+        if (_handPageCount >= 50) return;
+
+        _handPageCount++;
+        _handPage = _handPageCount;
+        HandInk.Strokes.Clear();
+        _handUndo.Clear();
+        WriteEmptyHandPage(_handDate, _handPage);
+        UpdateHandHeader();
+    }
+
+    /// <summary>删掉当前页（会把后面几页整段往前挪一号，保证页码连续）。</summary>
+    private void DeleteHandPage()
+    {
+        if (_handPageCount <= 1)
+        {
+            MessageBox.Show(this, "这一天的板书只有 1 页，没有可删的页。\n（想重写这一页，用「清空」）",
+                "删除本页", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        string when = _handDate.Date == DateTime.Today ? "今天" : _handDate.ToString("M月d日");
+        var r = MessageBox.Show(this,
+            $"确定删除{when}的第 {_handPage} 页吗？\n（只删这一页的笔迹，删完后面的页会往前补一号；不可撤销）",
+            "删除本页", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        if (r != MessageBoxResult.Yes) return;
+
+        DeleteCurrentHandPage();
+    }
+
+    /// <summary>删页的实体（不弹确认框，确认由 <see cref="DeleteHandPage"/> 负责，诊断直接调这个）。</summary>
+    private void DeleteCurrentHandPage()
+    {
+        if (_handPageCount <= 1) return;
+
+        int dead = _handPage;
+        try { File.Delete(HandFile(_handDate, dead)); } catch { /* 删不掉就先留着，下次落盘会覆盖 */ }
+
+        // 后面的页往前补号：p(k+1) → p(k)
+        try
+        {
+            for (int k = dead + 1; k <= _handPageCount; k++)
+            {
+                string from = HandFile(_handDate, k);
+                if (!File.Exists(from)) continue;
+                File.Move(from, HandFile(_handDate, k - 1), overwrite: true);
+            }
+        }
+        catch { /* 挪不动时页数会多算一个，不至于丢笔迹 */ }
+
+        _handPageCount = CountHandPages(_handDate);
+        _handPage = Math.Clamp(dead, 1, _handPageCount);
+        HandInk.Strokes.Clear();
+        _handUndo.Clear();
+        LoadHandInk(_handDate, _handPage);
+        UpdateHandHeader();
+    }
+
+    /// <summary>点页码数字 → 列出所有页，直接跳（页多了不用一格一格翻）。</summary>
+    private void TxtHandPage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+
+        var menu = new ContextMenu { PlacementTarget = TxtHandPage, Placement = System.Windows.Controls.Primitives.PlacementMode.Top };
+        for (int i = 1; i <= _handPageCount; i++)
+        {
+            int page = i;
+            var mi = new MenuItem { Header = "第 " + i + " 页" + (i == _handPage ? " ✓" : "") };
+            mi.Click += (_, _) => GotoHandPage(page);
+            menu.Items.Add(mi);
+        }
+        menu.Items.Add(new Separator());
+        var add = new MenuItem { Header = "＋ 加一页" };
+        add.Click += (_, _) => AddHandPage();
+        menu.Items.Add(add);
+        if (_handPageCount > 1)
+        {
+            var del = new MenuItem { Header = "删除当前页…" };
+            del.Click += (_, _) => DeleteHandPage();
+            menu.Items.Add(del);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void WriteEmptyHandPage(DateTime day, int page)
+    {
+        try
+        {
+            Directory.CreateDirectory(HandDir);
+            using var fs = new FileStream(HandFile(day, page), FileMode.Create, FileAccess.Write);
+            new StrokeCollection().Save(fs);
+        }
+        catch { /* 占位文件写不上不影响写字，最多少记一页 */ }
+    }
+
+    private void BtnHandPageAdd_Click(object sender, RoutedEventArgs e) => AddHandPage();
+
+    private void BtnHandPageDel_Click(object sender, RoutedEventArgs e) => DeleteHandPage();
+
+    /// <summary>页码条的文字与可用性（只有 1 页时「删页」灰掉，一眼看出不能删）。</summary>
+    private void UpdateHandPageBar()
+    {
+        if (TxtHandPage == null) return;
+        TxtHandPage.Text = _handPage + "/" + _handPageCount;
+        TxtHandPage.ToolTip = "第 " + _handPage + " 页，共 " + _handPageCount + " 页（点一下可跳页）";
+        if (BtnHandPagePrev != null) BtnHandPagePrev.IsEnabled = _handPage > 1;
+        if (BtnHandPageNext != null) BtnHandPageNext.IsEnabled = _handPage < _handPageCount;
+        if (BtnHandPageDel != null) BtnHandPageDel.IsEnabled = _handPageCount > 1;
+        if (BtnHandPageAdd != null) BtnHandPageAdd.IsEnabled = _handPageCount < 50;
     }
 
     private void UpdateHandHeader()
@@ -530,20 +696,27 @@ public partial class ScheduleWindow
         string day = wk[(int)_handDate.DayOfWeek];
         bool today = _handDate.Date == DateTime.Today;
 
-        TxtHandSub.Text = _handDate.ToString("yyyy年M月d日") + " " + day + (today ? " · 今天" : "");
+        // 多页时在蓝条上补一句「第 2/3 页」：工具条上的页码很小，3 米外看不清，
+        // 而「现在是第几页」恰恰是最容易搞错的一件事。
+        TxtHandSub.Text = _handDate.ToString("yyyy年M月d日") + " " + day + (today ? " · 今天" : "")
+                          + (_handPageCount > 1 ? " · 第 " + _handPage + "/" + _handPageCount + " 页" : "");
         // 工具条上只留「今天 / M月d日」：星期几蓝条上已经写着了，写全了会把日期那组撑宽，
         // 手写区最窄时四个工具按钮就没地方放。
         TxtHandDate.Text = today ? "今天" : _handDate.ToString("M月d日");
         TxtHandDate.Foreground = today
             ? new SolidColorBrush(Color.FromRgb(0x1E, 0x5F, 0xA8))
             : new SolidColorBrush(Color.FromRgb(0x8A, 0x94, 0xA6));
+
+        UpdateHandPageBar();
     }
 
     // ======================================================================
     //  笔迹存取
     // ======================================================================
 
-    private void LoadHandInk(DateTime day)
+    private void LoadHandInk(DateTime day) => LoadHandInk(day, _handPage);
+
+    private void LoadHandInk(DateTime day, int page)
     {
         _handLoading = true;
         try
@@ -551,7 +724,10 @@ public partial class ScheduleWindow
             HandInk.Strokes.Clear();
             _handUndo.Clear();
 
-            string f = HandFile(day);
+            _handPageCount = CountHandPages(day);
+            _handPage = Math.Clamp(page, 1, _handPageCount);
+
+            string f = HandFile(day, _handPage);
             if (!File.Exists(f)) return;
             using var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             HandInk.Strokes.Add(new StrokeCollection(fs));
@@ -589,10 +765,12 @@ public partial class ScheduleWindow
         _handSaveTimer?.Stop();
         try
         {
-            string f = HandFile(_handDate);
-            if (HandInk.Strokes.Count == 0)
+            string f = HandFile(_handDate, _handPage);
+            // ★ 只有「单页 + 第 1 页 + 一笔没写」才删文件（旧行为：清空后不留 0 字节文件）。
+            //   多页时哪怕这页空了也要留占位文件 —— 否则页数会缩，页码会串。
+            bool dropFile = HandInk.Strokes.Count == 0 && _handPageCount <= 1 && _handPage <= 1;
+            if (dropFile)
             {
-                // 清空后不必留一个 0 字节的文件，下次打开照样是白板
                 if (File.Exists(f)) File.Delete(f);
             }
             else
@@ -618,7 +796,9 @@ public partial class ScheduleWindow
             foreach (var f in Directory.GetFiles(HandDir, "*.isf"))
             {
                 string name = Path.GetFileNameWithoutExtension(f);
-                if (!DateTime.TryParseExact(name, "yyyyMMdd",
+                // r145：文件名可能是 yyyyMMdd 或 yyyyMMdd-p2，只看前 8 位日期
+                if (name.Length < 8) continue;
+                if (!DateTime.TryParseExact(name.Substring(0, 8), "yyyyMMdd",
                         System.Globalization.CultureInfo.InvariantCulture,
                         System.Globalization.DateTimeStyles.None, out var d))
                     continue;
@@ -680,7 +860,8 @@ public partial class ScheduleWindow
         if (HandInk.Strokes.Count == 0) return;
 
         string when = _handDate.Date == DateTime.Today ? "今天" : _handDate.ToString("M月d日");
-        var r = MessageBox.Show(this, $"确定清空{when}的板书吗？\n（只清这一天的，其它日期不受影响）",
+        string page = _handPageCount > 1 ? "第 " + _handPage + " 页" : "";
+        var r = MessageBox.Show(this, $"确定清空{when}{page}的板书吗？\n（只清这一页，其它页与其它日期都不受影响）",
             "清空板书", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
         if (r != MessageBoxResult.Yes) return;
 
@@ -711,6 +892,14 @@ public partial class ScheduleWindow
 
     private const string InkIconHex = "#2B3A4A";
 
+    /// <summary>r146：页码按钮放大到 44×44，图标同步用 24（原来是 16 塞进 30 的小按钮）。</summary>
+    private static PathShape SmallIcon(PathShape icon)
+    {
+        icon.Width = 24;
+        icon.Height = 24;
+        return icon;
+    }
+
     /// <summary>
     /// 板书工具条：放大按钮、（在代码里）画图标、挂窗口几何监听。构造时调一次。
     /// <para>★ 图标全部是 <see cref="DoodleIcons"/> 的 24×24 线稿 Path：换色只改 Stroke，
@@ -725,6 +914,16 @@ public partial class ScheduleWindow
 
         if (BtnHandPrev != null) BtnHandPrev.Content = DoodleIcons.Prev(DoodleIcons.Solid("#5B6B7C"));
         if (BtnHandNext != null) BtnHandNext.Content = DoodleIcons.Next(DoodleIcons.Solid("#5B6B7C"));
+
+        // r145：页码条的三个图标 + 底色按钮（底色按钮的内容由 ApplyHandTheme 填，会跟着换色块）
+        // r146：按钮放大到 44×44，图标用 24（SmallIcon）；教室大屏手指点得准
+        if (BtnHandPagePrev != null) BtnHandPagePrev.Content = SmallIcon(DoodleIcons.Prev(DoodleIcons.Solid("#5B6B7C")));
+        if (BtnHandPageNext != null) BtnHandPageNext.Content = SmallIcon(DoodleIcons.Next(DoodleIcons.Solid("#5B6B7C")));
+        if (BtnHandPageAdd != null) BtnHandPageAdd.Content = SmallIcon(DoodleIcons.Plus(DoodleIcons.Solid("#1E5FA3")));
+        if (BtnHandPageDel != null) BtnHandPageDel.Content = SmallIcon(DoodleIcons.Minus(DoodleIcons.Solid("#A32D2D")));
+
+        LoadHandLook();          // 底色 + 笔色（存在设置里；没有就用备忘纸 + 黑笔）
+        UpdateHandPageBar();
 
         // 左沿 / 右沿被拖：手写区宽度与课表列宽各归各的（见 OnHandWindowGeometryChanged）
         SizeChanged += (_, _) => OnHandWindowGeometryChanged();
@@ -771,7 +970,9 @@ public partial class ScheduleWindow
         var menu = new ContextMenu { PlacementTarget = BtnHandPen, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
         (string Hex, string Name)[] colors =
         {
-            ("#1F2A37", "黑"), ("#C0392B", "红"), ("#1E5FA3", "蓝"), ("#2E7D32", "绿")
+            ("#1F2A37", "黑"), ("#C0392B", "红"), ("#1E5FA3", "蓝"), ("#2E7D32", "绿"),
+            // r145：深色底（墨绿黑板 / 深灰）上黑笔是看不见的，必须给一支浅色笔
+            ("#F2F5F9", "白")
         };
 
         foreach (var (hex, name) in colors)
@@ -799,6 +1000,7 @@ public partial class ScheduleWindow
                 HandInk.EditingMode = InkCanvasEditingMode.Ink;
                 ApplyHandPen();
                 UpdateHandToolVisual();
+                SaveHandPenColor();          // r145：笔色跟着底色一起记，重启还是这支笔
                 ScheduleHandSave();
             };
             menu.Items.Add(mi);

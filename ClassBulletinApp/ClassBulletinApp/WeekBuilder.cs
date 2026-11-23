@@ -127,12 +127,12 @@ public static class WeekBuilder
         return data;
     }
 
-    /// <summary>表头：常规「周X／MM/dd」；补课列加一行「按周三」，放假日加一行「放假」。</summary>
+    /// <summary>表头：常规「周X／MM/dd」；补课列加一行「按12周周三」，放假日加一行「放假」。</summary>
     private static string HeaderText(DateTime date, DayPlan plan)
     {
         string head = $"{DayName(date.DayOfWeek)}\n{date:MM/dd}";
         if (plan.IsOff) return head + "\n放假";
-        if (plan.IsMakeup) return head + "\n按" + DayName(plan.DayIdx) + "上课";
+        if (plan.IsMakeup) return head + "\n" + (plan.AsDate.HasValue ? plan.ShortTag : "调休上课");
         return head;
     }
 

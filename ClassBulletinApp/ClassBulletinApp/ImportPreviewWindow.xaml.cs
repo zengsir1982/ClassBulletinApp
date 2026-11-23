@@ -61,6 +61,9 @@ public partial class ImportPreviewWindow : Window
         }
         LoadHintsToUi();
         Reparse();
+
+        // 原始表格补上行号：填「表头行/节次行」时能直接数到第几行
+        GridRaw.LoadingRow += (_, e) => e.Row.Header = (e.Row.GetIndex() + 1).ToString();
     }
 
     void LoadHintsToUi()
@@ -73,7 +76,10 @@ public partial class ImportPreviewWindow : Window
         CbPeriodStyle.SelectedIndex = _hints.PeriodStyle == PeriodStyle.LabelWithNumber ? 0
                                     : _hints.PeriodStyle == PeriodStyle.MorningNumber ? 1 : 2;
         CbCellLayout.SelectedIndex = _hints.CellLayout == CellLayout.NewLine ? 0
-                                   : _hints.CellLayout == CellLayout.Space ? 1 : 2;
+                                   : _hints.CellLayout == CellLayout.Space ? 1
+                                   : _hints.CellLayout == CellLayout.Parenthesis ? 2 : 3;
+        TxtCellSep.Text = _hints.CustomSeparator ?? "";
+        TxtCellSep.IsEnabled = CbCellLayout.SelectedIndex == 3;
         ChkTeacher.IsChecked = _hints.IsTeacherSchedule;
         TxtDayHeader.Text = _hints.DayHeaderIndex > 0 ? _hints.DayHeaderIndex.ToString() : "";
         TxtPeriodLabel.Text = _hints.PeriodLabelIndex > 0 ? _hints.PeriodLabelIndex.ToString() : "";
@@ -99,7 +105,10 @@ public partial class ImportPreviewWindow : Window
         _hints.PeriodStyle = CbPeriodStyle.SelectedIndex == 1 ? PeriodStyle.MorningNumber
                            : CbPeriodStyle.SelectedIndex == 2 ? PeriodStyle.PlainNumber : PeriodStyle.LabelWithNumber;
         _hints.CellLayout = CbCellLayout.SelectedIndex == 1 ? CellLayout.Space
-                          : CbCellLayout.SelectedIndex == 2 ? CellLayout.Parenthesis : CellLayout.NewLine;
+                          : CbCellLayout.SelectedIndex == 2 ? CellLayout.Parenthesis
+                          : CbCellLayout.SelectedIndex == 3 ? CellLayout.Custom
+                          : CellLayout.NewLine;
+        _hints.CustomSeparator = TxtCellSep.Text ?? "";
         _hints.IsTeacherSchedule = ChkTeacher.IsChecked == true;
         _hints.DayHeaderIndex = ParseInt(TxtDayHeader.Text);
         _hints.PeriodLabelIndex = ParseInt(TxtPeriodLabel.Text);
@@ -107,6 +116,14 @@ public partial class ImportPreviewWindow : Window
     }
 
     static int ParseInt(string? s) => int.TryParse(s, out var v) ? v : 0;
+
+    /// <summary>1 → A、26 → Z、27 → AA（只用来给原始表格标列名）。</summary>
+    static string ColumnLetter(int c)
+    {
+        var s = "";
+        while (c > 0) { int m = (c - 1) % 26; s = (char)('A' + m) + s; c = (c - 1) / 26; }
+        return s;
+    }
 
     void Reparse()
     {
@@ -181,6 +198,7 @@ public partial class ImportPreviewWindow : Window
         MainDimension = h.MainDimension, DayHeaderIndex = h.DayHeaderIndex,
         PeriodLabelIndex = h.PeriodLabelIndex, DataStartIndex = h.DataStartIndex,
         NameIndex = h.NameIndex, PeriodStyle = h.PeriodStyle, CellLayout = h.CellLayout,
+        CustomSeparator = h.CustomSeparator,
         PeriodOrientation = h.PeriodOrientation, CellSpan = h.CellSpan,
         SingleName = h.SingleName, IsTeacherSchedule = h.IsTeacherSchedule,
         UseBuiltInEryiParser = h.UseBuiltInEryiParser, Confidence = h.Confidence,
@@ -239,7 +257,9 @@ public partial class ImportPreviewWindow : Window
 
             int count = 0;
             var dt = new DataTable();
-            for (int c = 1; c <= _lastCol; c++) dt.Columns.Add("C" + c, typeof(string));
+            // 列名直接用 Excel 的列字母（A/B/C…）：DataGrid 自动生成的表头取的就是列名，
+            // 这样下面填「节次列/行」「表头行/列」时能直接对上号。
+            for (int c = 1; c <= _lastCol; c++) dt.Columns.Add(ColumnLetter(c), typeof(string));
             for (int r = 1; r <= _lastRow; r++)
             {
                 var row = dt.NewRow();
@@ -263,6 +283,23 @@ public partial class ImportPreviewWindow : Window
     void NumberOnly(object sender, TextCompositionEventArgs e)
     {
         e.Handled = !Regex.IsMatch(e.Text, "[0-9]");
+    }
+
+    /// <summary>r143：只有选了「自定义符号」才让分隔符输入框可用；切过去空着就先填个最常用的。</summary>
+    void CbCellLayout_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TxtCellSep == null) return;                  // XAML 解析期就会触发一次，控件还没建好
+        bool custom = CbCellLayout.SelectedIndex == 3;
+        TxtCellSep.IsEnabled = custom;
+        if (custom && string.IsNullOrWhiteSpace(TxtCellSep.Text)) TxtCellSep.Text = "｜";
+    }
+
+    /// <summary>诊断（--shot / --ui-check）用：切到「自定义符号」档位并按新参数重新解析，便于截实景。</summary>
+    internal void DiagSelectCustomSeparator()
+    {
+        CbCellLayout.SelectedIndex = 3;
+        if (string.IsNullOrWhiteSpace(TxtCellSep.Text)) TxtCellSep.Text = "｜";
+        Reparse();
     }
 
     void BtnReparse_Click(object sender, RoutedEventArgs e)

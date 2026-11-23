@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using ScheduleCore.Models;
@@ -40,6 +41,18 @@ public interface IFeedSource
     /// </summary>
     void UploadManifestOnly(string manifestJson);
 
+    /// <summary>
+    /// r146：列出更新源根目录下 <c>status/</c> 里的回执文件名（只含文件名，不含路径）。
+    /// 连不上 / 目录不存在时返回空表，不抛异常（发布端只是「还不知道」，不是失败）。
+    /// </summary>
+    System.Collections.Generic.List<string> ListStatus();
+
+    /// <summary>读一份回执原文；不存在返回 null。名字必须来自 <see cref="ListStatus"/>，不接受外部路径。</summary>
+    string? ReadStatus(string name);
+
+    /// <summary>教室机写自己那份回执：tmp → 改名，只覆盖同名文件，绝不碰别人的。</summary>
+    void WriteStatusOwn(string name, string json);
+
     /// <summary>连通性测试（不抛异常）。</summary>
     (bool Ok, string Message) Test();
 }
@@ -48,6 +61,19 @@ public static class FeedSourceFactory
 {
     public const string ManifestName = "manifest.json";
     public const string PackageName = "data.cbpack";
+
+    /// <summary>回执固定放在更新源根目录下这个子目录，与 manifest / 数据包并列。</summary>
+    public const string StatusDir = "status";
+
+    /// <summary>回执文件名白名单：只接受 ASCII 字母数字与 -_.，挡住 ../ 与路径分隔符。</summary>
+    internal static bool ValidStatusName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 80) return false;
+        if (name.Contains("..") || name.Contains('/') || name.Contains('\\')) return false;
+        foreach (char c in name)
+            if (!(char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_' || c == '.')) return false;
+        return true;
+    }
 
     /// <summary>按设置创建数据源；配置不完整时返回 null。</summary>
     public static IFeedSource? Create(AppSettings s)
@@ -121,6 +147,57 @@ public class FolderFeedSource : IFeedSource
         var manTmp = Path.Combine(_dir, FeedSourceFactory.ManifestName + ".tmp");
         File.WriteAllText(manTmp, manifestJson, new UTF8Encoding(false));
         File.Move(manTmp, Path.Combine(_dir, FeedSourceFactory.ManifestName), true);
+    }
+
+    // ---------- r146：更新回执通道（status/ 目录） ----------
+
+    string StatusPath(string name) => Path.Combine(_dir, FeedSourceFactory.StatusDir, name);
+
+    public System.Collections.Generic.List<string> ListStatus()
+    {
+        try
+        {
+            string dir = Path.Combine(_dir, FeedSourceFactory.StatusDir);
+            if (!Directory.Exists(dir)) return new System.Collections.Generic.List<string>();
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var f in Directory.GetFiles(dir, "u-*.json"))
+            {
+                string n = Path.GetFileName(f);
+                if (FeedSourceFactory.ValidStatusName(n)) names.Add(n);
+            }
+            names.Sort(StringComparer.Ordinal);
+            return names;
+        }
+        catch { return new System.Collections.Generic.List<string>(); }
+    }
+
+    public string? ReadStatus(string name)
+    {
+        if (!FeedSourceFactory.ValidStatusName(name)) return null;
+        try
+        {
+            string p = StatusPath(name);
+            return File.Exists(p) ? File.ReadAllText(p) : null;
+        }
+        catch { return null; }
+    }
+
+    public void WriteStatusOwn(string name, string json)
+    {
+        if (!FeedSourceFactory.ValidStatusName(name)) return;
+        string dir = Path.Combine(_dir, FeedSourceFactory.StatusDir);
+        Directory.CreateDirectory(dir);
+        // 每台机器独占自己的文件名；tmp 带随机串，避免两台机器同时写时撞临时文件
+        string tmp = Path.Combine(dir, name + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp");
+        try
+        {
+            File.WriteAllText(tmp, json, new UTF8Encoding(false));
+            File.Move(tmp, StatusPath(name), true);
+        }
+        finally
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+        }
     }
 
     public (bool Ok, string Message) Test()
@@ -239,6 +316,60 @@ public class FtpFeedSource : IFeedSource
 
     public void UploadManifestOnly(string manifestJson)
         => UploadBytes(FeedSourceFactory.ManifestName, new UTF8Encoding(false).GetBytes(manifestJson));
+
+    // ---------- r146：更新回执通道（status/ 目录） ----------
+
+    public System.Collections.Generic.List<string> ListStatus()
+    {
+        var names = new System.Collections.Generic.List<string>();
+        try
+        {
+            var req = Make(FeedSourceFactory.StatusDir + "/", WebRequestMethods.Ftp.ListDirectory);
+            using var resp = (FtpWebResponse)req.GetResponse();
+            using var s = resp.GetResponseStream();
+            using var r = new StreamReader(s);
+            while (r.ReadLine() is { } line)
+            {
+                // 有的服务器 NLST 返回带路径的全名，只留最后一段
+                string n = line.Trim().Split('/', '\\').Last();
+                if (n.StartsWith("u-", StringComparison.Ordinal) &&
+                    n.EndsWith(".json", StringComparison.Ordinal) &&
+                    FeedSourceFactory.ValidStatusName(n) && !names.Contains(n))
+                    names.Add(n);
+            }
+        }
+        catch { /* 目录不存在 / 列表被禁 = 还没有回执，不当成错误 */ }
+        names.Sort(StringComparer.Ordinal);
+        return names;
+    }
+
+    public string? ReadStatus(string name)
+    {
+        if (!FeedSourceFactory.ValidStatusName(name)) return null;
+        try
+        {
+            var req = Make(FeedSourceFactory.StatusDir + "/" + name, WebRequestMethods.Ftp.DownloadFile);
+            using var resp = (FtpWebResponse)req.GetResponse();
+            using var s = resp.GetResponseStream();
+            using var r = new StreamReader(s, Encoding.UTF8);
+            return r.ReadToEnd();
+        }
+        catch (WebException we) when (IsNotFound(we)) { return null; }
+        catch { return null; }
+    }
+
+    public void WriteStatusOwn(string name, string json)
+    {
+        if (!FeedSourceFactory.ValidStatusName(name)) return;
+        // 目录可能还没建：试一次，失败就当管理员已预先建好（很多 FTP 禁止客户端建目录）
+        try
+        {
+            var d = Make(FeedSourceFactory.StatusDir + "/", WebRequestMethods.Ftp.MakeDirectory);
+            using var dr = (FtpWebResponse)d.GetResponse();
+        }
+        catch { }
+        UploadBytes(FeedSourceFactory.StatusDir + "/" + name, new UTF8Encoding(false).GetBytes(json));
+    }
 
     public (bool Ok, string Message) Test()
     {
