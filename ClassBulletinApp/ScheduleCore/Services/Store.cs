@@ -955,6 +955,41 @@ public static class Store
         return changed;
     }
 
+    // ================== 教师账号的「手工指定科目」覆盖表 ==================
+
+    /// <summary>
+    /// 「从课表生成教师账号」时管理员手工指定的科目（用户名 → 科目名，空串 = 不限）。
+    /// <para>★ 只存在发布端本机：它决定"怎么建账号"，不是全校共享的数据，不进数据包、不下发。
+    /// 单独一个文件既避免把 users.json 撑大，也方便手改与排查。</para>
+    /// <para>★ 必须持久化的原因：不记住的话，管理员这次批量改了 100 人的科目，
+    /// 下次一生成就全被打回"课时最多"，而这 100 个账号还会因为指纹对不上被判成
+    /// "手工改过"、从此再不受课表刷新 —— 等于把这批人冻住了。</para>
+    /// </summary>
+    static string TeacherSubjectsPath => Path.Combine(AppDir, "teacher_subjects.json");
+
+    public static Dictionary<string, string> LoadTeacherSubjects()
+    {
+        var map = ReadJsonOrNull<Dictionary<string, string>>(TeacherSubjectsPath);
+        return map ?? new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    public static void SaveTeacherSubjects(Dictionary<string, string> map)
+    {
+        if (SuppressWrites) return;
+        if (!EnablePersistence) return;
+        Ensure();
+
+        // 按用户名排序后写：手改、比对、diff 都稳定
+        var sorted = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kv in map)
+        {
+            string key = (kv.Key ?? "").Trim();
+            if (key.Length == 0) continue;
+            sorted[key] = kv.Value ?? "";
+        }
+        WriteJsonAtomic(TeacherSubjectsPath, sorted);
+    }
+
     // ================== 用户表 ==================
 
     /// <summary>本机账号的固定用户名（电教管理员 / 学生角色，教室机开机自动登录用）。</summary>

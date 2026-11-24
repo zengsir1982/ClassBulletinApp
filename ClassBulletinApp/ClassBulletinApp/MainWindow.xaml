@@ -70,10 +70,17 @@
                                   SelectionChanged="CbTeacher_SelectionChanged"
                                   LostFocus="CbTeacher_LostFocus"
                                   ToolTip="可直接输入教师姓名查询筛选；选择后悬浮课表切换为该教师的个人课表"/>
-                        <TextBlock Text="班级：" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="13"/>
+                        <TextBlock x:Name="LblClass" Text="班级：" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="13"/>
                         <ComboBox x:Name="CbClass" Width="150" FontSize="14" SelectionChanged="CbClass_SelectionChanged" Margin="0,0,8,0"
                                   Foreground="{DynamicResource InkBrush}"
                                   ToolTip="选择班级后悬浮课表切换为该班的课表"/>
+                        <!-- 教师模式下顶栏只保留「我在看谁」：班级下拉收起，换成这一个返回按钮。
+                             留着班级下拉，老师随手点一下就丢了自己的课表，提醒也跟着变（r157）。 -->
+                        <Button x:Name="BtnShowClassCombo" Content="改看班级课表" Visibility="Collapsed" Margin="0,0,8,0"
+                                FontSize="13" Padding="9,4" Cursor="Hand" Background="Transparent" BorderThickness="1"
+                                BorderBrush="{DynamicResource LineBrush}" Foreground="{DynamicResource PrimaryBrush}"
+                                ToolTip="切回班级课表视图（顶栏班级下拉会重新出现）"
+                                Click="BtnShowClassCombo_Click"/>
                         <TextBlock x:Name="TxtCurrentMode" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" FontSize="13" Margin="6,0,0,0"/>
                         <TextBlock Text="开学日期" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="20,0,6,0" FontSize="13"/>
                         <DatePicker x:Name="DpSemester" Width="132" FontSize="13" VerticalAlignment="Center" SelectedDateFormat="Short"
@@ -458,6 +465,8 @@
                             <CheckBox x:Name="ChkRemindEnabled" Content="启用上下课提醒（总开关）"
                                       FontSize="15" FontWeight="Bold" Foreground="{DynamicResource InkBrush}" Margin="0,0,0,12" Click="RemindSetting_Changed"/>
 
+                            <TextBlock x:Name="TxtRemindTarget" Style="{StaticResource TextHint}" Margin="0,-6,0,12" TextWrapping="Wrap"/>
+
                             <!-- 文案占位符说明已并入「提示语·标题」那一行的行末 -->
                             <!-- 上课提醒：三组卡片共用 ReminderCard / ReminderInput / ReminderLabel 样式，
                                  x:Name、事件、文案、Margin 全部保持原样，只编辑差异 -->
@@ -472,7 +481,7 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                         <TextBlock Text="提示语·标题" Style="{StaticResource ReminderLabel}"/>
                                         <TextBox x:Name="TxtCsTitle" Style="{StaticResource ReminderInput}" TextChanged="RemindSetting_TextChanged"/>
-                                        <ctl:HelpBubble PopupTitle="文案占位符" Text="文案占位符：{p}=节次　{s}=科目　{t}=时间(HH:mm)。可在下列框中自由改写。" Margin="6,0,0,0"/>
+                                        <ctl:HelpBubble PopupTitle="文案占位符" Text="文案占位符：{p}=节次　{s}=科目　{t}=时间(HH:mm)　{c}=班级（教师课表模式下是你要去上课的班）。可在下列框中自由改写。" Margin="6,0,0,0"/>
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                         <TextBlock Text="提示语·详情" Style="{StaticResource ReminderLabel}"/>
@@ -1484,7 +1493,7 @@
                                     </Grid>
                                 </Border>
 
-                                <!-- ④ 本机状态 -->
+                                <!-- ④ 我的班级速览（教师身份）/ 本机状态（管理员、教室机） -->
                                 <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource AppCard}"
                                         MinHeight="172" Margin="8,0,0,0">
                                     <Grid>
@@ -1494,22 +1503,40 @@
                                             <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
                                         <DockPanel>
-                                            <TextBlock Text="本机状态" Style="{StaticResource TodayCardTitle}"/>
+                                            <TextBlock x:Name="TxtTodayCard4Title" Text="本机状态" Style="{StaticResource TodayCardTitle}"/>
                                             <Border x:Name="PillTodayStatus" Style="{StaticResource TodayPill}"
                                                     HorizontalAlignment="Right" Margin="8,0,0,0">
                                                 <TextBlock x:Name="TxtTodayStatusPill" Text="正常" FontSize="12"
                                                            Foreground="{DynamicResource SuccessBrush}"/>
                                             </Border>
                                         </DockPanel>
-                                        <StackPanel Grid.Row="1" Margin="0,13,0,0">
+
+                                        <!-- 甲：本机状态（管理员 / 教室机看这个） -->
+                                        <StackPanel x:Name="PnlTodayStatus" Grid.Row="1" Margin="0,13,0,0">
                                             <TextBlock x:Name="TxtTodayStatusValue" Text="展示正常" Style="{StaticResource TodayCardValue}"/>
                                             <TextBlock x:Name="TxtTodayStatusDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,7,0,0"/>
                                         </StackPanel>
-                                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+
+                                        <!-- 乙：我的班级速览（老师看这个：教几个班、今天几节、发过没） -->
+                                        <StackPanel x:Name="PnlTodayClasses" Grid.Row="1" Margin="0,13,0,0" Visibility="Collapsed">
+                                            <TextBlock x:Name="TxtTodayClassesValue" Text="还没有任教班级" Style="{StaticResource TodayCardValue}"/>
+                                            <!-- 每班一行：班级 · 节次 · 发送状态（按类型分色，作业未发是重点） -->
+                                            <StackPanel x:Name="PnlTodayClassRows" Margin="0,7,0,0"/>
+                                            <TextBlock x:Name="TxtTodayClassesDetail" Text="" Style="{StaticResource TodayCardMeta}" Margin="0,5,0,0"/>
+                                        </StackPanel>
+
+                                        <StackPanel x:Name="PnlTodayStatusActions" Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
                                             <Button x:Name="BtnTodayReminder" Content="提醒设置" Tag="3"
                                                     Style="{StaticResource AppGhostButton}" Padding="10,6" Margin="0,0,8,0"
                                                     Click="NavTodayAction_Click"/>
                                             <Button Content="布局与显示" Tag="layout" Style="{StaticResource AppGhostButton}"
+                                                    Padding="10,6" Click="NavTodayAction_Click"/>
+                                        </StackPanel>
+                                        <StackPanel x:Name="PnlTodayClassActions" Grid.Row="2" Orientation="Horizontal"
+                                                    Margin="0,10,0,0" Visibility="Collapsed">
+                                            <Button Content="打开消息台账" Tag="ledger" Style="{StaticResource AppGhostButton}"
+                                                    Padding="10,6" Margin="0,0,8,0" Click="NavTodayAction_Click"/>
+                                            <Button Content="发布内容" Tag="publish" Style="{StaticResource AppGhostButton}"
                                                     Padding="10,6" Click="NavTodayAction_Click"/>
                                         </StackPanel>
                                     </Grid>

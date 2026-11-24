@@ -70,6 +70,19 @@ public static class UserSession
         return v.Length > 0 && _sessionClasses.Contains(v);
     }
 
+    /// <summary>
+    /// 改课表的班级范围判定：<b>班主任班级</b>（<see cref="AppUser.HeadClassNames"/>）+ 会话临时班级。
+    /// <para>★ 与 <see cref="OwnsClassInSession"/>（作业 / 缺交 / 发信息用的任教范围）刻意分开：
+    /// 班主任兼教的其他班他能发作业，但改不了那些班的课表。</para>
+    /// </summary>
+    static bool OwnsHeadClassInSession(string? className)
+    {
+        if (_current == null) return false;
+        if (_current.OwnsHeadClass(className)) return true;
+        string v = (className ?? "").Trim();
+        return v.Length > 0 && _sessionClasses.Contains(v);
+    }
+
     /// <summary>当前登录用户；<c>null</c> = 游客（只能看和控显示，不能改任何数据）。</summary>
     public static AppUser? Current => _current;
 
@@ -153,7 +166,7 @@ public static class UserSession
     /// <summary>
     /// 能否编辑指定班级的课表。
     /// <para>★ 能力与范围是两件事：先看角色有没有开"改课表"这项能力，
-    /// 再看这个班在不在 <see cref="AppUser.ClassNames"/> 里。
+    /// 再看这个班在不在 <see cref="AppUser.HeadClassNames"/> 里（为空则回退 <see cref="AppUser.ClassNames"/>）。
     /// 没填班级的账号即使开了能力也什么都改不了 —— 绝不能退化成"没班级 = 没限制"。</para>
     /// </summary>
     public static bool CanEditClass(string? className)
@@ -161,7 +174,7 @@ public static class UserSession
         if (_current == null) return false;
         if (IsAdmin) return true;
         if (!_policy.EditSchedule) return false;
-        return OwnsClassInSession(className);
+        return OwnsHeadClassInSession(className);
     }
 
     /// <summary>能否导入总课表 / 单班 / 教师课表 / 清除调课（会整份覆盖全年级数据）。</summary>
@@ -272,9 +285,16 @@ public static class UserSession
         if (IsTeacher)
         {
             // 这个分支专门对付最常见的配置错误：班主任账号忘填班级
-            if (_current!.ClassNames.Count == 0)
+            if (_current!.ClassNames.Count == 0 && _current.HeadClassNames.Count == 0)
                 return $"你登录的班主任账号（{_current.Caption}）还没有指定班级，所以改不了任何班。"
                      + "请让管理员在「用户管理」里给这个账号填上班级。";
+
+            // 任教班 ≠ 班主任班：兼教的班能发作业，但改不了课表（r150）
+            if (_current.HeadClassNames.Count > 0 && _current.OwnsClass(className))
+                return $"你登录的是班主任账号（{_current.Caption}），「{className}」只是你任教的班。"
+                     + "任教班可以发作业 / 缺交，但只能改自己当班主任的班的课表"
+                     + $"（{string.Join("、", _current.HeadClassNames)}）。";
+
             return $"你登录的是班主任账号（{_current.Caption}），只能修改本班课表，不能改「{className}」。";
         }
 

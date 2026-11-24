@@ -49,6 +49,19 @@ public class BoardSyncWindow : Window
         ToolTip = "默认只列最近 N 天的记录（N 在「信息管理 → ③ 同步设置」里改，默认 7 天）；勾上则连更早的一起显示"
     };
 
+    /// <summary>
+    /// 「只看我发的」（r158）：教师机上多人共用一台机器时，A 老师不该在列表里看到 B 老师的单。
+    /// <para>★ 口径与今日卡 / 托盘角标完全一致（<see cref="PendingTodoService.IsMine"/>），
+    /// 否则会出现「今日卡说 2 条、这里列 5 条」，让人以为丢单。</para>
+    /// </summary>
+    readonly Wpf.CheckBox _mineOnlyBox = new()
+    {
+        Content = "只看我发的", FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(0, 0, 10, 0),
+        ToolTip = "只列发件人是当前登录账号的记录（发件人为空的老记录仍会列出，避免漏单）；"
+                + "教室机看的是本班所有到件，不参与这个筛选"
+    };
+
     /// <summary>「清除台账…」：唯一会真的删记录的地方，只对教师 / 管理员开放。</summary>
     readonly Wpf.Button _clear = new()
     {
@@ -57,6 +70,15 @@ public class BoardSyncWindow : Window
 
     /// <summary>是否显示全部（不受保留期限制）。</summary>
     bool _showAll;
+
+    /// <summary>
+    /// 是否「只看我发的」（r158）。默认值直接取今日卡 / 托盘角标同一口径，
+    /// 老师打开台账看到的条数与角标一致；教室机上这个筛选无意义（收件箱看的是本班全部到件）。
+    /// </summary>
+    bool _mineOnly = PendingTodoService.MineOnlyDefault;
+
+    /// <summary>上一次刷新时被「只看我发的」筛掉的条数，只用于状态提示。</summary>
+    int _mineHidden;
 
     List<BoardMessageRecord> _records = new();
 
@@ -88,9 +110,10 @@ public class BoardSyncWindow : Window
         grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 0 顶栏
         grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 1 设置条
         grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 2 r147 待办分组条
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 3 快照提示
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 4 主体
-        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 5 状态栏
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 3 r158 列表筛选条
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 4 快照提示
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 5 主体
+        grid.RowDefinitions.Add(new Wpf.RowDefinition { Height = GridLength.Auto });   // 6 状态栏
         Content = grid;
 
         // ---- 顶栏 ----
@@ -118,10 +141,15 @@ public class BoardSyncWindow : Window
         _send.Click += (_, _) => DoSend();
         head.Children.Add(_send);
 
+        // r158：两个筛选复选框从顶栏挪到独立一行 —— 顶栏加上它们会把「关闭」挤出窗口右边缘
+        // （1040 宽时刚好差 80px），而且「筛选」本来就和「动作」不是一类东西，分开更好读。
+        _mineOnlyBox.IsChecked = _mineOnly;
+        _mineOnlyBox.Checked += (_, _) => { _mineOnly = true; Refresh(); };
+        _mineOnlyBox.Unchecked += (_, _) => { _mineOnly = false; Refresh(); };
+
         // 保留期：默认只看最近 N 天（未处理的永远显示），更早的点「显示全部」还能翻回来
         _showAllBox.Checked += (_, _) => { _showAll = true; Refresh(); };
         _showAllBox.Unchecked += (_, _) => { _showAll = false; Refresh(); };
-        head.Children.Add(_showAllBox);
 
         _clear.Click += (_, _) => ClearLedgerNow();
         head.Children.Add(_clear);
@@ -176,10 +204,26 @@ public class BoardSyncWindow : Window
         grid.Children.Add(todoWrap);
         _todoButtons = new[] { btnJudge, btnVerify, btnConflict };
 
+        // ---- r158 列表筛选条：按谁发的筛（人） + 按多久以前筛（时间），两个条件独立 ----
+        var filters = new Wpf.StackPanel
+        {
+            Orientation = Wpf.Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        filters.Children.Add(new Wpf.TextBlock
+        {
+            Text = "列表筛选", FontSize = 12, Foreground = new SolidColorBrush(Muted),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0)
+        });
+        filters.Children.Add(_mineOnlyBox);
+        filters.Children.Add(_showAllBox);
+        Wpf.Grid.SetRow(filters, 3);
+        grid.Children.Add(filters);
+
         _snapshotBar.FontSize = 12;
         _snapshotBar.Margin = new Thickness(0, 0, 0, 10);
         _snapshotBar.Foreground = new SolidColorBrush(Muted);
-        Wpf.Grid.SetRow(_snapshotBar, 3);
+        Wpf.Grid.SetRow(_snapshotBar, 4);
         grid.Children.Add(_snapshotBar);
 
         // ---- 主体 ----
@@ -224,13 +268,13 @@ public class BoardSyncWindow : Window
         Wpf.Grid.SetColumn(right, 1);
         body.Children.Add(right);
 
-        Wpf.Grid.SetRow(body, 4);
+        Wpf.Grid.SetRow(body, 5);
         grid.Children.Add(body);
 
         // ---- 状态栏 ----
         _status.FontSize = 12;
         _status.Foreground = new SolidColorBrush(Ink);
-        Wpf.Grid.SetRow(_status, 5);
+        Wpf.Grid.SetRow(_status, 6);
         grid.Children.Add(_status);
     }
 
@@ -309,6 +353,18 @@ public class BoardSyncWindow : Window
         _send.ToolTip = can ? "发布作业 / 缺交 / 通知信息给所选班级"
                             : UserSession.DenyPublishInfo;
 
+        // r158：「只看我发的」只给教师机。教室机收件箱要确认的是本班全部到件，
+        // 隐藏起来比禁用更好 —— 放着不勾也会让人怀疑「是不是漏了别人发来的」。
+        bool isClassroom = BoardSyncService.IsClassroomMachine;
+        _mineOnlyBox.Visibility = isClassroom ? Visibility.Collapsed : Visibility.Visible;
+        if (isClassroom && _mineOnly)
+        {
+            _mineOnly = false;
+            _mineOnlyBox.IsChecked = false;
+        }
+        string me = (UserSession.Current?.Username ?? "").Trim();
+        _mineOnlyBox.Content = me.Length > 0 ? "只看我发的（" + me + "）" : "只看我发的";
+
         // 清除只给教师 / 管理员：电教管理员误清会把待处理消息一起清掉
         _clear.IsEnabled = !UserSession.IsStudent && Store.EnablePersistence;
         _clear.ToolTip = UserSession.IsStudent
@@ -366,7 +422,7 @@ public class BoardSyncWindow : Window
         }
     }
 
-    void DoSend()
+    async void DoSend()
     {
         if (!UserSession.CanPublishInfo)
         {
@@ -378,14 +434,22 @@ public class BoardSyncWindow : Window
         var w = new BoardSendWindow { Owner = this };
         if (w.ShowDialog() != true || w.Results.Count == 0) return;
 
-        int ok = 0;
-        var errs = new List<string>();
-        foreach (var o in w.Results)
+        // ★ 发送要写共享盘（r154）：放到后台，共享盘断了只让"发送"这一步慢，
+        //   窗口照旧能点、能关。
+        _status.Text = "正在发送…";
+        var results = await Task.Run(() =>
         {
-            var res = BoardSyncService.Send(o);
-            if (res.Ok) ok++;
-            else errs.Add(res.Message);
-        }
+            var list = new List<(bool Ok, string Message)>();
+            foreach (var o in w.Results)
+            {
+                var r = BoardSyncService.Send(o);
+                list.Add((r.Ok, r.Message));
+            }
+            return list;
+        });
+
+        int ok = results.Count(r => r.Ok);
+        var errs = results.Where(r => !r.Ok).Select(r => r.Message).ToList();
         _status.Text = ok > 0
             ? $"已发出 {ok} 条信息。" + (errs.Count > 0 ? "失败 " + errs.Count + " 条：" + string.Join("；", errs) : "")
             : "❌ " + string.Join("；", errs);
@@ -398,13 +462,17 @@ public class BoardSyncWindow : Window
     {
         try
         {
-            var c = PendingTodoService.Compute();
+            // 待办条必须跟当前列表口径一致：勾了「只看我发的」就只数我的，
+            // 取消勾选就数全部 —— 否则条上写 2 条、下面列出 5 条，会让人以为丢单。
+            var c = PendingTodoService.Compute(mineOnly: _mineOnly && IsOut);
             // 与 PendingTodoService 默认口径一致：用 IsClassroomMachine，不能只看当前登录角色
             string role = BoardSyncService.IsClassroomMachine ? "教室机" : "教师机";
-            _todoBar.Text = c.Any
+            string tail = IsOut && _mineOnly && _mineHidden > 0
+                ? $"（只看我发的，另有 {_mineHidden} 条是别人发的）" : "";
+            _todoBar.Text = (c.Any
                 ? $"{role}待办 {c.Todo} 条：待裁决 {c.NeedDecision} · 待核对 {c.NeedVerify}"
                   + (c.Conflict > 0 ? $" · 冲突 {c.Conflict}" : "")
-                : $"{role}当前没有待办（办结后数字会自动减）";
+                : $"{role}当前没有待办（办结后数字会自动减）") + tail;
             _todoBar.Foreground = new SolidColorBrush(c.Any
                 ? Color.FromRgb(0x8A, 0x5A, 0x00) : Color.FromRgb(0x77, 0x88, 0x99));
             if (_todoButtons != null)
@@ -441,6 +509,16 @@ public class BoardSyncWindow : Window
         {
             var st = BoardSyncService.LoadState();
             var all = IsOut ? BoardSyncService.Outbox(st) : BoardSyncService.Inbox(st);
+
+            // r158：只对「发件箱」按发件人筛。收件箱（教室机）看的是本班<b>所有</b>到件，
+            // 按人筛会漏单 —— 那正是电教管理员最怕的事。
+            _mineHidden = 0;
+            if (IsOut && _mineOnly)
+            {
+                var kept = all.Where(r => PendingTodoService.IsMine(r.Order)).ToList();
+                _mineHidden = all.Count - kept.Count;
+                all = kept;
+            }
 
             // 保留期只影响「默认显示哪一段」：勾了「显示全部」就一股脑列出来。
             // ★ 未处理的收件箱不受保留期影响（见 FilterByKeepDays），避免消息被藏起来。
@@ -656,9 +734,11 @@ public class BoardSyncWindow : Window
             {
                 Content = "撤回这条变更单", Padding = new Thickness(14, 8, 14, 8), FontSize = 14
             };
-            btn.Click += (_, _) =>
+            btn.Click += async (_, _) =>
             {
-                var res = BoardSyncService.Revoke(r.MsgId);
+                // 撤回 = 再发一条变更单（要写共享盘）：后台做，窗口不跟着等
+                _status.Text = "正在撤回…";
+                var res = await Task.Run(() => BoardSyncService.Revoke(r.MsgId));
                 _status.Text = res.Ok ? res.Message : "❌ " + res.Message;
                 Refresh();
             };
@@ -687,11 +767,13 @@ public class BoardSyncWindow : Window
         return w.ShowDialog() == true ? w.Result : null;
     }
 
-    void ApplyDecision(string msgId, string decision,
-                       string? targetItemId = null, string? targetBaseSignature = null)
+    async void ApplyDecision(string msgId, string decision,
+                             string? targetItemId = null, string? targetBaseSignature = null)
     {
-        var res = BoardSyncService.Apply(msgId, decision,
-            targetItemId: targetItemId, targetBaseSignature: targetBaseSignature);
+        // 应用要改本机作业 / 缺交文件 + 排回执：后台做（回执本身已经是异步补发的）
+        _status.Text = "正在应用…";
+        var res = await Task.Run(() => BoardSyncService.Apply(msgId, decision,
+            targetItemId: targetItemId, targetBaseSignature: targetBaseSignature));
         _status.Text = res.Ok ? "✔ " + res.Message : "❌ " + res.Message;
         if (!res.Ok) return;
 
@@ -704,7 +786,7 @@ public class BoardSyncWindow : Window
     /// 撤回这次替换 / 删除：按回执里的整条存档原文还原教室机数据。
     /// <para>★ 先确认再动手：还原会改本机作业 / 缺交文件，且把这次新增的那条软删除。</para>
     /// </summary>
-    void RestoreNow(string msgId)
+    async void RestoreNow(string msgId)
     {
         var pick = MessageBox.Show(this,
             "要撤回这次替换、把原文还原回教室机吗？\n\n" +
@@ -715,7 +797,8 @@ public class BoardSyncWindow : Window
             "撤回并还原", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (pick != MessageBoxResult.OK) return;
 
-        var res = BoardSyncService.RestoreArchived(msgId);
+        _status.Text = "正在还原…";
+        var res = await Task.Run(() => BoardSyncService.RestoreArchived(msgId));
         _status.Text = res.Ok ? "✔ " + res.Message : "❌ " + res.Message;
         if (!res.Ok) return;
 

@@ -136,6 +136,13 @@ public static class UpdateReceiptService
     public class Summary
     {
         public int Total, Latest, Behind, Failed, Stale;
+
+        /// <summary>
+        /// r153：数据源的 <c>status/</c> 到底读到了没有。
+        /// <para>false = 连不上（网络 / 共享名 / 权限），<b>不是</b>「没有回执」——
+        /// 界面必须分开说，否则共享盘掉线时会误导成「一台都没上报」。</para>
+        /// </summary>
+        public bool Reachable = true;
     }
 
     /// <summary>
@@ -153,7 +160,10 @@ public static class UpdateReceiptService
 
         int staleMinutes = Math.Max(60, Math.Max(1, intervalMinutes) * 2);
 
-        foreach (string name in src.ListStatus())
+        var (statusNames, reachable) = src.ListStatusEx();
+        sum.Reachable = reachable;
+
+        foreach (string name in statusNames)
         {
             if (!name.StartsWith("u-", StringComparison.Ordinal) ||
                 !name.EndsWith(".json", StringComparison.Ordinal)) continue;

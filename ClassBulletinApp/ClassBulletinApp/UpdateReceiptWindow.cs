@@ -22,7 +22,7 @@ namespace ClassBulletinApp;
 public class UpdateReceiptWindow : Window
 {
     readonly IFeedSource? _src;
-    readonly string _currentSha;
+    string _currentSha;
     readonly int _intervalMinutes;
     readonly Wpf.ListBox _list = new();
     readonly Wpf.StackPanel _detail = new();
@@ -49,11 +49,16 @@ public class UpdateReceiptWindow : Window
     public string DiagDetailText => _detailText;
     string _detailText = "";
 
+    /// <summary>
+    /// ★ r153：构造只搭壳，<b>不碰数据源</b>。以前这里同步读 manifest + 扫 status/，
+    /// 共享盘不可达时点开这个窗口要等几十秒（任务管理器里的"未响应"）。
+    /// 现在先显示「正在读取…」，窗口起来后再后台读。
+    /// </summary>
     public UpdateReceiptWindow(IFeedSource? feed = null, string? currentSha = null, int? intervalMinutes = null)
     {
         var st = Store.LoadSettings();
         _src = feed ?? FeedSourceFactory.Create(st);
-        _currentSha = currentSha ?? ReadCurrentSha();
+        _currentSha = currentSha ?? "";
         _intervalMinutes = intervalMinutes ?? st.UpdateIntervalMinutes;
 
         Title = "📡 更新回执 · 各教室机课表更新状态";
@@ -65,19 +70,114 @@ public class UpdateReceiptWindow : Window
         Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF4, 0xF9));
 
         BuildUi();
-        Refresh();
+        if (_src == null) ShowEmptyState();
+        else
+        {
+            _summary.Text = "正在读取设备回执…";
+            _status.Text = "正在读取数据源里的 status/ 目录；共享盘 / FTP 不可达时这一步可能要等十几秒，窗口不会卡死。";
+            Loaded += (_, _) => RefreshAsync();
+        }
         GlassChrome.Prepare(this);
     }
 
-    static string ReadCurrentSha()
+    void ShowEmptyState()
     {
+        _devices = new List<UpdateReceiptService.DeviceStatus>();
+        _list.Items.Clear();
+        _summary.Text = "未配置更新数据源 —— 没有可读取的回执。";
+        _status.Text = "回执不进数据包、不改代次；每台教室机在更新数据源根目录的 status/ 下写自己那份。";
+        _detail.Children.Clear();
+        _detailText = "";
+    }
+
+    public void Refresh() => RefreshAsync();
+
+    bool _busy;
+
+    /// <summary>后台读一次；按钮「立即刷新」与窗口首次显示都走这里。界面全程可点。</summary>
+    public async void RefreshAsync()
+    {
+        if (_src == null) { ShowEmptyState(); return; }
+        if (_busy) return;
+        _busy = true;
+
+        var src = _src;
+        string seed = _currentSha;
+        int interval = _intervalMinutes;
+        _summary.Text = "正在读取设备回执…";
+        _status.Text = "正在读取数据源里的 status/ 目录；共享盘 / FTP 不可达时可能要等十几秒，窗口不会卡死。";
+
         try
         {
-            var src = FeedSourceFactory.Create(Store.LoadSettings());
-            var man = SchedulePackage.ParseManifest(src?.ReadManifest() ?? "");
-            return man?.DataSha256 ?? "";
+            var (sha, sum, devs) = await Task.Run(() =>
+            {
+                string s = seed;
+                if (string.IsNullOrWhiteSpace(s))
+                    s = SchedulePackage.ParseManifest(src.ReadManifest())?.DataSha256 ?? "";
+                var r = UpdateReceiptService.Collect(src, s, interval);
+                return (s, r.Summary, r.Devices);
+            });
+            _currentSha = sha;
+            Render(sum, devs);
         }
-        catch { return ""; }
+        catch (Exception ex)
+        {
+            _devices = new List<UpdateReceiptService.DeviceStatus>();
+            _list.Items.Clear();
+            _summary.Text = "读取回执失败 —— 现在拿不到各机状态。";
+            _status.Text = "读取失败：" + UpdateReceiptService.SafeReason(ex.Message);
+            _detail.Children.Clear();
+            _detailText = "";
+        }
+        finally { _busy = false; }
+    }
+
+    /// <summary>
+    /// 同步读一次。<b>只给诊断 / 截图用</b>（那里的"数据源"是本机临时目录，不会阻塞）。
+    /// 正常界面路径一律走 <see cref="RefreshAsync"/>。
+    /// </summary>
+    public void RefreshSync()
+    {
+        if (_src == null) { ShowEmptyState(); return; }
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_currentSha))
+                _currentSha = SchedulePackage.ParseManifest(_src.ReadManifest())?.DataSha256 ?? "";
+            var result = UpdateReceiptService.Collect(_src, _currentSha, _intervalMinutes);
+            Render(result.Summary, result.Devices);
+        }
+        catch (Exception ex)
+        {
+            _devices = new List<UpdateReceiptService.DeviceStatus>();
+            _list.Items.Clear();
+            _summary.Text = "读取回执失败 —— 现在拿不到各机状态。";
+            _status.Text = "读取失败：" + UpdateReceiptService.SafeReason(ex.Message);
+        }
+    }
+
+    void Render(UpdateReceiptService.Summary sum, List<UpdateReceiptService.DeviceStatus> devs)
+    {
+        _devices = devs;
+        _list.Items.Clear();
+        foreach (var d in devs) _list.Items.Add(BuildRow(d));
+
+        if (!sum.Reachable)
+        {
+            // 「连不上」不是「一台都没上报」：色也不该是正常色
+            _summary.Text = "读不到数据源的 status/ 目录 —— 现在不知道各机状态。";
+            _status.Text = $"数据源：{_src!.Describe}　｜　连不上（网络 / 共享名 / 权限 / FTP 设置）。"
+                + "注意：这既不代表「都已更新」，也不代表「都没更新」，是「不知道」。";
+        }
+        else
+        {
+            _summary.Text = $"共 {sum.Total} 台　✅ 最新 {sum.Latest}　⏳ 版本落后 {sum.Behind}　" +
+                            $"⚠ 失败/异常 {sum.Failed}　💤 失联 {sum.Stale}";
+            _status.Text = $"数据源：{_src!.Describe}　当前包摘要：{(string.IsNullOrWhiteSpace(_currentSha) ? "未发布基线" : _currentSha[..Math.Min(12, _currentSha.Length)] + "…")}" +
+                           "　｜　「最新」是回执里的包摘要和当前包一致；「失联」只代表超过两个检查周期没上报，不等于没更新。";
+        }
+
+        if (_list.Items.Count > 0) _list.SelectedIndex = 0;
+        else { _detail.Children.Clear(); _detailText = ""; }
     }
 
     void BuildUi()
@@ -161,45 +261,6 @@ public class UpdateReceiptWindow : Window
         _status.Foreground = new SolidColorBrush(Muted);
         Wpf.Grid.SetRow(_status, 3);
         root.Children.Add(_status);
-    }
-
-    public void Refresh()
-    {
-        if (_src == null)
-        {
-            _devices = new List<UpdateReceiptService.DeviceStatus>();
-            _list.Items.Clear();
-            _summary.Text = "未配置更新数据源 —— 没有可读取的回执。";
-            _status.Text = "回执不进数据包、不改代次；每台教室机在更新数据源根目录的 status/ 下写自己那份。";
-            _detail.Children.Clear();
-            _detailText = "";
-            return;
-        }
-
-        UpdateReceiptService.Summary sum;
-        try
-        {
-            var result = UpdateReceiptService.Collect(_src, _currentSha, _intervalMinutes);
-            sum = result.Summary;
-            _devices = result.Devices;
-        }
-        catch (Exception ex)
-        {
-            _devices = new List<UpdateReceiptService.DeviceStatus>();
-            sum = new UpdateReceiptService.Summary();
-            _status.Text = "读取回执失败：" + UpdateReceiptService.SafeReason(ex.Message);
-        }
-
-        _list.Items.Clear();
-        foreach (var d in _devices) _list.Items.Add(BuildRow(d));
-
-        _summary.Text = $"共 {sum.Total} 台　✅ 最新 {sum.Latest}　⏳ 版本落后 {sum.Behind}　" +
-                        $"⚠ 失败/异常 {sum.Failed}　💤 失联 {sum.Stale}";
-        _status.Text = $"数据源：{_src.Describe}　当前包摘要：{(string.IsNullOrWhiteSpace(_currentSha) ? "未发布基线" : _currentSha[..Math.Min(12, _currentSha.Length)] + "…")}" +
-                       "　｜　「最新」是回执里的包摘要和当前包一致；「失联」只代表超过两个检查周期没上报，不等于没更新。";
-
-        if (_list.Items.Count > 0) _list.SelectedIndex = 0;
-        else { _detail.Children.Clear(); _detailText = ""; }
     }
 
     Wpf.Border BuildRow(UpdateReceiptService.DeviceStatus d)
@@ -360,8 +421,8 @@ public class UpdateReceiptWindow : Window
         if (_list.Items.Count > 0) _list.SelectedIndex = Math.Min(_list.Items.Count - 1, _devices.FindIndex(x => x.ActorId == d.ActorId));
     }
 
-    // ---- 诊断钩子 ----
-    public void DiagRefresh() => Refresh();
+    // ---- 诊断钩子（r153：改走同步版，诊断上下文没有消息泵，异步刷新会让断言读到旧列表） ----
+    public void DiagRefresh() => RefreshSync();
     public void DiagSelect(int index)
     {
         if (index >= 0 && index < _list.Items.Count) _list.SelectedIndex = index;
@@ -369,7 +430,7 @@ public class UpdateReceiptWindow : Window
     public bool DiagSetAlias(string actorId, string alias)
     {
         bool ok = UpdateReceiptService.SaveAlias(actorId, alias);
-        Refresh();
+        RefreshSync();
         return ok;
     }
 }

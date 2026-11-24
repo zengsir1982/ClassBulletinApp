@@ -474,10 +474,17 @@ public partial class MainWindow : Window
             if (schedule != null)
             {
                 foreach (var c in schedule.Classes) ClassNames.Add(c.ClassName);
-                if (!string.IsNullOrEmpty(settings.SelectedClass) && ClassNames.Contains(settings.SelectedClass))
-                    CbClass.SelectedItem = settings.SelectedClass;
-                else if (ClassNames.Count > 0)
-                    CbClass.SelectedIndex = 0;
+                // ★ r157：这里必须抑制 SelectionChanged。以前无条件赋值会把 ScheduleKind 写成 "Class"，
+                // 于是「上次在看我的课表」每次启动都被悄悄改回班级课表 —— 老师以为程序没记住。
+                _classGuard = true;
+                try
+                {
+                    if (!string.IsNullOrEmpty(settings.SelectedClass) && ClassNames.Contains(settings.SelectedClass))
+                        CbClass.SelectedItem = settings.SelectedClass;
+                    else if (ClassNames.Count > 0)
+                        CbClass.SelectedIndex = 0;
+                }
+                finally { _classGuard = false; }
                 TxtStatus.Text = fromErYi
                     ? $"已从二一排课缓存加载 {ClassNames.Count} 个班级课表，今日调代课 {eryiOverrideCount} 条。"
                     : $"已加载 {ClassNames.Count} 个班级课表。";
@@ -539,6 +546,11 @@ public partial class MainWindow : Window
             PopulateThemeCombo(settings.Theme);
             PopulateClockCombo(settings.ScheduleClockMode);
             InitGlassControls();
+            // r157：教师个人课表可能落后于底表（二一缓存启动 / 别人直接换 data 目录都没走导入链路），
+            // 老师登录会看到上周的课、提醒也跟着错。这里比一次时间戳，旧了就重建（10 毫秒级）。
+            EnsureTeacherScheduleFresh();
+            // r157：教师 / 科任老师登录后默认看「我的课表」（管理员与教室机不参与）
+            ApplyOwnScheduleDefault();
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -595,8 +607,11 @@ public partial class MainWindow : Window
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         RefreshTrayBadge();
-                        // r148：今日页正开着就把待办卡同步刷新；不在这一页时不打扰用户。
-                        if (MainTabs != null && MainTabs.SelectedIndex == 9) RefreshTodayPage();
+                        // r154：只重算「需要你处理」那一张卡，而且合并 300ms。
+                        // 一轮轮询会 SaveState 好几次（落账 / 推进回执 / 自动应用），
+                        // 以前每次都跑一遍 RefreshTodayPage —— 里面要 BoardBuilder.Build 全校课表，
+                        // 连来几条就能把 UI 线程占满，用户点别的窗口自然"没反应"。
+                        if (MainTabs != null && MainTabs.SelectedIndex == 9) BumpTodayTodoCard();
                     }));
                 }
                 catch { /* 正在退出 */ }
@@ -1333,8 +1348,20 @@ public partial class MainWindow : Window
         var s = Store.LoadSettings();
         bool teacher = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
         TxtCurrentMode.Text = teacher
-            ? $"当前显示：教师 {s.SelectedTeacher}"
+            ? $"我的课表 · {s.SelectedTeacher}"
             : $"当前显示：{s.SelectedClass}";
+
+        // r157：教师模式下收起班级下拉。顶栏只回答「我在看谁」一个问题：
+        // 班级下拉亮着，老师随手点一下就丢了自己的课表，上下课提醒也跟着变 —— 那是最容易出的错。
+        try
+        {
+            var hide = teacher ? Visibility.Collapsed : Visibility.Visible;
+            var show = teacher ? Visibility.Visible : Visibility.Collapsed;
+            if (LblClass != null) LblClass.Visibility = hide;
+            if (CbClass != null) CbClass.Visibility = hide;
+            if (BtnShowClassCombo != null) BtnShowClassCombo.Visibility = show;
+        }
+        catch { }
     }
 
     /// <summary>把开学周 / 开机自启同步到标题栏控件。</summary>
@@ -1410,6 +1437,8 @@ public partial class MainWindow : Window
             }
             finally { _teacherGuard = false; _classGuard = false; }
             UpdateModeIndicator();
+            if (TxtRemindTarget != null)
+                TxtRemindTarget.Text = "当前提醒对象：" + ReminderService.DescribeTarget();
         }
         catch { }
     }
@@ -1420,6 +1449,8 @@ public partial class MainWindow : Window
         var r = Store.LoadSettings().Reminder ?? new ScheduleCore.Models.ReminderSettings();
         _remindReady = false;
         ChkRemindEnabled.IsChecked = r.Enabled;
+        // r157：明确告诉老师「现在提醒的是谁的课」——教师模式读的是我的课表，不是某个班
+        if (TxtRemindTarget != null) TxtRemindTarget.Text = "当前提醒对象：" + ReminderService.DescribeTarget();
 
         // P4：上课 / 下课 / 放学三组完全同构 —— 一套读写 + 三次调用，只编辑差异
         LoadReminderProfile(r.ClassStart, ChkCsOn, TxtCsLead, TxtCsTitle, TxtCsDetail, TxtCsVoice, TxtCsDanmaku);
@@ -2784,6 +2815,10 @@ public partial class MainWindow : Window
             ApplyPermissions();
             // 账号填了班级就顺手切到该班（用户中心里改了班也要立刻体现）
             ApplyOwnClassDefault();
+            // r157：老师账号登录后默认看自己的课表（人主动登录 → 教室机上也允许切）
+            ApplyOwnScheduleDefault(manual: true);
+            RefreshTeacherCombo();
+            _pickedInfoClasses.Clear();   // 换了账号就别沿用上一个人的发布目标
 
             if (TxtCurUser != null) TxtCurUser.Text = acc.Username;
             TxtNewUser.Text = "";
@@ -2877,6 +2912,11 @@ public partial class MainWindow : Window
         ApplyPermissions();
         // 换了账号就按新账号的所属班级切一次（教室机上换人值班的常见场景）
         ApplyOwnClassDefault();
+        // r157：老师换账号后默认看自己的课表（人主动登录，教室机上也允许切；管理员会自己跳过）
+        ApplyOwnScheduleDefault(manual: true);
+        RefreshTeacherCombo();
+        // 换了人，发布目标不能沿用上一个人的勾选（不同老师教的班不一样）
+        _pickedInfoClasses.Clear();
         if (TxtCurUser != null) TxtCurUser.Text = UserSession.Current?.Username ?? "（游客）";
         TxtNewUser.Text = "";
         TxtNewPwd.Password = "";
@@ -2963,24 +3003,43 @@ public partial class MainWindow : Window
         {
             var st = Store.LoadSettings();
             var today = DateTime.Today;
-            string cls = CurrentDisplayClass();
-            var schedule = Store.LoadSchedule();
-            var board = BoardBuilder.Build(cls, st.SemesterStartMonday, schedule, today, null, false);
 
-            // 顶栏上下文：日期 / 星期 / 班级 / 教学周 / 单双周，调休与放假单独补一句
+            // r157：今日页跟随顶栏的「显示对象」—— 教师模式看自己的课表，不再永远拿某个班的课。
+            bool teacherMode = string.Equals(st.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+            string who = teacherMode ? (st.SelectedTeacher ?? "") : CurrentDisplayClass();
+            var schedule = teacherMode ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
+            if (teacherMode && (schedule == null || !schedule.Classes.Any(c => c.ClassName == who)))
+            {
+                // 教师表还没整理出来 / 这位老师不在表里：退回班级视图，
+                // 别让老师看到「暂无课表数据」还以为全校数据丢了。
+                teacherMode = false;
+                schedule = Store.LoadSchedule();
+                who = CurrentDisplayClass();
+            }
+            // 教师视角的调 / 代课要换算到本人名下（与悬浮课表同一套逻辑、同一份数据）
+            List<LessonOverride>? viewOverrides = null;
+            if (teacherMode && schedule != null)
+                viewOverrides = TeacherOverrideApplier.BuildTeacherOverrides(schedule, who, Store.LoadOverrides());
+
+            var board = BoardBuilder.Build(who, st.SemesterStartMonday, schedule, today, viewOverrides, false);
+
+            // 顶栏上下文：日期 / 星期 / 显示对象 / 教学周 / 单双周，调休与放假单独补一句
             string[] weeks = { "日", "一", "二", "三", "四", "五", "六" };
             string week = board.Plan?.SourceWeekLabel ?? WeekHelper.WeekLabel(today, st.SemesterStartMonday);
             string parity = board.Plan?.Parity == 1 ? "单周" : board.Plan?.Parity == 2 ? "双周" : "";
             TxtTodaySubtitle.Text = $"{today:yyyy 年 M 月 d 日} 星期{weeks[(int)today.DayOfWeek]}"
-                + (string.IsNullOrWhiteSpace(cls) ? "" : " · " + cls)
+                + (string.IsNullOrWhiteSpace(who) ? "" : teacherMode ? " · 我的课表 · " + who : " · " + who)
                 + (string.IsNullOrWhiteSpace(week) ? "" : " · " + week)
                 + (string.IsNullOrWhiteSpace(parity) ? "" : " · " + parity)
                 + (board.IsMakeup ? " · " + board.DayTag : board.IsOff ? " · 今日放假" : "");
 
             RefreshTodayTodoCard();
-            RefreshTodayLessonCard(board, cls, schedule == null);
+            RefreshTodayLessonCard(board, who, schedule == null, teacherMode);
             RefreshTodayUpdateCard(st);
-            RefreshTodayStatusCard(st);
+            // r158：老师看自己课表时，第四张卡换成「我的班级速览」；
+            // 管理员 / 教室机 / 看班级课表时仍是「本机状态」。
+            if (teacherMode) RefreshTodayClassesCard(board, who);
+            else RefreshTodayStatusCard(st);
         }
         catch (Exception ex)
         {
@@ -2988,11 +3047,37 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>今日卡的「需要你处理」自动刷新去抖：台账连变几次只算一次。</summary>
+    private DispatcherTimer? _todayTodoTimer;
+
+    /// <summary>
+    /// 台账变了 → 300 ms 后<b>只</b>刷那一张卡。
+    /// <para>★ 不要退回「整页 RefreshTodayPage」：那里面要 BoardBuilder.Build 全校课表，
+    /// 一轮轮询会 SaveState 好几次，连起来足以把 UI 线程占满。</para>
+    /// </summary>
+    private void BumpTodayTodoCard()
+    {
+        if (TxtTodayTodoValue == null) return;
+        if (_todayTodoTimer == null)
+        {
+            _todayTodoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+            _todayTodoTimer.Tick += (_, _) =>
+            {
+                _todayTodoTimer!.Stop();
+                try { if (TxtTodayTodoValue != null) RefreshTodayTodoCard(); } catch { }
+            };
+        }
+        _todayTodoTimer.Stop();
+        _todayTodoTimer.Start();
+    }
+
     private void RefreshTodayTodoCard()
     {
         var c = PendingTodoService.Compute();
         TxtTodayTodoValue.Text = c.Todo > 0 ? $"{c.Todo} 条待办" : "没有待办";
         string role = BoardSyncService.IsClassroomMachine ? "教室机" : "教师机";
+        // r157：教师机上多人共用一个账号池，A 老师不该被 B 老师的单顶着走
+        if (!BoardSyncService.IsClassroomMachine && PendingTodoService.MineOnlyDefault) role += " · 只算我发的";
         TxtTodayTodoDetail.Text = c.Todo > 0
             ? $"{role}：待裁决 {c.NeedDecision} · 待核对 {c.NeedVerify}"
               + (c.Conflict > 0 ? $" · 冲突 {c.Conflict}" : "")
@@ -3003,7 +3088,7 @@ public partial class MainWindow : Window
             c.Todo > 0 ? System.Windows.Media.Brushes.White : R("SuccessBrush"));
     }
 
-    private void RefreshTodayLessonCard(TodayResult board, string cls, bool noSchedule)
+    private void RefreshTodayLessonCard(TodayResult board, string cls, bool noSchedule, bool teacherMode = false)
     {
         var rows = board.Rows.Where(r => !r.IsFixed && r.Period > 0 && r.Lessons.Count > 0).ToList();
         int changed = rows.Count(r => r.Lessons.Any(l => l.IsOverridden));
@@ -3021,9 +3106,9 @@ public partial class MainWindow : Window
         System.Windows.Media.Brush pillBg, pillFg;
         if (string.IsNullOrWhiteSpace(cls))
         {
-            value = "尚未选择班级";
-            detail = "在顶栏选中班级后，这里会显示今天的课。";
-            pill = "待选班";
+            value = teacherMode ? "尚未选择教师" : "尚未选择班级";
+            detail = teacherMode ? "在顶栏选中自己的姓名后，这里会显示今天的课。" : "在顶栏选中班级后，这里会显示今天的课。";
+            pill = teacherMode ? "待选人" : "待选班";
             pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
         }
         else if (noSchedule)
@@ -3118,33 +3203,125 @@ public partial class MainWindow : Window
             pillBg = R("PrimarySoftBrush"); pillFg = R("PrimaryBrush");
         }
 
-        string detail = $"数据源：{ShortenOneLine(UpdateService.DescribeSource(st), 34)}\n"
-                        + $"最近检查：{ShortenOneLine(string.IsNullOrEmpty(raw) ? "尚未检查过" : raw, 42)}";
-        if (UserSession.CanPublish && src != null)
+        RefreshTodayUpdateDetail();
+
+        TxtTodayUpdateValue.Text = value;
+        SetTodayPill(PillTodayUpdate, TxtTodayUpdatePill, pill, pillBg, pillFg);
+
+        // 远端那两行（数据源 / 设备回执）单独去后台取。★ 绝不在 UI 线程碰共享盘：
+        // 共享路径不可达时这一下能把整块控制面板按住几十秒。
+        if (UserSession.CanPublish && src != null) KickTodayRemoteProbe(src, st.UpdateIntervalMinutes);
+    }
+
+    /// <summary>今日更新卡的两行明细：本地部分立刻出，远端部分只用缓存。</summary>
+    private void RefreshTodayUpdateDetail()
+    {
+        if (TxtTodayUpdateDetail == null) return;
+        try
         {
+            var st = Store.LoadSettings();
+            string raw = (st.LastUpdateCheckInfo ?? "").Trim();
+            TxtTodayUpdateDetail.Text =
+                $"数据源：{ShortenOneLine(UpdateService.DescribeSource(st), 34)}\n"
+                + $"最近检查：{ShortenOneLine(string.IsNullOrEmpty(raw) ? "尚未检查过" : raw, 42)}"
+                + TodayRemoteLine();
+        }
+        catch { }
+    }
+
+    /// <summary>「设备回执」那一行的当前文字 —— 永远立即返回，不等网络。</summary>
+    private string TodayRemoteLine()
+    {
+        if (!UserSession.CanPublish) return "";
+        if (string.IsNullOrEmpty(_todayRemoteText)) return "\n设备回执：正在读取…";
+        return "\n" + _todayRemoteText + (_todayRemoteBusy ? "（刷新中…）" : "");
+    }
+
+    /// <summary>
+    /// 后台读一次「数据源连不连得上 + 各机回执」。
+    /// <para>★ 60 秒缓存 + 失败指数退避（60→120→240→480→600 秒）：共享盘掉了通常不是几十秒能好的，
+    /// 不能每切一次今日页就往线程池扔一个等着 SMB 超时的任务。</para>
+    /// </summary>
+    private void KickTodayRemoteProbe(IFeedSource src, int intervalMinutes)
+    {
+        if (_todayRemoteBusy)
+        {
+            // 后台那一轮卡死了（SMB 半开连接可以挂很久）：超过 3 分钟就放弃它，重新发起一轮。
+            // 旧线程回来时 token 已经对不上，结果会被丢掉，不会打架。
+            if ((DateTime.Now - _todayRemoteStartedAt).TotalSeconds < 180) return;
+            _todayRemoteBusy = false;
+        }
+        if (DateTime.Now < _todayRemoteNextAt) return;
+
+        _todayRemoteBusy = true;
+        _todayRemoteStartedAt = DateTime.Now;
+        int token = ++_todayRemoteToken;
+
+        _ = Task.Run(() =>
+        {
+            string text;
+            bool ok;
             try
             {
-                string sha = "";
                 var manifest = SchedulePackage.ParseManifest(src.ReadManifest());
-                if (manifest != null) sha = manifest.DataSha256 ?? "";
-                var (sum, _) = UpdateReceiptService.Collect(src, sha, st.UpdateIntervalMinutes, persistSeen: false);
-                detail += sum.Total == 0
-                    ? "\n设备回执：暂无上报"
-                    : $"\n设备回执：{sum.Latest} 最新 · {sum.Behind + sum.Failed + sum.Stale} 需关注";
+                string sha = manifest?.DataSha256 ?? "";
+                var (sum, _) = UpdateReceiptService.Collect(src, sha, intervalMinutes, persistSeen: false);
+                if (!sum.Reachable)
+                {
+                    ok = false;
+                    text = "设备回执：数据源当前不可访问，稍后自动重试";
+                }
+                else
+                {
+                    ok = true;
+                    text = sum.Total == 0
+                        ? "设备回执：暂无上报"
+                        : $"设备回执：{sum.Latest} 最新 · {sum.Behind + sum.Failed + sum.Stale} 需关注";
+                }
             }
             catch
             {
-                detail += "\n设备回执：暂不可用";
+                // 连不上不弹错、不写状态行：这张卡只负责「现在知不知道」，细节去「更新回执」窗看
+                ok = false;
+                text = "设备回执：数据源当前不可访问，稍后自动重试";
             }
-        }
 
-        TxtTodayUpdateValue.Text = value;
-        TxtTodayUpdateDetail.Text = detail;
-        SetTodayPill(PillTodayUpdate, TxtTodayUpdatePill, pill, pillBg, pillFg);
+            void Apply()
+            {
+                if (token != _todayRemoteToken) return;   // 后来又起过一轮，旧结果丢掉
+                _todayRemoteBusy = false;
+                _todayRemoteText = text;
+                if (ok)
+                {
+                    _todayRemoteFailStreak = 0;
+                    _todayRemoteNextAt = DateTime.Now.AddSeconds(TodayRemoteCacheSeconds);
+                }
+                else
+                {
+                    _todayRemoteFailStreak = Math.Min(_todayRemoteFailStreak + 1, 5);
+                    int wait = Math.Min(600, TodayRemoteCacheSeconds * (1 << (_todayRemoteFailStreak - 1)));
+                    _todayRemoteNextAt = DateTime.Now.AddSeconds(wait);
+                }
+                if (IsLoaded) RefreshTodayUpdateDetail();
+            }
+
+            try
+            {
+                if (Dispatcher.HasShutdownStarted) return;
+                Dispatcher.BeginInvoke(new Action(() => { try { Apply(); } catch { } }));
+            }
+            catch { /* 窗口正在关，没人要这个结果 */ }
+        });
     }
 
     private void RefreshTodayStatusCard(AppSettings st)
     {
+        if (PnlTodayStatus != null) PnlTodayStatus.Visibility = Visibility.Visible;
+        if (PnlTodayStatusActions != null) PnlTodayStatusActions.Visibility = Visibility.Visible;
+        if (PnlTodayClasses != null) PnlTodayClasses.Visibility = Visibility.Collapsed;
+        if (PnlTodayClassActions != null) PnlTodayClassActions.Visibility = Visibility.Collapsed;
+        if (TxtTodayCard4Title != null) TxtTodayCard4Title.Text = "本机状态";
+
         bool locked = _locked;
         string layout = st.ScheduleLayout.TopMost ? "课表置顶" : "课表置底";
         string hide = st.NotificationLayout.AutoHideDuringClass ? "通知上课自动隐藏" : "通知常驻";
@@ -3156,6 +3333,211 @@ public partial class MainWindow : Window
         SetTodayPill(PillTodayStatus, TxtTodayStatusPill, locked ? "锁定" : "正常",
             locked ? R("WarningBrush") : R("SuccessSoftBrush"),
             locked ? System.Windows.Media.Brushes.White : R("SuccessBrush"));
+    }
+
+    /// <summary>
+    /// r158：第四张卡「我的班级速览」——我教哪几个班、今天各上第几节、今天给每个班发过几条。
+    /// <para>★ 全部读本机数据：任教班 = 账号班 ∪ 本机额外班；节次 = 教师课表（<c>Lesson.Teacher</c>
+    /// 存的就是所教班级）；「已发几条」= 本机台账里今天发往该班的变更单（含作业 / 缺交 / 通知）。</para>
+    /// <para>★ 这里<b>不判断「必须发」</b>：只把「今天有课却一条都没发」标出来，老师自己决定要不要补；
+    /// 没课的班写「今天没课」，不参与待发计数。</para>
+    /// </summary>
+    private void RefreshTodayClassesCard(TodayResult board, string me)
+    {
+        if (PnlTodayClasses == null || TxtTodayClassesValue == null || PnlTodayClassRows == null) return;
+        PnlTodayClasses.Visibility = Visibility.Visible;
+        PnlTodayClassActions.Visibility = Visibility.Visible;
+        if (PnlTodayStatus != null) PnlTodayStatus.Visibility = Visibility.Collapsed;
+        if (PnlTodayStatusActions != null) PnlTodayStatusActions.Visibility = Visibility.Collapsed;
+        if (TxtTodayCard4Title != null) TxtTodayCard4Title.Text = "我的班级速览";
+        PnlTodayClassRows.Children.Clear();
+
+        try
+        {
+            // 今天每班几节（教师视角 Lesson.Teacher 存所教班级；调代课已在上层 board 换算过）
+            var periods = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            foreach (var row in board.Rows)
+            {
+                if (row.IsFixed || row.Period <= 0) continue;
+                foreach (var l in row.Lessons)
+                {
+                    string cls = (l.Teacher ?? "").Trim();
+                    if (cls.Length == 0) continue;
+                    if (!periods.TryGetValue(cls, out var ps)) periods[cls] = ps = new List<int>();
+                    if (!ps.Contains(row.Period)) ps.Add(row.Period);
+                }
+            }
+
+            var classes = TeachingClasses();
+            // 账号没填任教班时，从今天的课表反推（老师课表里 Lesson.Teacher 就是他要去的班）——
+            // 「我有课却显示还没有任教班级」比不显示更让人困惑。
+            if (classes.Count == 0 && periods.Count > 0) classes = periods.Keys.ToList();
+            if (classes.Count == 0)
+            {
+                TxtTodayClassesValue.Text = "还没有任教班级";
+                TxtTodayClassesDetail.Text = "在「信息管理 → 任教班级」里加，或让管理员给账号填上任教班；\n"
+                                           + "加了之后这里会显示每个班今天的课和发送情况。";
+                TxtTodayClassesDetail.Margin = new Thickness(0, 7, 0, 0);
+                SetTodayPill(PillTodayStatus, TxtTodayStatusPill, "待设班",
+                    R("PrimarySoftBrush"), R("PrimaryBrush"));
+                return;
+            }
+
+            // 今天发往各班的条数。★ 按实体分开记：作业是硬指标（今天有我的课就该发），
+            //   缺交 / 通知 / 值日属于「按需」，只能当附注 —— 发了通知不代表作业发了。
+            //   只算发件箱 + 我发的 + 没被撤回的（与今日卡 / 角标同一口径）。
+            var sent = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var r in BoardSyncService.LoadState().Records)
+                {
+                    if (r.Direction != BoardSyncConsts.DirOut) continue;
+                    if (r.Order.IsRevoke) continue;                       // 撤回的不算「已发」
+                    if (r.Order.CreatedAt.Date != DateTime.Today) continue;
+                    if (!PendingTodoService.IsMine(r.Order)) continue;    // 与今日卡 / 角标同一口径
+                    string ck = (r.Order.ClassKey ?? "").Trim();
+                    if (ck.Length == 0) continue;
+                    string ent = (r.Order.Entity ?? "").Trim().ToLowerInvariant();
+                    if (ent.Length == 0) ent = BoardSyncConsts.EntityHomework;   // 老单没 Entity 字段 → 作业
+                    if (!sent.TryGetValue(ck, out var m))
+                        sent[ck] = m = new Dictionary<string, int>(StringComparer.Ordinal);
+                    m[ent] = (m.TryGetValue(ent, out var n) ? n : 0) + 1;
+                }
+            }
+            catch { /* 台账读不了不影响课表部分 */ }
+
+            int totalPeriods = periods.Values.Sum(v => v.Count);
+            int pending = 0;
+
+            var briefs = new List<(string Cls, bool Has, int First, string When, string State,
+                                   System.Windows.Media.Brush Fg, bool Pend)>();
+            foreach (var cls in classes)
+            {
+                bool has = periods.TryGetValue(cls, out var ps) && ps.Count > 0;
+                var by = sent.TryGetValue(cls, out var m) ? m : new Dictionary<string, int>(StringComparer.Ordinal);
+                int Cnt(string e) => by.TryGetValue(e, out var v) ? v : 0;
+
+                int hw = Cnt(BoardSyncConsts.EntityHomework);
+
+                bool pend = has && hw == 0;      // 今天有我的课却没发作业 → 待发
+                if (pend) pending++;
+
+                string when = has
+                    ? "第" + string.Join("·", ps!.Take(5)) + (ps.Count > 5 ? "…" : "") + "节"
+                    : "今天没课";
+
+                var (state, tone) = ClassBriefState(has, hw,
+                    Cnt(BoardSyncConsts.EntityMissing), Cnt(BoardSyncConsts.EntityNotice), Cnt(BoardSyncConsts.EntityDuty));
+                System.Windows.Media.Brush fg = tone switch
+                {
+                    "success" => R("SuccessBrush"),
+                    "warning" => R("WarningBrush"),
+                    "danger" => R("DangerBrush"),
+                    _ => R("MutedBrush"),
+                };
+
+                briefs.Add((cls, has, has ? ps!.Min() : 99, when, state, fg, pend));
+            }
+
+            // 待发的排最前（那才是老师要动手的），其次是有课的，最后是今天没课的
+            var ordered = briefs
+                .OrderBy(b => b.Pend ? 0 : b.Has ? 1 : 2)
+                .ThenBy(b => b.First)
+                .ThenBy(b => b.Cls, StringComparer.Ordinal)
+                .ToList();
+
+            // 每班一行（班级 · 节次 · 状态）。状态单独着色：
+            // 红 = 什么都没发，橙 = 发了别的但作业没发，绿 = 作业已发，灰 = 今天没课。
+            PnlTodayClassRows.Children.Clear();
+            int show = Math.Min(3, ordered.Count);
+            foreach (var b in ordered.Take(show))
+            {
+                var g = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var name = new TextBlock
+                {
+                    Text = b.Cls, FontSize = 12.5, Foreground = R("InkBrush"),
+                    TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = b.Cls,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                var when = new TextBlock
+                {
+                    Text = b.When, FontSize = 12, Foreground = R("MutedBrush"),
+                    Margin = new Thickness(8, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center
+                };
+                var state = new TextBlock
+                {
+                    Text = b.State, FontSize = 12, Foreground = b.Fg,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(when, 1);
+                Grid.SetColumn(state, 2);
+                g.Children.Add(name);
+                g.Children.Add(when);
+                g.Children.Add(state);
+                PnlTodayClassRows.Children.Add(g);
+            }
+
+            TxtTodayClassesDetail.Text = ordered.Count > show ? $"…还有 {ordered.Count - show} 个班" : "";
+            TxtTodayClassesDetail.Margin = new Thickness(0, ordered.Count > show ? 2 : 0, 0, 0);
+
+            TxtTodayClassesValue.Text = totalPeriods > 0
+                ? $"共 {classes.Count} 个班 · 今天 {totalPeriods} 节"
+                  + (pending > 0 ? $" · 作业待发 {pending}" : " · 作业都发了")
+                : $"共 {classes.Count} 个班 · 今天没课";
+
+            if (pending > 0)
+                SetTodayPill(PillTodayStatus, TxtTodayStatusPill, "作业待发 " + pending,
+                    R("WarningBrush"), System.Windows.Media.Brushes.White);
+            else if (totalPeriods == 0)
+                SetTodayPill(PillTodayStatus, TxtTodayStatusPill, "今天没课",
+                    R("PrimarySoftBrush"), R("PrimaryBrush"));
+            else
+                SetTodayPill(PillTodayStatus, TxtTodayStatusPill, "作业齐了",
+                    R("SuccessSoftBrush"), R("SuccessBrush"));
+        }
+        catch (Exception ex)
+        {
+            if (PnlTodayClassRows != null) PnlTodayClassRows.Children.Clear();
+            TxtTodayClassesValue.Text = "班级速览暂不可用";
+            TxtTodayClassesDetail.Text = ex.Message;
+            TxtTodayClassesDetail.Margin = new Thickness(0, 7, 0, 0);
+            SetTodayPill(PillTodayStatus, TxtTodayStatusPill, "异常",
+                R("WarningBrush"), System.Windows.Media.Brushes.White);
+        }
+    }
+
+    /// <summary>
+    /// 班级速览里「这个班今天发得怎么样」的判定。
+    /// <para>★ 作业是硬指标（今天有我的课就该发）；缺交 / 通知 / 值日属于按需，只能当附注。
+    /// <b>发了通知不等于作业发了</b> —— 这种情况要显式标成橙色「作业未发（已发通知）」，
+    /// 而不是因为「今天发过东西」就算齐了。</para>
+    /// <para>抽成纯函数是为了诊断能直接断言，不必造一整份台账数据。</para>
+    /// </summary>
+    /// <param name="hasClass">今天有没有这个班的课（教师课表里 Lesson.Teacher = 所教班级）</param>
+    /// <param name="hw">今天发往该班的作业条数</param>
+    /// <param name="missing">今天发往该班的缺交名单条数</param>
+    /// <param name="notice">今天发往该班的通知条数</param>
+    /// <param name="duty">今天发往该班的值日安排条数</param>
+    /// <returns>文案 + 语气（success / warning / danger / muted）</returns>
+    internal static (string Text, string Tone) ClassBriefState(bool hasClass, int hw, int missing, int notice, int duty)
+    {
+        var extra = new List<string>();
+        if (missing > 0) extra.Add("缺交");
+        if (notice > 0) extra.Add("通知");
+        if (duty > 0) extra.Add("值日");
+        string extraText = string.Join("·", extra);
+
+        if (!hasClass)
+            return (extraText.Length > 0 ? "没课 · 已发" + extraText : "今天没课", "muted");
+        if (hw > 0)
+            return (extraText.Length > 0 ? $"作业已发（+{extraText}）" : "作业已发", "success");
+        if (extraText.Length > 0)
+            return ($"作业未发（已发{extraText}）", "warning");   // ← 发了通知 / 缺交，作业仍然没发
+        return ("作业未发", "danger");
     }
 
     private System.Windows.Media.Brush R(string key)
@@ -3448,6 +3830,115 @@ public partial class MainWindow : Window
         ApplyBoardPermissions();
         AppEvents.RaiseScheduleChanged();
         return true;
+    }
+
+    /// <summary>
+    /// r157：教师 / 科任老师登录后<b>默认看自己的课表</b>，而不是某个班的课表。
+    ///
+    /// <para>匹配靠姓名：账号用户名和教师个人课表用的是同一个归一化规则，
+    /// 所以「张三」这种账号一级就命中；手工建的「张三老师」「八(22)班 班主任 张三」走二三级。</para>
+    ///
+    /// <para>★ 三种身份<b>绝不参与</b>：管理员（他看全校，切走是常态）、游客、教室机
+    /// （大屏必须显示本班课表，改成电教管理员本人的课表等于整班看不到课）。</para>
+    /// <para>★ 与 <see cref="ApplyOwnClassDefault"/> 同一批调用时机，<b>不要</b>放进刷新流程，
+    /// 否则老师手动切去看别的课表，一刷新就被拉回来。</para>
+    /// </summary>
+    /// <returns>是否处在「我的课表」状态（调用方一般不需要，留给诊断用）。</returns>
+    /// <param name="manual">
+    /// 是不是<b>人主动登录</b>（切换账号 / 保存账号）。教室机上开机自动登录的是电教管理员，
+    /// 大屏必须显示本班课表，所以自动登录一律不切；但有人在这台机器上亲手登了自己的账号，
+    /// 那就是他想看自己的课，这时允许切过去。
+    /// </param>
+    private bool ApplyOwnScheduleDefault(bool manual = false)
+    {
+        var u = UserSession.Current;
+        if (u == null) return false;
+
+        bool classroom = BoardSyncService.IsClassroomMachine && !manual;
+        string? me = ResolveOwnTeacherName(u, Store.LoadTeacherSchedule(), classroom);
+        if (me == null) return false;
+
+        var s = Store.LoadSettings();
+        bool already = string.Equals(s.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase)
+                       && string.Equals(s.SelectedTeacher, me, StringComparison.Ordinal);
+        if (already) return true;
+
+        s.ScheduleKind = "Teacher";
+        s.SelectedTeacher = me;
+        // 班级字段照旧留着：作业 / 缺交 / 任教班级都按「账号的班」走，不因为看教师课表而丢。
+        if (Store.EnablePersistence) Store.SaveSettings(s);
+
+        _teacherGuard = true;
+        try { CbTeacher.Text = me; }
+        finally { _teacherGuard = false; }
+
+        UpdateModeIndicator();
+        AppEvents.RaiseScheduleChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// r157：教师表比底表旧就地重建。只在启动时调一次（导入 / 自动更新链路自己会重建）。
+    /// <para>★ 重建结果为空时<b>绝不写盘</b>：总课表里没填教师名的学校，教师表可能是单独导入的，
+    /// 拿空结果覆盖等于把人家的教师表删了。</para>
+    /// </summary>
+    private void EnsureTeacherScheduleFresh()
+    {
+        try
+        {
+            var source = Store.LoadSchedule();
+            var teachers = Store.LoadTeacherSchedule();
+            if (!TeacherScheduleMaintenance.IsStale(source, teachers)) return;
+
+            var fresh = TeacherExtractor.Build(source!);
+            if (fresh.Classes.Count == 0) return;
+            if (Store.EnablePersistence) Store.SaveTeacherSchedule(fresh);
+            TxtStatus.Text = (TxtStatus.Text ?? "").TrimEnd()
+                + $"　｜　教师个人课表已按最新总课表重建（{fresh.Classes.Count} 位教师）。";
+        }
+        catch { /* 重建失败不影响启动：教师表旧一点也比打不开强 */ }
+    }
+
+    /// <summary>
+    /// 「这个账号该不该切到自己的课表」的决策（纯函数，诊断直接断言）。
+    /// <para>返回教师表里的姓名；不该切返回 <c>null</c>。</para>
+    /// </summary>
+    internal static string? ResolveOwnTeacherName(AppUser? u, ScheduleFile? teachers, bool classroomMachine)
+    {
+        if (u == null) return null;
+        if (string.Equals(u.Role, UserRole.Admin, StringComparison.Ordinal)) return null;
+        if (string.Equals(u.Role, UserRole.Student, StringComparison.Ordinal)) return null;
+        if (classroomMachine) return null;   // 教室机大屏必须显示本班课表
+        return TeacherScheduleMaintenance.MatchTeacher(u, teachers);
+    }
+
+    /// <summary>顶栏「改看班级课表」：从「我的课表」切回班级视图（教师模式下班级下拉是收起的）。</summary>
+    private void BtnShowClassCombo_Click(object sender, RoutedEventArgs e)
+    {
+        string want = CurrentDisplayClass();
+        if (!ClassNames.Contains(want))
+        {
+            // 退回来：账号的任教班优先，其次当前选中班，最后第一个班
+            string? own = UserSession.SessionClassNames.FirstOrDefault(c => ClassNames.Contains(c));
+            want = own ?? (ClassNames.Count > 0 ? ClassNames[0] : "");
+        }
+
+        var s = Store.LoadSettings();
+        s.ScheduleKind = "Class";
+        if (!string.IsNullOrEmpty(want)) s.SelectedClass = want;
+        if (Store.EnablePersistence) Store.SaveSettings(s);
+
+        _classGuard = true;
+        try { if (!string.IsNullOrEmpty(want)) CbClass.SelectedItem = want; }
+        finally { _classGuard = false; }
+
+        UpdateModeIndicator();
+        ApplyBoardPermissions();
+        AppEvents.RaiseScheduleChanged();
+        RefreshTodayPage();
+        TxtStatus.Text = string.IsNullOrEmpty(want)
+            ? "已切回班级课表（还没有导入班级）。"
+            : $"已切回班级课表：{want}。要回到自己的课表，在「教师」下拉里点自己的名字。";
     }
 
     private void CbClass_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -4640,6 +5131,24 @@ public partial class MainWindow : Window
     /// <summary>正在后台探测 source 目录（避免上一轮没回来又发下一轮）。</summary>
     private bool _srcProbeBusy;
 
+    // ---------- 今日页「更新卡」的远端正路（r153） ----------
+    /// <summary>
+    /// 今日页更新卡上「设备回执」那一行的缓存。
+    /// <para>★ 以前（r148~v1.0.18）这张卡是在 UI 线程直接读数据源的：共享路径一旦不可达，
+    /// SMB 里的 <c>Directory.Exists</c> / <c>File.Exists</c> 会阻塞十几秒到几分钟，
+    /// 整块控制面板跟着假死（点哪都没反应、切页也切不动）。
+    /// 现在远端一律后台读，UI 只渲染最后一次结果，绝不为了刷新一行字去等超时。</para>
+    /// </summary>
+    private int _todayRemoteToken;
+    private bool _todayRemoteBusy;
+    private string _todayRemoteText = "";
+    private DateTime _todayRemoteNextAt = DateTime.MinValue;
+    private DateTime _todayRemoteStartedAt = DateTime.MinValue;
+    private int _todayRemoteFailStreak;
+
+    /// <summary>后台读成功多久内不重复读（来回切页不用每次都连共享盘）。</summary>
+    private const int TodayRemoteCacheSeconds = 60;
+
     /// <summary>
     /// 上一次因「源目录不可达 / 未填写」写进状态栏的提示。
     /// <para>用来做两件事：① 同一句话每 30 秒重复刷一次会盖掉别的状态；② 恢复时只清自己写的那句，
@@ -5386,13 +5895,21 @@ public partial class MainWindow : Window
                 return;
         }
 
-        if (fromSource && !Directory.Exists(st.PublishSourcePath))
+        if (fromSource)
         {
-            TxtStatus.Text = "发布源目录不存在：" + st.PublishSourcePath;
-            MessageBox.Show("发布源目录不存在：\n" + st.PublishSourcePath +
-                "\n\n请在「自动更新设置…」里指定存放 Excel 的目录。", "发布数据包",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            // ★ r154：源目录可能在共享盘上，Directory.Exists 在不可达时会卡几十秒 —— 后台判
+            bool srcOk = await Task.Run(() =>
+            {
+                try { return Directory.Exists(st.PublishSourcePath); } catch { return false; }
+            });
+            if (!srcOk)
+            {
+                TxtStatus.Text = "发布源目录不存在：" + st.PublishSourcePath;
+                MessageBox.Show("发布源目录不存在：\n" + st.PublishSourcePath +
+                    "\n\n请在「自动更新设置…」里指定存放 Excel 的目录。", "发布数据包",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
         }
 
         BtnPublishNow.IsEnabled = false;
@@ -6086,8 +6603,29 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>本机自己的任教班级列表（老版本「额外订阅班级」字段，逗号 / 顿号 / 分号分隔）。</summary>
-    private static List<string> TeachingClasses()
+    /// <summary>
+    /// 任教班级 = 账号里的任教班（含班主任班）+ 本机额外加的班。
+    /// <para>★ r157：账号那一半是<b>只读派生</b>，绝不写回 <c>BoardSyncExtraClasses</c>：
+    /// 换账号自动跟着变，办公室机器不会把离职老师的班越堆越多，退出登录即失效。</para>
+    /// </summary>
+    private List<string> TeachingClasses()
+    {
+        var list = new List<string>();
+        foreach (var c in AccountTeachingClasses())
+            if (!list.Contains(c, StringComparer.Ordinal)) list.Add(c);
+        foreach (var c in LocalTeachingClasses())
+            if (!list.Contains(c, StringComparer.Ordinal)) list.Add(c);
+        return list;
+    }
+
+    /// <summary>账号里填的任教班级，且必须是真的导入了课表的班（否则发布时会指向一个不存在的教室）。</summary>
+    private List<string> AccountTeachingClasses()
+        => UserSession.SessionClassNames
+            .Where(c => !string.IsNullOrWhiteSpace(c) && ClassNames.Contains(c))
+            .ToList();
+
+    /// <summary>本机自己在「信息管理」里加的班（老版本「额外订阅班级」字段，逗号 / 顿号 / 分号分隔）。</summary>
+    private static List<string> LocalTeachingClasses()
     {
         string raw = Store.LoadSettings().BoardSyncExtraClasses ?? "";
         var list = new List<string>();
@@ -6132,19 +6670,23 @@ public partial class MainWindow : Window
             else if (list.Count == 1) _pickedInfoClasses.Add(list[0]);
         }
         RebuildTeachingClassChips();
-        TxtTeachingClassHint.Text = ClassNames.Count == 0 ? "（未导入课表，暂无可选班级）" : "选中即加入列表";
+        TxtTeachingClassHint.Text = ClassNames.Count == 0
+            ? "（未导入课表，暂无可选班级）"
+            : "选中即加入列表；带「账号」标的是登录账号自带的任教班，换账号会自动跟着变";
         ApplyInfoPermissions();
         _stampInfo = Store.SettingsStamp;   // 记下本次装载对应的设置文件戳（切页时用来判断是否需要重载）
     }
 
-    /// <summary>任教班级 → 一排可勾选、可移除的小标签。</summary>
+    /// <summary>任教班级 → 一排可勾选、可移除的小标签。账号带来的班带「账号」标、不给删除按钮。</summary>
     private void RebuildTeachingClassChips()
     {
         TeachingClassChips.Children.Clear();
         var list = TeachingClasses();
+        var fromAccount = AccountTeachingClasses();
         foreach (var c in list)
         {
             string cls = c;
+            bool acct = fromAccount.Contains(cls, StringComparer.Ordinal);
             var chip = new Border
             {
                 Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEE, 0xF4, 0xFD)),
@@ -6161,16 +6703,31 @@ public partial class MainWindow : Window
             };
             cb.Checked += (_, _) => _pickedInfoClasses.Add(cls);
             cb.Unchecked += (_, _) => _pickedInfoClasses.Remove(cls);
-            var rm = new Button
-            {
-                Content = "×", Tag = cls, FontSize = 13, Padding = new Thickness(6, 0, 6, 0),
-                Margin = new Thickness(8, 0, 0, 0),
-                Background = System.Windows.Media.Brushes.Transparent,
-                BorderBrush = null, ToolTip = "从任教班级列表里移除"
-            };
-            rm.Click += RemoveTeachingClass_Click;
             row.Children.Add(cb);
-            row.Children.Add(rm);
+            if (acct)
+            {
+                // 账号带来的班：只读。换账号就跟着变，所以不给「×」——删了也会自己回来，
+                // 那个按钮只会让人以为程序没听话。
+                row.Children.Add(new TextBlock
+                {
+                    Text = "账号", FontSize = 11, Margin = new Thickness(8, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x4F, 0xA3)),
+                    ToolTip = "来自登录账号的任教班级；要改请让管理员在「用户管理」里调整，或换账号"
+                });
+            }
+            else
+            {
+                var rm = new Button
+                {
+                    Content = "×", Tag = cls, FontSize = 13, Padding = new Thickness(6, 0, 6, 0),
+                    Margin = new Thickness(8, 0, 0, 0),
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    BorderBrush = null, ToolTip = "从任教班级列表里移除"
+                };
+                rm.Click += RemoveTeachingClass_Click;
+                row.Children.Add(rm);
+            }
             chip.Child = row;
             TeachingClassChips.Children.Add(chip);
         }
@@ -6185,9 +6742,11 @@ public partial class MainWindow : Window
         _teachingGuard = true;
         try
         {
-            var list = TeachingClasses();
-            if (!list.Contains(cls, StringComparer.Ordinal))
+            // ★ 只把「本机额外加的班」写盘：账号带来的那几班是派生出来的，写进去就等于把
+            //   别人的班固化在这台机器上（共用机器一年后会堆满离职老师的班）。
+            if (!TeachingClasses().Contains(cls, StringComparer.Ordinal))
             {
+                var list = LocalTeachingClasses();
                 list.Add(cls);
                 SaveTeachingClasses(list);
                 _pickedInfoClasses.Add(cls);   // 新加的班默认勾上，省一次点击
@@ -6203,7 +6762,7 @@ public partial class MainWindow : Window
     {
         string cls = (sender as Button)?.Tag as string ?? "";
         if (cls.Length == 0) return;
-        var list = TeachingClasses();
+        var list = LocalTeachingClasses();   // 账号带来的班不在这里，删不了也不该删
         list.RemoveAll(c => string.Equals(c, cls, StringComparison.Ordinal));
         SaveTeachingClasses(list);
         _pickedInfoClasses.Remove(cls);
@@ -6285,7 +6844,7 @@ public partial class MainWindow : Window
     /// 弹「新建班级内容变更单」并逐条发出，结果写状态栏。
     /// <para>信息管理页与悬浮课表「📤 发布」快捷按钮共用这一条链，避免两处发送逻辑各写一遍。</para>
     /// </summary>
-    private void PublishFor(List<string> picked, string? entity)
+    private async void PublishFor(List<string> picked, string? entity)
     {
         try
         {
@@ -6296,14 +6855,21 @@ public partial class MainWindow : Window
 
             if (w.ShowDialog() != true || w.Results.Count == 0) return;
 
-            int ok = 0;
-            var errs = new List<string>();
-            foreach (var o in w.Results)
+            // ★ 写共享盘放后台（r154）：盘断了只会让"发布"这一步慢，控制面板照旧能点
+            TxtStatus.Text = "正在发布…（界面不卡，写完自动更新）";
+            var results = await Task.Run(() =>
             {
-                var r = BoardSyncService.Send(o);
-                if (r.Ok) ok++;
-                else errs.Add(r.Message);
-            }
+                var list = new List<(bool Ok, string Message)>();
+                foreach (var o in w.Results)
+                {
+                    var r = BoardSyncService.Send(o);
+                    list.Add((r.Ok, r.Message));
+                }
+                return list;
+            });
+
+            int ok = results.Count(r => r.Ok);
+            var errs = results.Where(r => !r.Ok).Select(r => r.Message).ToList();
             string msg = ok > 0
                 ? $"✔ 已发布 {ok} 条信息，等待教室机确认。"
                   + (errs.Count > 0 ? "失败 " + errs.Count + " 条：" + string.Join("；", errs) : "")

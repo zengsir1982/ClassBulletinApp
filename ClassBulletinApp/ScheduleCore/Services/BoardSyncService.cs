@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using ScheduleCore.Models;
 
 namespace ScheduleCore.Services;
@@ -124,12 +126,47 @@ public static class BoardSyncService
         BoardChangeOrder draft, bool bypassRole = false)
     {
         // 台账「读→改→写」与后台轮询共用一把锁：轮询正在落账时发送，两边都不能丢记录
-        lock (_stateGate) { return SendCore(draft, bypassRole); }
+        (bool Ok, string Message, BoardChangeOrder? Order) res;
+        IBoardTransport? t;
+        BoardChangeOrder? order;
+        lock (_stateGate) { res = SendCore(draft, bypassRole, out t, out order); }
+        if (!res.Ok || t == null || order == null) return res;
+
+        // ★ 网络写在锁外（r154）：共享盘断了只会让"这次发送"变慢，不会连带冻住所有要碰台账的地方
+        //   —— 尤其是打开台账窗时自动打的「已阅」，那一下原来会因为等锁而整窗未响应。
+        try
+        {
+            // WriteNew 返回 false = 同名文件已存在（极少见，等价于「已经发过」），按幂等成功处理
+            t.WriteNew(order.ClassFolder, BoardSyncConsts.Messages, order.FileName,
+                       JsonSerializer.Serialize(order, Opt));
+            return res;
+        }
+        catch (Exception ex)
+        {
+            // 共享盘断连：本机台账保留，明确标「待重试」，绝不假装已发出
+            string note = "共享目录写入失败：" + ex.Message;
+            lock (_stateGate)
+            {
+                var st2 = LoadState();
+                var rec2 = st2.Records.FirstOrDefault(r => r.MsgId == order.MsgId);
+                if (rec2 != null && rec2.Status == BoardSyncConsts.StSent)
+                {
+                    rec2.Status = BoardSyncConsts.StRetry;
+                    rec2.Note = note;
+                    rec2.UpdatedAt = DateTime.Now;
+                    SaveState(st2);
+                }
+            }
+            LastError = note;
+            return (false, "变更单已存本机但没写进共享目录（待重试）：" + ex.Message, order);
+        }
     }
 
     static (bool Ok, string Message, BoardChangeOrder? Order) SendCore(
-        BoardChangeOrder draft, bool bypassRole = false)
+        BoardChangeOrder draft, bool bypassRole, out IBoardTransport? transport, out BoardChangeOrder? order)
     {
+        transport = null;
+        order = null;
         LastError = null;
         if (!Store.EnablePersistence)
             return (false, "游客模式不写盘，变更单没有发出。请先登录。", null);
@@ -164,59 +201,60 @@ public static class BoardSyncService
         st.Records.Add(rec);
         if (!SaveState(st)) return (false, LastError ?? "台账写盘失败，变更单没有发出。", null);
 
-        try
-        {
-            t.WriteNew(o.ClassFolder, BoardSyncConsts.Messages, o.FileName,
-                       JsonSerializer.Serialize(o, Opt));
-            // WriteNew 返回 false = 同名文件已存在（极少见，等价于「已经发过」），按幂等成功处理
-        }
-        catch (Exception ex)
-        {
-            // 共享盘断连：本机台账保留，明确标「待重试」，绝不假装已发出
-            rec.Status = BoardSyncConsts.StRetry;
-            rec.Note = "共享目录写入失败：" + ex.Message;
-            SaveState(st);
-            LastError = rec.Note;
-            return (false, "变更单已存本机但没写进共享目录（待重试）：" + ex.Message, o);
-        }
+        transport = t;
+        order = o;
         return (true, "已发出：" + o.Summary, o);
     }
 
     /// <summary>撤回只发一条新的 revoke 消息，绝不改写原消息文件。</summary>
     public static (bool Ok, string Message) Revoke(string msgId)
     {
-        lock (_stateGate) { return RevokeCore(msgId); }
-    }
+        // ★ 撤回 = 又一次「发送」，网络必须在锁外（r154）。
+        //   以前它在锁里直接调 Send()，锁会被 SMB 一起按住，界面跟着一起冻。
+        BoardChangeOrder? draft = null;
+        string? err = null;
+        bool already = false;
 
-    static (bool Ok, string Message) RevokeCore(string msgId)
-    {
-        var st = LoadState();
-        var rec = st.Records.FirstOrDefault(r => r.MsgId == msgId && r.Direction == BoardSyncConsts.DirOut);
-        if (rec == null) return (false, "找不到这条已发出的变更单。");
-        if (rec.Status == BoardSyncConsts.StRevoked) return (true, "这条变更单已经撤回过。");
-
-        var res = Send(new BoardChangeOrder
+        lock (_stateGate)
         {
-            ClassKey = rec.Order.ClassKey,
-            Entity = rec.Order.Entity,
-            Op = BoardSyncConsts.OpRevoke,
-            ItemId = rec.Order.ItemId,
-            RevokeOf = msgId,
-            Sender = rec.Order.Sender,
-            SenderRole = rec.Order.SenderRole,
-            SenderSubject = rec.Order.SenderSubject,
-            Summary = "撤回：" + rec.Order.Summary
-        }, bypassRole: true);   // 撤回是收尾动作，不是新发布；不受角色发布权限影响
+            var st = LoadState();
+            var rec = st.Records.FirstOrDefault(r => r.MsgId == msgId && r.Direction == BoardSyncConsts.DirOut);
+            if (rec == null) err = "找不到这条已发出的变更单。";
+            else if (rec.Status == BoardSyncConsts.StRevoked) already = true;
+            else
+            {
+                draft = new BoardChangeOrder
+                {
+                    ClassKey = rec.Order.ClassKey,
+                    Entity = rec.Order.Entity,
+                    Op = BoardSyncConsts.OpRevoke,
+                    ItemId = rec.Order.ItemId,
+                    RevokeOf = msgId,
+                    Sender = rec.Order.Sender,
+                    SenderRole = rec.Order.SenderRole,
+                    SenderSubject = rec.Order.SenderSubject,
+                    Summary = "撤回：" + rec.Order.Summary
+                };
+            }
+        }
+
+        if (already) return (true, "这条变更单已经撤回过。");
+        if (err != null) return (false, err);
+
+        var res = Send(draft!, bypassRole: true);   // 撤回是收尾动作，不是新发布；不受角色发布权限影响
         if (!res.Ok) return (false, res.Message);
 
-        st = LoadState();
-        rec = st.Records.FirstOrDefault(r => r.MsgId == msgId);
-        if (rec != null)
+        lock (_stateGate)
         {
-            rec.Status = BoardSyncConsts.StRevoked;
-            rec.Note = "教师机已撤回（教室机若已应用，需人工核对）";
-            rec.UpdatedAt = DateTime.Now;
-            SaveState(st);
+            var st2 = LoadState();
+            var rec2 = st2.Records.FirstOrDefault(r => r.MsgId == msgId);
+            if (rec2 != null)
+            {
+                rec2.Status = BoardSyncConsts.StRevoked;
+                rec2.Note = "教师机已撤回（教室机若已应用，需人工核对）";
+                rec2.UpdatedAt = DateTime.Now;
+                SaveState(st2);
+            }
         }
         return (true, "已发出撤回通知。教室机尚未应用的会自动标记「已撤回」。");
     }
@@ -226,9 +264,86 @@ public static class BoardSyncService
     /// <summary>
     /// 本机台账的「读 → 改 → 写」互斥。轮询在后台线程跑，界面上的「已阅 / 应用」同时在改，
     /// 没有这把锁就会互相覆盖 —— 一次 1 秒的共享盘轮询足以把用户刚点下的「已阅」冲回「已送达」。
-    /// <para>★ 锁内只做内存操作 + 一次本地写盘，绝不在锁里访问共享盘。</para>
+    /// <para>★ 锁内只做内存操作 + 一次本地写盘，<b>绝不</b>在锁里访问共享盘。
+    /// 回执一律走 <see cref="QueueReceipt"/>，由后台泵补发（r154）。</para>
     /// </summary>
     static readonly object _stateGate = new();
+
+    /// <summary>
+    /// 回执写盘队列（r154）。
+    /// <para>★ 以前「已阅 / 应用 / 还原」都是在 <c>_stateGate</c> 锁里直接往共享盘写回执的。
+    /// 盘一断，SMB 要卡二三十秒，而 UI 线程只要碰台账（打开台账窗、点一条消息、裁决）
+    /// 就得等这把锁 —— 表现就是「点开消息台账 / 生成账号时窗口未响应」。
+    /// 现在锁内只落本机台账，回执交给一个后台泵顺序补发。</para>
+    /// <para>★ 单泵不并发：共享盘挂住时后面的回执排队（一个都不丢），恢复后按顺序写完；
+    /// 绝不一个回执开一个线程。写失败只是「下轮再补」，本机状态早已落盘。</para>
+    /// </summary>
+    static readonly ConcurrentQueue<BoardReceipt> _receiptQueue = new();
+    static int _receiptPump;
+
+    static void QueueReceipt(BoardReceipt rp)
+    {
+        if (rp == null) return;
+        // 长时间断网 + 用户点了一堆消息：只留最近 200 条，别让队列无限长
+        while (_receiptQueue.Count >= 200) _receiptQueue.TryDequeue(out _);
+        _receiptQueue.Enqueue(rp);
+        StartReceiptPump(0);
+    }
+
+    static void StartReceiptPump(int delayMs)
+    {
+        if (Interlocked.CompareExchange(ref _receiptPump, 1, 0) != 0) return;
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (delayMs > 0) await Task.Delay(delayMs).ConfigureAwait(false);
+                while (_receiptQueue.TryPeek(out var x))
+                {
+                    // 写失败 = 盘多半断了：把它留在队列里，别一条条丢光
+                    if (!WriteReceipt(null, x)) return;
+                    _receiptQueue.TryDequeue(out _);
+                }
+            }
+            catch { /* 泵本身不能死 */ }
+            finally
+            {
+                Interlocked.Exchange(ref _receiptPump, 0);
+                if (!_receiptQueue.IsEmpty) StartReceiptPump(30_000);   // 还有积压：30 秒后再试
+            }
+        });
+    }
+
+    /// <summary>
+    /// 同步把积压的回执写完（写失败就留着）。轮询开头调一次：
+    /// 教师机这一轮要读的就是这些回执，先写出去再读，六态闭环才不会慢一拍。
+    /// </summary>
+    static void DrainReceiptsNow()
+    {
+        while (_receiptQueue.TryPeek(out var x))
+        {
+            if (!WriteReceipt(null, x)) return;
+            _receiptQueue.TryDequeue(out _);
+        }
+    }
+
+    /// <summary>诊断用：后台还没写出去的回执条数（生产路径不读它）。</summary>
+    public static int PendingReceipts => _receiptQueue.Count;
+
+    /// <summary>
+    /// 诊断用：等回执队列写完（最多 <paramref name="timeoutMs"/>）。
+    /// 生产路径不调用 —— 界面上看到「已阅」就够了，回执晚几秒写上去无所谓。
+    /// </summary>
+    public static bool FlushReceipts(int timeoutMs = 5000)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < until)
+        {
+            if (_receiptQueue.IsEmpty && Volatile.Read(ref _receiptPump) == 0) return true;
+            Thread.Sleep(25);
+        }
+        return _receiptQueue.IsEmpty && Volatile.Read(ref _receiptPump) == 0;
+    }
 
     /// <summary>同一时刻只允许一轮轮询：定时器与手动「立即检查」不会叠着跑。</summary>
     static int _pulling;
@@ -272,6 +387,10 @@ public static class BoardSyncService
                                                        .Distinct(StringComparer.Ordinal).ToArray();
         var t = GetTransport();
         if (t == null) return (0, 0, "未配置数据源，跳过轮询。");
+
+        // r154：先把积压的回执写出去（「已阅 / 已应用 / 已撤回」都是排队的），
+        // 教师机这一轮读的就是它们 —— 否则六态闭环会慢一拍。
+        DrainReceiptsNow();
 
         var known = LoadState();          // 只当快照用：判 ActorId / 已知 MsgId，真正落账在锁内重读
         int bad = 0;
@@ -636,11 +755,17 @@ public static class BoardSyncService
     /// <summary>打开消息 = 「已阅」。已阅不等于已改好，只有应用回执才会推进到已应用 / 已核对。</summary>
     public static (bool Ok, string Message) MarkSeen(string msgId)
     {
-        lock (_stateGate) { return MarkSeenCore(msgId); }
+        BoardReceipt? rp;
+        (bool Ok, string Message) res;
+        lock (_stateGate) { res = MarkSeenCore(msgId, out rp); }
+        // ★ 回执在锁外、后台写（r154）：打开台账时这一下原来要等共享盘，盘断了窗口直接「未响应」
+        QueueReceipt(rp!);
+        return res;
     }
 
-    static (bool Ok, string Message) MarkSeenCore(string msgId)
+    static (bool Ok, string Message) MarkSeenCore(string msgId, out BoardReceipt? pending)
     {
+        pending = null;
         var st = LoadState();
         var rec = st.Records.FirstOrDefault(r => r.MsgId == msgId);
         if (rec == null) return (false, "找不到这条消息。");
@@ -651,7 +776,7 @@ public static class BoardSyncService
         rec.UpdatedAt = DateTime.Now;
         SaveState(st);
 
-        WriteReceipt(null, new BoardReceipt
+        pending = new BoardReceipt
         {
             ReceiptId = BoardSyncIds.New("rc"),
             MsgId = msgId,
@@ -660,7 +785,7 @@ public static class BoardSyncService
             State = BoardSyncConsts.RcSeen,
             DecisionId = "seen",
             Note = "电教管理员已打开查看"
-        });
+        };
         return (true, "已标记已阅，并回执教师机。");
     }
 
@@ -718,17 +843,24 @@ public static class BoardSyncService
         string msgId, string decision, bool bypassRole = false,
         string? targetItemId = null, string? targetBaseSignature = null, bool auto = false)
     {
-        // 应用要改「台账 + 本机作业/缺交文件」，全程独占台账：后台轮询此刻只等，不会插进来写
+        // 应用要改「台账 + 本机作业/缺交文件」，全程独占台账：后台轮询此刻只等，不会插进来写。
+        // ★ 回执不在锁里写（r154）：盘断了等 SMB 的会变成裁决按钮，而不是共享盘。
+        (bool Ok, string Message, BoardReceipt? Receipt) res;
+        BoardReceipt? pending;
         lock (_stateGate)
         {
-            return ApplyCore(msgId, decision, bypassRole, targetItemId, targetBaseSignature, auto);
+            res = ApplyCore(msgId, decision, bypassRole, targetItemId, targetBaseSignature, auto, out pending);
         }
+        QueueReceipt(pending!);
+        return res;
     }
 
     static (bool Ok, string Message, BoardReceipt? Receipt) ApplyCore(
         string msgId, string decision, bool bypassRole,
-        string? targetItemId, string? targetBaseSignature, bool auto = false)
+        string? targetItemId, string? targetBaseSignature, bool auto,
+        out BoardReceipt? pending)
     {
+        pending = null;
         LastError = null;
         var st = LoadState();
         var rec = st.Records.FirstOrDefault(r => r.MsgId == msgId);
@@ -1133,7 +1265,7 @@ public static class BoardSyncService
             Note = note,
             CreatedAt = DateTime.Now
         };
-        WriteReceipt(null, rp);
+        pending = rp;   // ★ 锁内不写共享盘：交给 Apply() 在锁外排队补发（r154）
 
         rec.Decision = decision;
         rec.DecisionId = decisionId;
@@ -1163,11 +1295,16 @@ public static class BoardSyncService
     /// </summary>
     public static (bool Ok, string Message) RestoreArchived(string msgId, bool bypassRole = false)
     {
-        lock (_stateGate) { return RestoreArchivedCore(msgId, bypassRole); }
+        (bool Ok, string Message) res;
+        BoardReceipt? pending;
+        lock (_stateGate) { res = RestoreArchivedCore(msgId, bypassRole, out pending); }
+        QueueReceipt(pending!);   // ★ 锁外后台写回执（r154）
+        return res;
     }
 
-    static (bool Ok, string Message) RestoreArchivedCore(string msgId, bool bypassRole)
+    static (bool Ok, string Message) RestoreArchivedCore(string msgId, bool bypassRole, out BoardReceipt? pending)
     {
+        pending = null;
         LastError = null;
         var st = LoadState();
         var rec = st.Records.FirstOrDefault(r => r.MsgId == msgId);
@@ -1398,7 +1535,7 @@ public static class BoardSyncService
             Note = note,
             CreatedAt = DateTime.Now
         };
-        WriteReceipt(null, rp);
+        pending = rp;   // ★ 锁内不写共享盘（r154）
 
         rec.Status = BoardSyncConsts.StRevoked;
         rec.Note = note;
@@ -1791,7 +1928,12 @@ public static class BoardSyncService
            .Where(r => r.Direction == BoardSyncConsts.DirIn && !r.Order.IsRevoke)
            .OrderByDescending(r => r.Order.CreatedAt).ToList();
 
-    /// <summary>本机订阅的班级：当前显示班级 + 设置里额外填的（逗号 / 顿号分隔）。</summary>
+    /// <summary>
+    /// 本机订阅的班级：当前显示班级 + 设置里额外填的（逗号 / 顿号分隔）
+    /// + 账号自带的任教班（r157，只读派生，不写盘）。
+    /// <para>★ 账号那部分只给教师机：教室机只关心本班，多订阅几个班等于每轮轮询多读几个目录。</para>
+    /// <para>★ 上限 12 个班：年级组长能带十几个班，再多订阅只会让轮询变慢，没有实际收益。</para>
+    /// </summary>
     public static string[] SubscribedClasses()
     {
         var s = Store.LoadSettings();
@@ -1800,6 +1942,16 @@ public static class BoardSyncService
         string extra = s.BoardSyncExtraClasses ?? "";
         foreach (var p in extra.Split(new[] { ',', '，', '、', ';' }, StringSplitOptions.RemoveEmptyEntries))
             if (!string.IsNullOrWhiteSpace(p)) list.Add(p.Trim());
+
+        if (!IsClassroomMachine)
+        {
+            foreach (var c in UserSession.SessionClassNames)
+            {
+                string v = (c ?? "").Trim();
+                if (v.Length > 0 && !list.Contains(v, StringComparer.Ordinal)) list.Add(v);
+                if (list.Count >= 12) break;
+            }
+        }
         return list.Distinct(StringComparer.Ordinal).ToArray();
     }
 

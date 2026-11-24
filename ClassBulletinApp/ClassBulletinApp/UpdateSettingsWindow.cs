@@ -456,8 +456,11 @@ public class UpdateSettingsWindow : Window
         Close();
     }
 
-    void TestConnection()
+    bool _testing;
+
+    async void TestConnection()
     {
+        if (_testing) return;
         Save(confirm: false);     // 先落盘，保证测试用的是当前填写值（测试连接不必弹策略确认）
         var src = FeedSourceFactory.Create(_s);
         if (src == null)
@@ -466,21 +469,33 @@ public class UpdateSettingsWindow : Window
             return;
         }
 
-        _status.Text = "正在测试…";
+        // ★ r154：SharePoint / FTP 不通时这一步能卡几十秒，绝不能在 UI 线程等
+        _testing = true;
+        _status.Text = "正在测试…（共享盘 / FTP 慢的时候要等一会儿，界面不会卡）";
         try
         {
-            var (ok, msg) = src.Test();
-            _status.Text = (ok ? "✔ " : "✘ ") + msg;
-
-            if (ok)
+            var s = _s;
+            var (ok, msg, checkOk, checkMsg) = await System.Threading.Tasks.Task.Run(() =>
             {
-                var chk = UpdateService.Check(src, _s);
-                _status.Text += "\n" + (chk.Ok ? "　" + chk.Message : "　" + chk.Message);
-            }
+                var res = src.Test();
+                string cm = "";
+                bool co = false;
+                if (res.Ok)
+                {
+                    var chk = UpdateService.Check(src, s);
+                    cm = chk.Message;
+                    co = chk.Ok;
+                }
+                return (res.Ok, res.Message, co, cm);
+            });
+
+            _status.Text = (ok ? "✔ " : "✘ ") + msg;
+            if (ok && checkMsg.Length > 0) _status.Text += "\n　" + checkMsg;
         }
         catch (Exception ex)
         {
             _status.Text = "✘ 测试失败：" + ex.Message;
         }
+        finally { _testing = false; }
     }
 }

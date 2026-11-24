@@ -258,6 +258,108 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // 诊断：--hang-check <输出 txt> —— 复现「后台同步卡在不可达数据源时，点开台账 / 生成账号会不会跟着卡」。
+        // 自己搭 MainWindow 并泵消息（不经过登录 / 启动流程，免得被升级提示之类的弹窗挡住）。
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--hang-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string outFile = e.Args[1];
+            var hb = new System.Text.StringBuilder();
+            void W(string line)
+            {
+                hb.AppendLine(line);
+                try { File.WriteAllText(outFile, hb.ToString()); } catch { }
+            }
+            void Measure(string name, Action act)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                act();
+                sw.Stop();
+                W($"{name} = {sw.ElapsedMilliseconds} ms" + (sw.ElapsedMilliseconds >= 300 ? "   ← 慢" : ""));
+            }
+
+            MainWindow? host = null;
+            try
+            {
+                Store.EnablePersistence = true;
+                Store.SuppressWrites = false;   // 副本可写；不然 SaveState 被拦，造不出收件
+                UserSession.SignIn(new AppUser { Username = "diag-hang", Role = UserRole.Admin });
+                var hs = Store.LoadSettings();
+                W("data=" + Store.AppDir);
+                W($"source={hs.UpdateSourceKind} · {hs.UpdateFolderPath}{hs.UpdateFtpUrl}");
+                W($"sync={hs.BoardSyncEnabled} interval={hs.BoardSyncPollSeconds}s");
+
+                host = new MainWindow { InitialTabIndex = 9 };
+                host.Show();
+                W("> 主窗已显示，泵 2 秒");
+                PumpFor(2000, W);
+
+                Measure("静态 BoardSyncWindow", () => new BoardSyncWindow().Close());
+                Measure("静态 TeacherAccountWindow", () => new TeacherAccountWindow(Store.LoadUsers()).Close());
+
+                W("> CheckNow（发起一轮轮询；数据源不可达时会卡在 SMB 里）");
+                var swCheck = System.Diagnostics.Stopwatch.StartNew();
+                BoardSyncNotifier.CheckNow();
+                W($"CheckNow 返回 {swCheck.ElapsedMilliseconds} ms");
+
+                W("> 泵 4 秒（轮询正卡着）");
+                PumpFor(4000, W);
+                W("> 泵完");
+
+                Measure("轮询中 BoardSyncWindow", () => new BoardSyncWindow().Close());
+                Measure("轮询中 TeacherAccountWindow", () => new TeacherAccountWindow(Store.LoadUsers()).Close());
+                Measure("轮询中 LoadState", () => _ = BoardSyncService.LoadState());
+                Measure("轮询中 PendingTodo", () => _ = PendingTodoService.Compute());
+                var refreshToday = typeof(MainWindow).GetMethod("RefreshTodayPage",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+                Measure("轮询中 今日页刷新", () => refreshToday.Invoke(host, null));
+
+                // 造一条收件：走「打开消息 = 已阅」这条最常碰的路（r154 前它会在台账锁里写共享盘回执）
+                var seed = new BoardSyncState { ActorId = "a-hangdiag" };
+                seed.Records.Add(new BoardMessageRecord
+                {
+                    MsgId = "m-hang-1",
+                    Direction = BoardSyncConsts.DirIn,
+                    Status = BoardSyncConsts.StDelivered,
+                    Order = new BoardChangeOrder
+                    {
+                        MsgId = "m-hang-1",
+                        ClassFolder = "c-hang",
+                        Summary = "诊断用变更单"
+                    },
+                    UpdatedAt = DateTime.Now
+                });
+                BoardSyncService.SaveState(seed);
+                var swSeen = System.Diagnostics.Stopwatch.StartNew();
+                var seenRes = BoardSyncService.MarkSeen("m-hang-1");
+                swSeen.Stop();
+                W($"MarkSeen（数据源不可达） = {swSeen.ElapsedMilliseconds} ms  ok={seenRes.Ok} / {seenRes.Message}"
+                  + (swSeen.ElapsedMilliseconds >= 300 ? "   ← 慢（不该在锁里写共享盘）" : ""));
+                W($"回执队列积压 = {BoardSyncService.PendingReceipts} 条（>0 说明回执确实还写不出去）");
+                W((swSeen.ElapsedMilliseconds < 300 && BoardSyncService.PendingReceipts > 0 ? "PASS " : "FAIL ")
+                  + "数据源不可达时「已阅」不阻塞 UI（回执转后台队列）");
+
+                // 真实点开：Show + 等一次布局，比只构造更接近用户手感
+                var swShow = System.Diagnostics.Stopwatch.StartNew();
+                var ta = new TeacherAccountWindow(Store.LoadUsers());
+                ta.Show();
+                PumpFor(700, W);
+                W($"TeacherAccountWindow Show+布局 = {swShow.ElapsedMilliseconds} ms");
+                ta.Close();
+
+                swShow.Restart();
+                var bs = new BoardSyncWindow();
+                bs.Show();
+                PumpFor(700, W);
+                W($"BoardSyncWindow Show+布局 = {swShow.ElapsedMilliseconds} ms");
+                bs.Close();
+                W("DONE");
+            }
+            catch (Exception ex) { W("EXCEPTION " + ex); }
+            try { host?.Close(); } catch { }
+            Shutdown(0);
+            return;
+        }
+
         // 诊断：--shot <layout|editor|homeworkedit|missingedit> <输出png> 打开指定窗口并截图后退出
         if (e.Args.Length >= 3 && string.Equals(e.Args[0], "--shot", StringComparison.OrdinalIgnoreCase))
         {
@@ -296,6 +398,10 @@ public partial class App : System.Windows.Application
                     "missingwin" => new MissingWindow(),
                     "main" => new MainWindow(),
                     "maintoday" => new MainWindow { InitialTabIndex = 9 },
+                    // r157：教师视图实景（今日页 / 提醒设置页）—— 截图前先把设置切到「我的课表」
+                    "maintodayteacher" => DiagTeacherView(9),
+                    "mainremindteacher" => DiagTeacherView(3),
+                    "maininfoteacher" => DiagTeacherInfoView(),
                     "maindata" => new MainWindow { InitialTabIndex = 1 },
                     "maindisplay" => new MainWindow { InitialTabIndex = 2 },
                     "mainnotice" => new MainWindow { InitialTabIndex = 4 },
@@ -308,6 +414,8 @@ public partial class App : System.Windows.Application
                     "boardsendweek" => DiagBoardSendWeekly(),
                     "boardsendnotice" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityNotice),
                     "boardsync" => new BoardSyncWindow(),
+                    // r158：教师机形态的台账（教室机上「只看我发的」按设计隐藏，截不到）
+                    "boardsyncteacher" => DiagLedgerTeacher(),
                     // r125：手动录入（课程设置自动调出 + 方案下拉 + 拖动提示）与单格编辑器
                     "manual" => DiagManualWindow(),
                     // r140：保存到该班撞上同名导入课表时的三选一（原 MessageBox 是/否/取消）
@@ -398,6 +506,9 @@ public partial class App : System.Windows.Application
                     "usermanager" => new UserManagerWindow(),
                     "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
                     "rolepolicy" => new RolePolicyWindow(Store.LoadUsers()),
+                    "teacheraccount" => new TeacherAccountWindow(Store.LoadUsers()),
+                    // r152：科目分组胶囊的激活态（主色底白字）+ 整批选中，摆好状态再截图
+                    "teacheraccountgroup" => DiagTeacherAccountGroup(),
                     "traymenu" => new TrayMenuWindow(),
                     "about" => new AboutWindow(),
                     "upgradenotice" => new UpgradeNoticeWindow(
@@ -973,6 +1084,217 @@ public partial class App : System.Windows.Application
                     Check("游客显示 周课 / 设置 / 信息 / 板书 / 通知 / 黑板",
                           Keys(QuickActionCatalog.VisibleNow()) == "board,hand,info,notice,settings,week",
                           Keys(QuickActionCatalog.VisibleNow()));
+
+                    // ===== r150：从课表生成教师账号（纯逻辑，不落盘本机数据）=====
+                    var qaBook = new UserBook { Schema = 5 };
+                    qaBook.EnsurePolicyDefaults();
+
+                    ScheduleFile MakeQaSchedule()
+                    {
+                        var sf = new ScheduleFile();
+                        void Add(string cls, int day, int period, string subject, string teacher)
+                        {
+                            var cs = sf.Classes.FirstOrDefault(c => c.ClassName == cls);
+                            if (cs == null) { cs = new ClassSchedule { ClassName = cls }; sf.Classes.Add(cs); }
+                            if (!cs.Data.TryGetValue(day, out var slots))
+                            { slots = new Dictionary<int, List<Lesson>>(); cs.Data[day] = slots; }
+                            if (!slots.TryGetValue(period, out var list))
+                            { list = new List<Lesson>(); slots[period] = list; }
+                            list.Add(new Lesson { Period = period, Subject = subject, Teacher = teacher });
+                        }
+
+                        // 八(1)：张三是班主任，兼教八(2) 的数学
+                        Add("八(1)班", 0, 1, "班会", "张三");
+                        Add("八(1)班", 0, 2, "语文", "李四");
+                        Add("八(1)班", 1, 2, "语文", "李四");
+                        Add("八(2)班", 0, 1, "班会", "王五");
+                        Add("八(2)班", 2, 1, "数学", "张三");
+                        // 八(3)：班主任课写成单双周（班会-单）也要认
+                        Add("八(3)班", 0, 1, "班会-单", "赵六");
+                        // 八(4)：学校用「团队活动」认定班主任
+                        Add("八(4)班", 0, 1, "团队活动", "钱七");
+                        Add("八(4)班", 1, 1, "历史", "钱七");
+                        // 李四既教语文（2 节）又教生物（1 节）：主科必须按课时取，不能按名字序
+                        Add("八(1)班", 2, 3, "生物", "李四");
+                        // 八(5)：周九只上班会课（没有任何任教科目）；吴十劳动 / 美术各一节（课时并列）
+                        Add("八(5)班", 0, 1, "班会", "周九");
+                        Add("八(5)班", 1, 1, "劳动", "吴十");
+                        Add("八(5)班", 1, 2, "美术", "吴十");
+                        // 孙八：只教一门课，且用户表里已有同名手工账号（测"不覆盖"）
+                        Add("八(3)班", 1, 3, "地理", "孙八");
+                        return sf;
+                    }
+
+                    var qaSchedule = MakeQaSchedule();
+
+                    // 同名手工账号先放进去：生成时必须是「跳过」，不能覆盖角色
+                    qaBook.Users.Add(new AppUser
+                    {
+                        Username = "孙八",
+                        Role = UserRole.Admin,
+                        DisplayName = "手工管理员"
+                    });
+
+                    var planDefault = TeacherAccountGenerator.Build(qaSchedule, qaBook, "");
+                    Check("r150 默认「班会」：5 个班命中 4 个班主任",
+                          planDefault.HeadHitClasses == 4, planDefault.Summary);
+
+                    var zs = planDefault.Items.FirstOrDefault(i => i.Username == "张三");
+                    Check("r150 上班会课的老师判为班主任",
+                          zs != null && zs.Role == UserRole.Teacher, zs?.Role ?? "missing");
+                    Check("r150 班主任班只含自己当班主任的班",
+                          zs != null && string.Join("、", zs.HeadClassNames) == "八(1)班",
+                          zs == null ? "missing" : string.Join("、", zs.HeadClassNames));
+                    Check("r150 任教班包含兼教的班",
+                          zs != null && zs.ClassNames.Contains("八(2)班"),
+                          zs == null ? "missing" : string.Join("、", zs.ClassNames));
+                    Check("r151 默认科目取课时最多的那门，且班主任课不算任教科目",
+                          zs != null && zs.Subject == "数学" && zs.AutoSubject == "数学",
+                          zs?.Subject ?? "missing");
+
+                    var ls = planDefault.Items.FirstOrDefault(i => i.Username == "李四");
+                    Check("r150 不上班会课的老师判为科任",
+                          ls != null && ls.Role == UserRole.SubjectTeacher,
+                          ls == null ? "missing" : ls.Role);
+                    Check("r151 课时多的科目优先于科目名序（语文 2 节 > 生物 1 节）",
+                          ls != null && ls.Subject == "语文", ls?.Subject ?? "missing");
+
+                    var zj = planDefault.Items.FirstOrDefault(i => i.Username == "周九");
+                    Check("r151 只上班会课的老师科目留空 = 不限",
+                          zj != null && zj.Role == UserRole.Teacher && zj.Subject == "",
+                          zj == null ? "missing" : zj.Role + "/" + zj.Subject);
+
+                    var ws = planDefault.Items.FirstOrDefault(i => i.Username == "吴十");
+                    Check("r151 课时并列时按科目名码位序取（结果确定、可复现）",
+                          ws != null && ws.Subject == "劳动", ws?.Subject ?? "missing");
+
+                    var zl = planDefault.Items.FirstOrDefault(i => i.Username == "赵六");
+                    Check("r150 班主任课写成「班会-单」也认得出",
+                          zl != null && zl.Role == UserRole.Teacher, zl?.Role ?? "missing");
+
+                    var qq = planDefault.Items.FirstOrDefault(i => i.Username == "钱七");
+                    Check("r150 没上班会课的老师不是班主任",
+                          qq != null && qq.Role == UserRole.SubjectTeacher, qq?.Role ?? "missing");
+
+                    var planCustom = TeacherAccountGenerator.Build(qaSchedule, qaBook, "班会，团队活动");
+                    Check("r150 自定义班主任课（团队活动）也认",
+                          planCustom.HeadHitClasses == 5, planCustom.Summary);
+                    var qq2 = planCustom.Items.FirstOrDefault(i => i.Username == "钱七");
+                    Check("r150 自定义规则后钱七成为班主任",
+                          qq2 != null && qq2.Role == UserRole.Teacher && qq2.HeadClassNames.Count == 1,
+                          qq2?.Role ?? "missing");
+
+                    var planNone = TeacherAccountGenerator.Build(qaSchedule, qaBook, "不存在的课");
+                    Check("r150 命中 0 个班时给出明确警告",
+                          planNone.HeadHitClasses == 0 && planNone.Warnings.Count > 0,
+                          "warn=" + planNone.Warnings.Count);
+
+                    int qaAdded = TeacherAccountGenerator.Apply(planDefault, qaBook);
+                    Check("r150 首次生成只写新增项（跳过同名手工账号）",
+                          qaAdded == planDefault.Count(TeacherAccountAction.Create)
+                          && qaAdded == planDefault.Items.Count - 1, "added=" + qaAdded);
+
+                    var zsUser = qaBook.Find("张三");
+                    Check("r150 新账号的角色 / 班主任班 / 任教班写对",
+                          zsUser != null && zsUser.Role == UserRole.Teacher
+                          && string.Join("、", zsUser.HeadClassNames) == "八(1)班"
+                          && zsUser.ClassNames.Contains("八(2)班"),
+                          zsUser == null ? "missing" : string.Join("、", zsUser.HeadClassNames));
+                    Check("r150 初始密码为 123（只存哈希）",
+                          zsUser != null && PasswordHasher.Verify("123", zsUser.PasswordHash, zsUser.Salt));
+                    Check("r150 生成的账号带来源标记",
+                          zsUser != null && zsUser.GeneratedFromSchedule == TeacherAccountGenerator.SourceTag,
+                          zsUser?.GeneratedFromSchedule ?? "missing");
+
+                    // 同名的非工具账号：不覆盖，角色原样保留
+                    var sun = planDefault.Items.First(i => i.Username == "孙八");
+                    Check("r150 同名手工账号不覆盖",
+                          sun.Action == TeacherAccountAction.SkipExisting, sun.ActionCaption);
+                    Check("r150 同名手工账号的角色没被改",
+                          qaBook.Find("孙八")!.Role == UserRole.Admin);
+
+                    var planAgain = TeacherAccountGenerator.Build(qaSchedule, qaBook, "");
+                    Check("r150 再算一次没有需要改的（幂等）",
+                          planAgain.Count(TeacherAccountAction.Create) == 0
+                          && planAgain.Count(TeacherAccountAction.Update) == 0
+                          && planAgain.Count(TeacherAccountAction.SkipManual) == 0,
+                          planAgain.Summary);
+
+                    // ===== r151：手工指定科目（覆盖表）=====
+                    var ov = new Dictionary<string, string> { ["李四"] = " 生物 ", ["张三"] = "" };
+                    var planOv = TeacherAccountGenerator.Build(qaSchedule, qaBook, "", ov);
+                    var lsOv = planOv.Items.First(i => i.Username == "李四");
+                    Check("r151 覆盖表能手工指定科目（带空格也归一化）",
+                          lsOv.Subject == "生物" && lsOv.SubjectManual, lsOv.SubjectCaption);
+                    Check("r151 手工指定的科目在列表里带 * 标记",
+                          lsOv.SubjectCaption == "生物*", lsOv.SubjectCaption);
+                    Check("r151 覆盖成空串 = 显式不限",
+                          planOv.Items.First(i => i.Username == "张三").Subject == ""
+                          && planOv.Items.First(i => i.Username == "张三").SubjectManual);
+                    Check("r151 覆盖条数如实统计", planOv.OverrideApplied == 2,
+                          planOv.OverrideApplied.ToString());
+
+                    TeacherAccountGenerator.Apply(planOv, qaBook);
+                    Check("r151 覆盖后按覆盖值写盘",
+                          qaBook.Find("李四")!.Subject == "生物" && qaBook.Find("张三")!.Subject == "",
+                          "李四=" + qaBook.Find("李四")!.Subject + " 张三=" + qaBook.Find("张三")!.Subject);
+
+                    var planOvAgain = TeacherAccountGenerator.Build(qaSchedule, qaBook, "", ov);
+                    Check("r151 覆盖被记住后重算仍幂等（不会每次都判更新）",
+                          planOvAgain.Count(TeacherAccountAction.Update) == 0
+                          && planOvAgain.Count(TeacherAccountAction.Create) == 0,
+                          planOvAgain.Summary);
+
+                    var planReset = TeacherAccountGenerator.Build(qaSchedule, qaBook, "",
+                                                                  new Dictionary<string, string>());
+                    var lsReset = planReset.Items.First(i => i.Username == "李四");
+                    Check("r151 撤掉覆盖后回到课表自动值（会重新刷新）",
+                          lsReset.Subject == "语文" && lsReset.Action == TeacherAccountAction.Update,
+                          lsReset.Subject + "/" + lsReset.ActionCaption);
+
+                    // 覆盖表落盘：预览窗关掉再开必须记得住
+                    bool prevPersist = Store.EnablePersistence;
+                    try
+                    {
+                        Store.EnablePersistence = true;
+                        Store.SaveTeacherSubjects(new Dictionary<string, string>
+                        {
+                            ["张三"] = "数学", ["李四"] = "语文"
+                        });
+                        var ovBack = Store.LoadTeacherSubjects();
+                        Check("r151 覆盖表能存盘读回", ovBack.Count == 2 && ovBack["李四"] == "语文",
+                              "count=" + ovBack.Count);
+                        Store.SaveTeacherSubjects(new Dictionary<string, string>());   // 别把测试数据留在副本里
+                    }
+                    finally { Store.EnablePersistence = prevPersist; }
+
+                    // 改课表范围走班主任班级，作业范围走任教班级（此时张三还兼教八(2)）
+                    UserSession.SignIn(qaBook.Find("张三"), qaBook);
+                    Check("r150 班主任能改自己当班主任的班的课表", UserSession.CanEditClass("八(1)班"));
+                    Check("r150 班主任不能改只任教的班的课表", !UserSession.CanEditClass("八(2)班"));
+                    Check("r150 但任教班的作业仍可编辑", UserSession.CanEditBoardFor("八(2)班"));
+
+                    // 管理员手工收窄张三的任教班 → 以后不再被工具刷新
+                    zsUser!.ClassNames = new List<string> { "八(1)班" };
+                    var planManual = TeacherAccountGenerator.Build(qaSchedule, qaBook, "");
+                    var zsManual = planManual.Items.First(i => i.Username == "张三");
+                    Check("r150 手工改过的账号不被刷新", zsManual.Action == TeacherAccountAction.SkipManual,
+                          zsManual.ActionCaption);
+                    Check("r150 手工改动本身没被覆盖",
+                          qaBook.Find("张三")!.ClassNames.Count == 1,
+                          string.Join("、", qaBook.Find("张三")!.ClassNames));
+
+                    var oldHead = new AppUser
+                    {
+                        Username = "老班主任",
+                        Role = UserRole.Teacher,
+                        ClassNames = new List<string> { "九(1)班" }
+                    };
+                    UserSession.SignIn(oldHead, qaBook);
+                    Check("r150 老账号没填班主任班时回退所属班级",
+                          UserSession.CanEditClass("九(1)班"));
+                    Check("r150 老账号照旧改不了别的班",
+                          !UserSession.CanEditClass("九(2)班"));
                 }
                 finally
                 {
@@ -1178,6 +1500,142 @@ public partial class App : System.Windows.Application
             }
         }
 
+        // 诊断：--account-check [log] —— 用真实底表验「从课表生成教师账号」的识别率。
+        // ★ 只读：只 Build 计划、不 Apply、不写 users.json；输出统计与明细供人工核对规则是否还对。
+        if (e.Args.Length >= 1 && string.Equals(e.Args[0], "--account-check", StringComparison.OrdinalIgnoreCase))
+        {
+            string alog = e.Args.Length >= 2 ? e.Args[1]
+                : Path.Combine(Path.GetTempPath(), "ClassBulletinApp.accountcheck.log");
+            var sb = new System.Text.StringBuilder();
+            int pass = 0, fail = 0;
+            void Check(string name, bool ok, string detail = "")
+            {
+                sb.AppendLine((ok ? "PASS " : "FAIL ") + name
+                              + (string.IsNullOrEmpty(detail) ? "" : "  " + detail));
+                if (ok) pass++; else fail++;
+            }
+
+            try
+            {
+                Store.SuppressWrites = true;   // ★ 绝不能把预览结果写进真实 users.json
+                var sf = Store.LoadSchedule();
+                if (sf == null || sf.Classes.Count == 0)
+                {
+                    sb.AppendLine("SKIP 本机 schedule.json 底表是空的，没有课表可提取（先导入课表再跑这条）。");
+                    sb.AppendLine("RESULT SKIP  0/0");
+                    File.WriteAllText(alog, sb.ToString());
+                    Shutdown(0);
+                    return;
+                }
+
+                var book = Store.LoadUsers();
+                // ★ 和预览窗走同一条路：带上本机记住的手工指定科目，否则诊断看到的不是真实结果
+                var plan = TeacherAccountGenerator.Build(sf, book, TeacherAccountGenerator.DefaultHeadSubject,
+                                                         Store.LoadTeacherSubjects());
+
+                sb.AppendLine($"底表 {sf.Classes.Count} 个班，ImportedAt={sf.ImportedAt:yyyy-MM-dd HH:mm}");
+                sb.AppendLine("班主任课规则 = " + string.Join("、", plan.HeadSubjects));
+                sb.AppendLine(plan.Summary);
+                sb.AppendLine("底表科目名 = " + string.Join(" · ", plan.SubjectsInSchedule));
+                foreach (var warn in plan.Warnings) sb.AppendLine("WARN " + warn);
+
+                sb.AppendLine("—— 前 25 位班主任 ——");
+                foreach (var d in plan.Items.Where(i => i.Role == UserRole.Teacher).Take(25))
+                    sb.AppendLine($"  {d.Username} | {d.HeadCaption} | 任教 {d.ClassNames.Count} 班 | {d.SubjectCaption}");
+
+                sb.AppendLine("—— 科目分布（按课时最多自动判定，前 15）——");
+                foreach (var grp in plan.Items.GroupBy(i => i.SubjectCaption)
+                                              .OrderByDescending(x => x.Count()).Take(15))
+                    sb.AppendLine($"  {grp.Key} = {grp.Count()}");
+
+                sb.AppendLine("—— 处理分布 ——");
+                foreach (TeacherAccountAction a in Enum.GetValues(typeof(TeacherAccountAction)))
+                    sb.AppendLine($"  {a} = {plan.Count(a)}");
+
+                int noSubj = plan.Items.Count(i => i.Subject.Length == 0);
+                Check("多数老师能判出主科（只有只上班主任课的才会空）",
+                      noSubj * 5 <= plan.Items.Count, $"不限 {noSubj}/{plan.Items.Count}");
+
+                var manualSubj = plan.Items.Where(i => i.SubjectManual).Select(i => i.Username).ToList();
+                sb.AppendLine($"手工指定科目 = {manualSubj.Count} 人"
+                              + (manualSubj.Count == 0 ? "" : "：" + string.Join("、", manualSubj.Take(10))));
+                Check("手工指定科目的人数与统计一致", plan.OverrideApplied == manualSubj.Count,
+                      $"plan={plan.OverrideApplied} 明细={manualSubj.Count}");
+
+                var headAsSubject = plan.Items
+                    .Where(i => i.Subject.Length > 0 && plan.HeadSubjects.Contains(i.Subject))
+                    .Select(i => i.Username).ToList();
+                Check("没有任何人的科目被判成班主任课",
+                      headAsSubject.Count == 0, string.Join("、", headAsSubject.Take(5)));
+
+                // r155：预览窗「选中人的科目排到下拉最前」依赖 TaughtSubjects。
+                //   它必须和真正会写进账号的科目同一口径，否则下拉里排第一的是语文、
+                //   实际写进去的是历史 —— 那比不排序更糟。
+                var badTaught = plan.Items
+                    .Where(i => !i.SubjectManual && i.Subject.Length > 0 && i.TaughtSubjects.Count > 0)
+                    .Where(i => !string.Equals(i.TaughtSubjects[0], i.Subject, StringComparison.Ordinal))
+                    .Select(i => $"{i.Username}({i.TaughtSubjects[0]}≠{i.Subject})")
+                    .ToList();
+                Check("任教科目首位 = 自动判定的主科", badTaught.Count == 0,
+                      string.Join("、", badTaught.Take(5)));
+
+                var taughtHead = plan.Items.SelectMany(i => i.TaughtSubjects)
+                                           .Where(s => plan.HeadSubjects.Contains(s))
+                                           .Distinct().ToList();
+                Check("任教科目里不含班主任课", taughtHead.Count == 0,
+                      string.Join("、", taughtHead.Take(5)));
+
+                Check("底表能提取到教师", plan.Items.Count > 0, "teachers=" + plan.Items.Count);
+                Check("至少识别出一个班主任", plan.HeadHitClasses > 0,
+                      $"命中 {plan.HeadHitClasses}/{plan.TotalClasses} 个班");
+                Check("班主任数不超过班级数", plan.HeadHitClasses <= plan.TotalClasses);
+
+                var dupHead = plan.Items.SelectMany(i => i.HeadClassNames)
+                                        .GroupBy(c => c, StringComparer.Ordinal)
+                                        .Where(g => g.Count() > 1)
+                                        .Select(g => g.Key).ToList();
+                Check("每个班最多一个班主任", dupHead.Count == 0,
+                      dupHead.Count == 0 ? "" : string.Join("、", dupHead.Take(5)));
+
+                Check("角色与班主任班一致",
+                      plan.Items.All(i => (i.Role == UserRole.Teacher) == (i.HeadClassNames.Count > 0)));
+
+                // ★ 默认只读。设 CB_ACC_APPLY=1 才真的写进当前数据目录（用于验收
+                //   "300+ 账号的列表速度 / users.json 体积"）——此时 CB_DATA_DIR 必须是副本。
+                if (Environment.GetEnvironmentVariable("CB_ACC_APPLY") == "1")
+                {
+                    Store.SuppressWrites = false;
+                    Store.EnablePersistence = true;
+
+                    int applied = TeacherAccountGenerator.Apply(plan, book);
+                    Store.SaveUsers(book);
+
+                    long size = 0;
+                    try { size = new FileInfo(Path.Combine(Store.AppDir, "users.json")).Length; } catch { }
+                    sb.AppendLine($"APPLY 写入 {applied} 个账号，users.json = {size} 字节");
+
+                    var back = Store.LoadUsers();
+                    Check("写盘后读回账号数一致", back.Users.Count == book.Users.Count,
+                          back.Users.Count + " vs " + book.Users.Count);
+
+                    var backHead = back.Find(plan.Items.First(i => i.Role == UserRole.Teacher).Username);
+                    Check("读回的班主任保留班主任班级",
+                          backHead != null && backHead.HeadClassNames.Count > 0,
+                          backHead == null ? "missing" : string.Join("、", backHead.HeadClassNames));
+                }
+
+                sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
+            }
+            catch (Exception ex)
+            {
+                sb.AppendLine("EXCEPTION " + ex);
+                sb.AppendLine($"RESULT FAIL  {pass}/{pass + fail + 1}");
+            }
+            try { File.WriteAllText(alog, sb.ToString()); } catch { }
+            Shutdown(fail == 0 ? 0 : 1);
+            return;
+        }
+
         // 诊断：--manual-data-check 用真实底表逐班核对「手动录入」网格内容是否等于该班底表。
         // 用户反馈：自动更新后再进手动录入，在班级列表选班，显示的课表与更新后的课表不一致。
         // 这条链路只有「选班 → LoadClassIntoGrid → _data」几步，用真实数据跑一遍就能定位：
@@ -1326,10 +1784,15 @@ public partial class App : System.Windows.Application
             {
                 // 每步先落盘：万一某个窗口构造时卡住，日志能指到是哪一个
                 try { File.AppendAllText(tracePath, "> " + name + "\n"); } catch { }
+                // r154：顺手计时。窗口构造超过 300 ms 就在日志里标出来 ——
+                // 「点开某个窗口偶尔卡成未响应」这类问题，靠看日志比靠人复现靠谱。
+                var swOpen = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     var w = factory();
-                    sb.AppendLine("OK   " + name);
+                    swOpen.Stop();
+                    sb.AppendLine("OK   " + name
+                                  + (swOpen.ElapsedMilliseconds >= 300 ? $"  [{swOpen.ElapsedMilliseconds} ms]" : ""));
                     GuardSettings(name);
                     try { w?.Close(); } catch { }
                 }
@@ -2217,6 +2680,41 @@ public partial class App : System.Windows.Application
                 if (string.IsNullOrWhiteSpace(todo.Text) || string.IsNullOrWhiteSpace(lesson.Text)
                     || string.IsNullOrWhiteSpace(update.Text) || string.IsNullOrWhiteSpace(status.Text))
                     throw new Exception("刷新后四卡仍有空白主文案");
+
+                // r153：数据源不可达时，「刷新今日页」必须秒回。
+                // 以前（v1.0.18）这里在 UI 线程直接读共享盘：SMB 一超时，整块控制面板假死几十秒。
+                var bfT = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var refreshToday = typeof(MainWindow).GetMethod("RefreshTodayPage", bfT)!;
+                UserSession.SignIn(new AppUser { Username = "diag-todayclock", Role = UserRole.Admin });
+                var stBad = Store.LoadSettings();
+                string k0 = stBad.UpdateSourceKind, p0 = stBad.UpdateFolderPath;
+                bool a0 = stBad.AutoUpdateEnabled;
+                try
+                {
+                    stBad.UpdateSourceKind = "folder";
+                    stBad.UpdateFolderPath = @"\\192.0.2.1\cbdiag-unreachable";   // TEST-NET-1：必然连不上
+                    stBad.AutoUpdateEnabled = true;
+                    Store.SaveSettings(stBad);
+
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    refreshToday.Invoke(w, null);
+                    sw.Stop();
+                    if (sw.ElapsedMilliseconds > 1200)
+                        throw new Exception($"数据源不可达时刷新今日页卡了 {sw.ElapsedMilliseconds} ms（应 <1200）");
+
+                    var dl = (System.Windows.Controls.TextBlock)w.FindName("TxtTodayUpdateDetail")!;
+                    if (!dl.Text.Contains("设备回执", StringComparison.Ordinal))
+                        throw new Exception("更新卡缺少「设备回执」行：" + dl.Text.Replace("\n", " / "));
+                }
+                finally
+                {
+                    stBad.UpdateSourceKind = k0;
+                    stBad.UpdateFolderPath = p0;
+                    stBad.AutoUpdateEnabled = a0;
+                    Store.SaveSettings(stBad);
+                    UserSession.SignIn(new AppUser { Username = "diag", Role = UserRole.Admin });
+                }
+
                 w.Close();
                 return null;
             });
@@ -3719,6 +4217,407 @@ public partial class App : System.Windows.Application
             Check("UserEditWindow", () => new UserEditWindow(null,
                 new ScheduleCore.Models.UserBook(), new[] { "八(22)班" }));
             Check("RolePolicyWindow", () => new RolePolicyWindow(Store.LoadUsers()));
+            // r150/r151：预览窗只在 Loaded 时才读课表，这里只验控件与默认排序状态
+            Check("TeacherAccountWindow", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                var hb = (System.Collections.Generic.List<System.Windows.Controls.Button>)
+                    typeof(TeacherAccountWindow).GetField("_headerButtons", bf)!.GetValue(w)!;
+                if (hb.Count != 6) throw new Exception("表头按钮 " + hb.Count + " 个（应为 6）");
+
+                string txt = string.Join("|", hb.Select(b => b.Content?.ToString()));
+                if (!txt.Contains("用户名") || !txt.Contains("科目") || !txt.Contains("处理"))
+                    throw new Exception("表头文字 = " + txt);
+
+                // 默认按「处理」排序 → 该列必须带升序箭头
+                if (!(hb[5].Content?.ToString() ?? "").Contains('▲'))
+                    throw new Exception("默认排序箭头缺失：" + hb[5].Content);
+
+                var search = typeof(TeacherAccountWindow).GetField("_search", bf)!.GetValue(w)
+                             as System.Windows.Controls.TextBox;
+                var bulk = typeof(TeacherAccountWindow).GetField("_bulkSubject", bf)!.GetValue(w)
+                           as System.Windows.Controls.ComboBox;
+                if (search == null || bulk == null) throw new Exception("搜索框 / 批量科目框缺失");
+                if (bulk.IsEditable != true) throw new Exception("批量科目框必须可直接输入");
+
+                return w;
+            });
+
+            // r151：表头与数据行必须同起点（列宽共用 Columns 数组，两侧 padding 不一致就会整体错位）
+            Check("r151 预览窗表头与数据列对齐", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                // ★ ui-check 不会真的 Show 窗口：Loaded 不触发就永远是空列表，这里手动点一次
+                w.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1000, 700));
+                content.Arrange(new System.Windows.Rect(0, 0, 1000, 700));
+                content.UpdateLayout();
+
+                var list = (System.Windows.Controls.ListBox)typeof(TeacherAccountWindow)
+                    .GetField("_list", bf)!.GetValue(w)!;
+                if (list.Items.Count == 0) throw new Exception("列表是空的，量不出对齐");
+
+                var dock = w.Content as System.Windows.Controls.DockPanel;
+                var header = dock?.Children.OfType<System.Windows.Controls.Grid>().FirstOrDefault();
+                var rowGrid = (list.Items[0] as System.Windows.Controls.ListBoxItem)?.Content
+                              as System.Windows.Controls.Grid;
+                if (header == null || rowGrid == null)
+                    throw new Exception("拿不到表头或首行（header=" + (header == null) + "）");
+
+                double hx = header.TransformToAncestor(content)
+                                  .Transform(new System.Windows.Point(0, 0)).X;
+                double rx = rowGrid.TransformToAncestor(content)
+                                  .Transform(new System.Windows.Point(0, 0)).X;
+                if (Math.Abs(hx - rx) > 3)
+                    throw new Exception($"表头起点 {hx:F1} 与数据行起点 {rx:F1} 不一致");
+                return w;
+            });
+
+            // r152 / r155：科目分组从"一排胶囊"改成下拉后，整批入口只剩这一处，
+            //       所以两条都要客观验：分组不能漏人、选一项必须"筛出该组 + 全部选中"、
+            //       选回「全部科目」要能恢复完整名单。
+            Check("r155 科目下拉可整批选中", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                w.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1040, 740));
+                content.Arrange(new System.Windows.Rect(0, 0, 1040, 740));
+                content.UpdateLayout();
+
+                var combo = (System.Windows.Controls.ComboBox)typeof(TeacherAccountWindow)
+                    .GetField("_groupCombo", bf)!.GetValue(w)!;
+                var list = (System.Windows.Controls.ListBox)typeof(TeacherAccountWindow)
+                    .GetField("_list", bf)!.GetValue(w)!;
+                var plan = (ScheduleCore.Services.TeacherAccountPlan)typeof(TeacherAccountWindow)
+                    .GetField("_plan", bf)!.GetValue(w)!;
+
+                if (list.Items.Count == 0) throw new Exception("列表是空的（课表没读到？）");
+
+                // 分组不能漏人也不能多出空组（+1 是恒在首位的「全部科目」）
+                int expectGroups = plan.Items
+                    .GroupBy(d => (d.Subject ?? "").Trim(), StringComparer.Ordinal).Count();
+                if (combo.Items.Count != expectGroups + 1)
+                    throw new Exception($"下拉 {combo.Items.Count} 项 ≠ 实际 {expectGroups} 组 + 1");
+
+                int total = list.Items.Count;
+                if (total < 2) throw new Exception("可生成的人太少，量不出筛选");
+
+                // 选第一组 → 只留该组，且整批选中
+                combo.SelectedIndex = 1;
+                content.UpdateLayout();
+
+                int shown = list.Items.Count;
+                int selected = list.SelectedItems.Count;
+                if (shown >= total)
+                    throw new Exception($"选中分组后列表没筛窄：{shown} ≥ 总数 {total}");
+                if (selected != shown)
+                    throw new Exception($"选中分组后没有整批选中：选中 {selected} / 显示 {shown}");
+
+                // 选回「全部科目」→ 恢复完整名单
+                combo.SelectedIndex = 0;
+                content.UpdateLayout();
+                if (list.Items.Count != total)
+                    throw new Exception($"选回全部没恢复：{list.Items.Count} ≠ {total}");
+
+                return w;
+            });
+
+            // r155：选中若干人后，批量科目下拉要把「他们任教的科目」排在最前面并直接预填 —— 
+            //       四十多门课里翻两次就没人愿意用了。
+            Check("r155 选中后科目下拉优先选中人的科目", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                w.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1040, 740));
+                content.Arrange(new System.Windows.Rect(0, 0, 1040, 740));
+                content.UpdateLayout();
+
+                var list = (System.Windows.Controls.ListBox)typeof(TeacherAccountWindow)
+                    .GetField("_list", bf)!.GetValue(w)!;
+                var bulk = (System.Windows.Controls.ComboBox)typeof(TeacherAccountWindow)
+                    .GetField("_bulkSubject", bf)!.GetValue(w)!;
+
+                // 挑一个"有任教科目"的人，避免只教班主任课的那种（他的科目列表本来就是空）
+                System.Windows.Controls.ListBoxItem? pick = null;
+                ScheduleCore.Services.TeacherAccountDraft? draft = null;
+                foreach (var o in list.Items)
+                {
+                    var it = o as System.Windows.Controls.ListBoxItem;
+                    var d = it?.Tag as ScheduleCore.Services.TeacherAccountDraft;
+                    if (d != null && d.TaughtSubjects.Count > 0) { pick = it; draft = d; break; }
+                }
+                if (pick == null || draft == null) throw new Exception("没有一个带任教科目的老师，量不出优先级");
+
+                pick.IsSelected = true;
+                content.UpdateLayout();
+
+                string want = draft.TaughtSubjects[0];
+                string got = bulk.Items.Count > 0 ? (bulk.Items[0]?.ToString() ?? "") : "";
+                if (!string.Equals(got, want, StringComparison.Ordinal))
+                    throw new Exception($"下拉首项是「{got}」，应为「{want}」（这人主要教的课）");
+                if (!string.Equals((bulk.Text ?? "").Trim(), want, StringComparison.Ordinal))
+                    throw new Exception($"下拉没有预填：现在填的是「{bulk.Text}」");
+
+                return w;
+            });
+
+            // r156：「班主任科目」= 可输入 + 可选。候选必须正好是底表里出现的科目名，
+            //       默认值（「班会」通常不在底表）也不能被候选覆盖掉。
+            Check("r156 班主任科目可输入也可下拉选", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                w.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1040, 760));
+                content.Arrange(new System.Windows.Rect(0, 0, 1040, 760));
+                content.UpdateLayout();
+
+                var head = (System.Windows.Controls.ComboBox)typeof(TeacherAccountWindow)
+                    .GetField("_headCombo", bf)!.GetValue(w)!;
+                var plan = (ScheduleCore.Services.TeacherAccountPlan)typeof(TeacherAccountWindow)
+                    .GetField("_plan", bf)!.GetValue(w)!;
+
+                if (head.IsEditable != true) throw new Exception("班主任科目必须可直接输入");
+                if (plan.SubjectsInSchedule.Count == 0) throw new Exception("底表没读到科目，量不出候选");
+                if (head.Items.Count == 0) throw new Exception("下拉候选是空的（底表科目名没灌进去）");
+
+                var want = plan.SubjectsInSchedule
+                    .Select(ScheduleCore.Models.BoardIds.NormalizeSubject)
+                    .Where(s => s.Length > 0)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(s => s, StringComparer.Ordinal).ToList();
+                var got = head.Items.OfType<string>().OrderBy(s => s, StringComparer.Ordinal).ToList();
+                if (!want.SequenceEqual(got, StringComparer.Ordinal))
+                    throw new Exception($"下拉候选 {got.Count} 项 ≠ 底表 {want.Count} 项");
+
+                if ((head.Text ?? "").Trim().Length == 0)
+                    throw new Exception("框里没有当前生效的班主任科目");
+
+                // 选一项 → 编辑框文字要跟着走（否则选了没反应，比没有下拉更糟），
+                // 并且当场重算过计划（不必再点「重新预览」）
+                head.SelectedIndex = 0;
+                content.UpdateLayout();
+                string pick = head.Items[0]?.ToString() ?? "";
+                if (!string.Equals((head.Text ?? "").Trim(), pick, StringComparison.Ordinal))
+                    throw new Exception($"选了「{pick}」但框里还是「{head.Text}」");
+
+                var plan2 = (ScheduleCore.Services.TeacherAccountPlan)typeof(TeacherAccountWindow)
+                    .GetField("_plan", bf)!.GetValue(w)!;
+                if (!plan2.HeadSubjects.Any(h => string.Equals(h, pick, StringComparison.Ordinal)))
+                    throw new Exception($"选了「{pick}」但计划里的班主任科目还是「{string.Join("、", plan.HeadSubjects)}」");
+
+                return w;
+            });
+
+            // r156：底部必须是一行 —— 批量区在最左、生成/取消在右下角。
+            //       量同一行的 Y 与左右次序；批量若还留在工具卡里，Y 就对不上。
+            Check("r156 底部批量在左、生成取消在右", () =>
+            {
+                var w = new TeacherAccountWindow(Store.LoadUsers());
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                w.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1040, 760));
+                content.Arrange(new System.Windows.Rect(0, 0, 1040, 760));
+                content.UpdateLayout();
+
+                var label = (System.Windows.Controls.TextBlock)typeof(TeacherAccountWindow)
+                    .GetField("_bulkLabel", bf)!.GetValue(w)!;
+                var bulk = (System.Windows.Controls.ComboBox)typeof(TeacherAccountWindow)
+                    .GetField("_bulkSubject", bf)!.GetValue(w)!;
+
+                System.Windows.Controls.Button? Find(string caption)
+                {
+                    System.Windows.Controls.Button? hit = null;
+                    void Walk(System.Windows.DependencyObject node)
+                    {
+                        if (hit != null) return;
+                        if (node is System.Windows.Controls.Button b
+                            && string.Equals(b.Content?.ToString(), caption, StringComparison.Ordinal))
+                        { hit = b; return; }
+                        foreach (object child in System.Windows.LogicalTreeHelper.GetChildren(node))
+                            if (child is System.Windows.DependencyObject d) Walk(d);
+                    }
+                    Walk(content);
+                    return hit;
+                }
+
+                var ok = Find("生成账号") ?? throw new Exception("找不到「生成账号」按钮");
+                var cancel = Find("取消") ?? throw new Exception("找不到「取消」按钮");
+
+                System.Windows.Point Pos(FrameworkElement e)
+                    => e.TransformToAncestor(content).Transform(new System.Windows.Point(0, 0));
+
+                var pLabel = Pos(label);
+                var pOk = Pos(ok);
+                var pCancel = Pos(cancel);
+
+                // 按「竖直中心」比：按钮有内边距，比顶边会被高度差拉出假错位
+                double cyLabel = pLabel.Y + label.ActualHeight / 2;
+                double cyOk = pOk.Y + ok.ActualHeight / 2;
+
+                // 顶部工具卡里的「搜索」行在 y≈120，底部行应该远在它下面；
+                // 这里只量彼此关系，不写死坐标。
+                if (Math.Abs(cyLabel - cyOk) > 4)
+                    throw new Exception($"批量行 y={cyLabel:F0} 与「生成账号」y={cyOk:F0} 不在同一行");
+                if (pLabel.X >= pOk.X)
+                    throw new Exception($"批量区 x={pLabel.X:F0} 不在「生成账号」左边（x={pOk.X:F0}）");
+                if (pCancel.X <= pOk.X)
+                    throw new Exception($"「取消」x={pCancel.X:F0} 不在「生成账号」右边（x={pOk.X:F0}）");
+
+                // 取消必须是整窗最右的控件之一（留边距 18 + 容差）
+                double rightGap = content.ActualWidth - (pCancel.X + cancel.ActualWidth);
+                if (rightGap > 40)
+                    throw new Exception($"「取消」右侧还空着 {rightGap:F0}px，没贴到最右");
+
+                if (bulk.IsEnabled) throw new Exception("没人选中时批量科目框应该是灰的");
+
+                return w;
+            });
+
+            // r150：用户列表是「表头 Grid + ListBox 行 Grid」两套布局，列宽必须共用同一份数组。
+            //       有 300+ 中文姓名后，1px 的起点差都会变成"角色列压在班级列上"，这里客观量一次。
+            Check("r150 用户列表表头与数据列对齐", () =>
+            {
+                var w = new UserManagerWindow();
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(900, 560));
+                content.Arrange(new System.Windows.Rect(0, 0, 900, 560));
+                content.UpdateLayout();
+
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var list = (System.Windows.Controls.ListBox)typeof(UserManagerWindow)
+                    .GetField("_list", bf)!.GetValue(w)!;
+                if (list.Items.Count == 0) throw new Exception("用户列表是空的，量不出对齐");
+
+                var dock = w.Content as System.Windows.Controls.DockPanel;
+                var header = dock?.Children.OfType<System.Windows.Controls.Grid>().FirstOrDefault();
+                var rowGrid = (list.Items[0] as System.Windows.Controls.ListBoxItem)?.Content
+                              as System.Windows.Controls.Grid;
+                if (header == null || rowGrid == null)
+                    throw new Exception("拿不到表头或首行（header=" + (header == null) + "）");
+
+                double hx = header.TransformToAncestor(content)
+                                  .Transform(new System.Windows.Point(0, 0)).X;
+                double rx = rowGrid.TransformToAncestor(content)
+                                  .Transform(new System.Windows.Point(0, 0)).X;
+                if (Math.Abs(hx - rx) > 2)
+                    throw new Exception($"表头起点 {hx:F1} 与数据行起点 {rx:F1} 不一致");
+                return w;
+            });
+
+            // r155：用户管理支持「点表头排序 + 科目下拉筛出并全选」——
+            //       300 个账号里按科目批量停用 / 删除，靠的就是这两条。
+            Check("r155 用户管理：表头排序 + 科目下拉整批选中", () =>
+            {
+                var w = new UserManagerWindow();
+                var content = (FrameworkElement)w.Content;
+                content.Measure(new System.Windows.Size(1000, 660));
+                content.Arrange(new System.Windows.Rect(0, 0, 1000, 660));
+                content.UpdateLayout();
+
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var list = (System.Windows.Controls.ListBox)typeof(UserManagerWindow)
+                    .GetField("_list", bf)!.GetValue(w)!;
+                var combo = (System.Windows.Controls.ComboBox)typeof(UserManagerWindow)
+                    .GetField("_subjectCombo", bf)!.GetValue(w)!;
+                var hb = (System.Collections.Generic.List<System.Windows.Controls.Button>)
+                    typeof(UserManagerWindow).GetField("_headerButtons", bf)!.GetValue(w)!;
+
+                if (hb.Count != 6) throw new Exception("表头按钮 " + hb.Count + " 个（应为 6）");
+                if (list.Items.Count < 2) throw new Exception("用户太少，量不出排序与筛选");
+
+                // ① 点「用户名」表头 → 按中文序升序，且箭头落在这一列
+                hb[0].RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                content.UpdateLayout();
+
+                if (!(hb[0].Content?.ToString() ?? "").Contains('▲'))
+                    throw new Exception("排序箭头没落到用户名列：" + hb[0].Content);
+
+                var names = list.Items.OfType<System.Windows.Controls.ListBoxItem>()
+                    .Select(i => (i.Tag as ScheduleCore.Models.AppUser)?.Username ?? "")
+                    .ToList();
+                var cmp = ScheduleCore.Services.TeacherExtractor.ZhComparer();
+                for (int i = 1; i < names.Count; i++)
+                {
+                    if (cmp.Compare(names[i - 1], names[i]) > 0)
+                        throw new Exception($"用户名列没按中文序排：{names[i - 1]} 在 {names[i]} 之前");
+                }
+
+                // ② 科目下拉第一项恒为「全部科目」，选第二项 → 只留该科且整批选中
+                int total = list.Items.Count;
+                if (combo.Items.Count < 2) throw new Exception("科目下拉没有可选项（用户表里一个科目都没有？）");
+                if (!(combo.Items[0]?.ToString() ?? "").StartsWith("全部科目", StringComparison.Ordinal))
+                    throw new Exception("下拉首项不是「全部科目」：" + combo.Items[0]);
+
+                combo.SelectedIndex = 1;
+                content.UpdateLayout();
+
+                int shown = list.Items.Count;
+                int selected = list.SelectedItems.Count;
+                if (shown >= total) throw new Exception($"选了科目后列表没筛窄：{shown} ≥ 总数 {total}");
+                if (selected != shown) throw new Exception($"选了科目后没有整批选中：选中 {selected} / 显示 {shown}");
+
+                combo.SelectedIndex = 0;
+                content.UpdateLayout();
+                if (list.Items.Count != total)
+                    throw new Exception($"选回全部没恢复：{list.Items.Count} ≠ {total}");
+
+                // ③ 多选后整批停用 → 再整批启用，状态必须回到原样。
+                //    这是"批量选择"的落点：只测选中不算数，得确认真的作用到每一个账号上。
+                //    ★ 只挑非管理员，避免撞上"最后一个管理员"的保护分支（那条会弹框）。
+                var targets = Store.LoadUsers().Users
+                    .Where(u => u.Role != ScheduleCore.Models.UserRole.Admin && u.Enabled)
+                    .Take(3).Select(u => u.Username).ToList();
+                if (targets.Count == 3)
+                {
+                    var toggle = typeof(UserManagerWindow).GetMethod("ToggleEnabled", bf)!;
+
+                    list.UnselectAll();
+                    foreach (var o in list.Items)
+                    {
+                        var it = (System.Windows.Controls.ListBoxItem)o;
+                        var u = it.Tag as ScheduleCore.Models.AppUser;
+                        if (u != null && targets.Contains(u.Username)) it.IsSelected = true;
+                    }
+                    if (list.SelectedItems.Count != 3)
+                        throw new Exception("批量选中失败：" + list.SelectedItems.Count);
+
+                    toggle.Invoke(w, null);
+                    content.UpdateLayout();
+                    // ★ 诊断模式 Store.SuppressWrites=true，写盘被拦，所以只能核对窗口内存里的 _book
+                    var book = (ScheduleCore.Models.UserBook)typeof(UserManagerWindow)
+                        .GetField("_book", bf)!.GetValue(w)!;
+                    if (targets.Any(n => book.Find(n)?.Enabled != false))
+                        throw new Exception("批量停用没生效");
+
+                    toggle.Invoke(w, null);   // 选中还在，再点一次应整批恢复
+                    content.UpdateLayout();
+                    if (targets.Any(n => book.Find(n)?.Enabled != true))
+                        throw new Exception("批量启用没把状态改回来");
+                }
+
+                return w;
+            });
             Check("TrayMenuWindow", () => new TrayMenuWindow());
             Check("AboutWindow", () => new AboutWindow());
             Check("UpgradeNoticeWindow", () => new UpgradeNoticeWindow(
@@ -5014,6 +5913,265 @@ public partial class App : System.Windows.Application
                 return new System.Windows.Window();
             });
 
+            // ---- r157：教师身份相关的四条新逻辑（认人 / 教师表保鲜 / 待办只算我发的 / 提醒不漏空节次）----
+            Check("r157 教师表认人与保鲜判定", () =>
+            {
+                var tsf = new ScheduleFile();
+                tsf.Classes.Add(new ClassSchedule { ClassName = "张三" });
+                tsf.Classes.Add(new ClassSchedule { ClassName = "李四" });
+                if (TeacherScheduleMaintenance.MatchTeacher(new AppUser { Username = "张三" }, tsf) != "张三")
+                    throw new Exception("用户名一模一样的教师没认出来");
+                if (TeacherScheduleMaintenance.MatchTeacher(new AppUser { Username = "张三老师" }, tsf) != "张三")
+                    throw new Exception("「张三老师」这种手工账号没认出来");
+                if (TeacherScheduleMaintenance.MatchTeacher(
+                        new AppUser { Username = "zhangsan", DisplayName = "八(22)班 班主任 张三" }, tsf) != "张三")
+                    throw new Exception("显示名里的姓名没认出来");
+                if (TeacherScheduleMaintenance.MatchTeacher(new AppUser { Username = "王五" }, tsf) != null)
+                    throw new Exception("表里没有的人也认成了教师");
+
+                var src = new ScheduleFile { ImportedAt = new DateTime(2026, 11, 24, 10, 0, 0) };
+                src.Classes.Add(new ClassSchedule { ClassName = "八(1)班" });
+                var oldT = new ScheduleFile { ImportedAt = new DateTime(2026, 11, 24, 9, 0, 0) };
+                oldT.Classes.Add(new ClassSchedule { ClassName = "张三" });
+                var newT = new ScheduleFile { ImportedAt = new DateTime(2026, 11, 24, 11, 0, 0) };
+                newT.Classes.Add(new ClassSchedule { ClassName = "张三" });
+                if (!TeacherScheduleMaintenance.IsStale(src, oldT))
+                    throw new Exception("底表比教师表新却没判成过期");
+                if (!TeacherScheduleMaintenance.IsStale(src, null))
+                    throw new Exception("教师表缺失却没判成需要重建");
+                if (TeacherScheduleMaintenance.IsStale(src, newT))
+                    throw new Exception("教师表比底表新还判成过期（会把人家的表冲掉）");
+                if (TeacherScheduleMaintenance.IsStale(new ScheduleFile(), null))
+                    throw new Exception("底表为空却要求重建");
+                return null;
+            });
+
+            Check("r157 待办只算我发的 + 教师提醒不漏空节次", () =>
+            {
+                bool oldPersist = Store.EnablePersistence;
+                var prevUser = UserSession.Current;
+                try
+                {
+                    Store.EnablePersistence = true;   // Compute 在游客模式下一律返回 0
+                    UserSession.SignIn(new AppUser { Username = "张三", Role = UserRole.Teacher });
+
+                    var st = new BoardSyncState { ActorId = "diag" };
+                    void AddOut(string id, string sender) => st.Records.Add(new BoardMessageRecord
+                    {
+                        MsgId = id, Direction = BoardSyncConsts.DirOut, Status = BoardSyncConsts.StDelivered,
+                        Order = new BoardChangeOrder { MsgId = id, Sender = sender }
+                    });
+                    AddOut("a1", "张三");
+                    AddOut("a2", "李四");
+                    AddOut("a3", "");            // 老记录没有 Sender：仍算自己的，不能漏
+                    int mine = PendingTodoService.Compute(st, classroomSide: false, mineOnly: true).Todo;
+                    int all = PendingTodoService.Compute(st, classroomSide: false, mineOnly: false).Todo;
+                    if (mine != 2 || all != 3)
+                        throw new Exception($"按发件人过滤不对：只算我 {mine} 条 / 全部 {all} 条（期望 2 / 3）");
+
+                    // 教师课表里「这节我没课」的空行不能变成「第 2 节 · 」的提醒
+                    // DayIdx 是 0=周一，与 DayOfWeek（0=周日）差一位
+                    int dw = (int)DateTime.Today.DayOfWeek - 1;
+                    if (dw >= 0 && dw <= 4)
+                    {
+                        var fake = new ScheduleFile
+                        {
+                            Bell = new BellSchedule
+                            {
+                                Periods = new List<PeriodTime>
+                                {
+                                    new PeriodTime { Index = 1, TimeRange = "08:00-08:45" },
+                                    new PeriodTime { Index = 2, TimeRange = "08:55-09:40" },
+                                    new PeriodTime { Index = 3, TimeRange = "10:00-10:45" }
+                                }
+                            }
+                        };
+                        var tcs = new ClassSchedule { ClassName = "诊断教师" };
+                        tcs.Data[dw] = new Dictionary<int, List<Lesson>>
+                        {
+                            [1] = new List<Lesson> { new Lesson { Period = 1, Subject = "语文", Teacher = "八(1)班" } },
+                            [3] = new List<Lesson> { new Lesson { Period = 3, Subject = "数学", Teacher = "八(2)班" } }
+                        };
+                        tcs.Data[dw][2] = new List<Lesson>();   // 第 2 节：有节次时间、没课
+                        fake.Classes.Add(tcs);
+                        var got = ReminderService.DiagSlots(fake, "诊断教师", true, DateTime.Today);
+                        if (got.Count != 2)
+                            throw new Exception("教师空节次没跳过：" + string.Join(" / ", got));
+                        if (!got.Any(x => x.StartsWith("语文|", StringComparison.Ordinal))
+                            || !got.Any(x => x.StartsWith("数学|", StringComparison.Ordinal)))
+                            throw new Exception("教师模式的科目 / 班级没带出来：" + string.Join(" / ", got));
+                    }
+                }
+                finally
+                {
+                    if (prevUser != null) UserSession.SignIn(prevUser); else UserSession.SignOut();
+                    Store.EnablePersistence = oldPersist;
+                }
+                return null;
+            });
+
+            // ---- r157：教师账号登录后默认「我的课表」，顶栏收起班级下拉，今日页与提醒跟着走 ----
+            Check("r157 教师登录默认看我的课表", () =>
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var ts = Store.LoadTeacherSchedule();
+                if (ts == null || ts.Classes.Count == 0) throw new Exception("数据副本里没有教师个人课表，没法验证");
+
+                string teacher = ts.Classes[0].ClassName;
+                var sc = Store.LoadSchedule();
+                var acc = new AppUser { Username = teacher, Role = UserRole.Teacher };
+                if (sc != null && sc.Classes.Count > 0) acc.ClassNames.Add(sc.Classes[0].ClassName);
+
+                // 决策函数：管理员 / 学生 / 教室机都不许切
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(new AppUser { Username = teacher, Role = UserRole.Admin }, ts, false) != null)
+                    throw new Exception("管理员被切成了教师课表");
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(new AppUser { Username = teacher, Role = UserRole.Student }, ts, false) != null)
+                    throw new Exception("学生账号被切成了教师课表");
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(acc, ts, true) != null)
+                    throw new Exception("教室机被切成了教师课表（大屏会看不到本班课）");
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(acc, ts, false) != teacher)
+                    throw new Exception("教师账号没匹配到自己的课表");
+
+                bool oldPersist = Store.EnablePersistence;
+                var prevUser = UserSession.Current;
+                var s0 = Store.LoadSettings();
+                string oldKind = s0.ScheduleKind, oldTeacher = s0.SelectedTeacher, oldClass = s0.SelectedClass;
+
+                UserSession.SignIn(acc);
+                Store.EnablePersistence = true;   // 要把「切到教师视图」真的落盘，才验得到后续读取
+                // 这台机器本身可能被设成教室机（教室机开机自动登录＝大屏，按设计不切教师视图）。
+                // 要验「教师登录默认我的课表」就得先把这台机器的教室机标记摘掉，跑完再还回去。
+                var sBoot = Store.LoadSettings();
+                bool oldClassroom = sBoot.BoardSyncIsClassroom;
+                sBoot.BoardSyncIsClassroom = false;
+                Store.SaveSettings(sBoot);
+                var w = new MainWindow { InitialTabIndex = 9 };
+                try
+                {
+                    w.Show();
+                    PumpMs(250);
+
+                    var cbClass = (System.Windows.Controls.ComboBox)typeof(MainWindow).GetField("CbClass", bf)!.GetValue(w)!;
+                    var btnShow = (Button)typeof(MainWindow).GetField("BtnShowClassCombo", bf)!.GetValue(w)!;
+                    var mode = (System.Windows.Controls.TextBlock)typeof(MainWindow).GetField("TxtCurrentMode", bf)!.GetValue(w)!;
+                    if (cbClass.Visibility != Visibility.Collapsed)
+                        throw new Exception("教师模式下班级下拉没收起（老师随手一点就丢了自己的课表）");
+                    if (btnShow.Visibility != Visibility.Visible)
+                        throw new Exception("教师模式下没有「改看班级课表」入口");
+                    if (!mode.Text.Contains("我的课表", StringComparison.Ordinal))
+                        throw new Exception("顶栏没说明在看我的课表：" + mode.Text);
+
+                    var sub = (System.Windows.Controls.TextBlock)w.FindName("TxtTodaySubtitle")!;
+                    if (!sub.Text.Contains("我的课表", StringComparison.Ordinal))
+                        throw new Exception("今日页没跟随教师视图：" + sub.Text);
+                    var lessonVal = (System.Windows.Controls.TextBlock)w.FindName("TxtTodayLessonValue")!;
+                    if (string.IsNullOrWhiteSpace(lessonVal.Text))
+                        throw new Exception("教师模式下今日课程卡是空的");
+
+                    // r158：教师模式下第四张卡换成「我的班级速览」
+                    var title4 = (System.Windows.Controls.TextBlock)w.FindName("TxtTodayCard4Title")!;
+                    var clsVal = (System.Windows.Controls.TextBlock)w.FindName("TxtTodayClassesValue")!;
+                    var clsDetail = (System.Windows.Controls.TextBlock)w.FindName("TxtTodayClassesDetail")!;
+                    var clsPnl = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClasses")!;
+                    var clsRows = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClassRows")!;
+                    var stPnl = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayStatus")!;
+                    var clsActs = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClassActions")!;
+                    if (title4.Text != "我的班级速览")
+                        throw new Exception("教师模式下第四张卡标题还是「" + title4.Text + "」");
+                    if (clsPnl.Visibility != Visibility.Visible || stPnl.Visibility != Visibility.Collapsed)
+                        throw new Exception("教师模式下没切到班级速览面板");
+                    if (clsActs.Visibility != Visibility.Visible)
+                        throw new Exception("班级速览底部的快捷按钮没显示");
+                    if (clsRows.Children.Count == 0)
+                        throw new Exception("班级速览没列出任何一个班");
+
+                    // r159：作业是硬指标 —— 发了通知但作业没发，必须标出来，不能算「已发」
+                    var cs1 = ClassBulletinApp.MainWindow.ClassBriefState(true, 0, 0, 2, 0);
+                    if (!cs1.Text.Contains("作业未发", StringComparison.Ordinal) || cs1.Tone != "warning"
+                        || !cs1.Text.Contains("通知", StringComparison.Ordinal))
+                        throw new Exception("发了通知但作业没发没标出来：" + cs1.Text + "/" + cs1.Tone);
+                    var cs2 = ClassBulletinApp.MainWindow.ClassBriefState(true, 0, 0, 0, 0);
+                    if (cs2.Text != "作业未发" || cs2.Tone != "danger")
+                        throw new Exception("什么都没发时的文案不对：" + cs2.Text + "/" + cs2.Tone);
+                    var cs3 = ClassBulletinApp.MainWindow.ClassBriefState(true, 1, 0, 2, 0);
+                    if (!cs3.Text.StartsWith("作业已发", StringComparison.Ordinal) || cs3.Tone != "success"
+                        || !cs3.Text.Contains("通知", StringComparison.Ordinal))
+                        throw new Exception("作业已发的文案不对：" + cs3.Text + "/" + cs3.Tone);
+                    var cs4 = ClassBulletinApp.MainWindow.ClassBriefState(false, 0, 0, 1, 0);
+                    if (cs4.Tone != "muted" || !cs4.Text.Contains("已发通知", StringComparison.Ordinal))
+                        throw new Exception("今天没课不该算待发：" + cs4.Text + "/" + cs4.Tone);
+                    var cs5 = ClassBulletinApp.MainWindow.ClassBriefState(true, 0, 1, 0, 1);
+                    if (cs5.Tone != "warning" || !cs5.Text.Contains("缺交", StringComparison.Ordinal)
+                        || !cs5.Text.Contains("值日", StringComparison.Ordinal))
+                        throw new Exception("多类型附注拼接不对：" + cs5.Text + "/" + cs5.Tone);
+
+                    // r157 需求二：账号的任教班自动算进「任教班级」，并自动订阅（否则发布时读不到目标班快照）
+                    var teaching = (List<string>)typeof(MainWindow).GetMethod("TeachingClasses", bf)!.Invoke(w, null)!;
+                    if (acc.ClassNames.Count > 0 && !teaching.Contains(acc.ClassNames[0], StringComparer.Ordinal))
+                        throw new Exception("任教班级没自动带入账号班级：" + string.Join("、", teaching));
+                    if (acc.ClassNames.Count > 0
+                        && !BoardSyncService.SubscribedClasses().Contains(acc.ClassNames[0], StringComparer.Ordinal))
+                        throw new Exception("教师机没自动订阅账号班级");
+
+                    // 切回班级：点顶栏那个返回入口，班级下拉必须回来
+                    typeof(MainWindow).GetMethod("BtnShowClassCombo_Click", bf)!
+                        .Invoke(w, new object[] { w, new RoutedEventArgs() });
+                    if (cbClass.Visibility != Visibility.Visible)
+                        throw new Exception("切回班级后班级下拉没回来");
+
+                    // r158：切回班级视图后，第四张卡回到「本机状态」
+                    if (title4.Text != "本机状态" || stPnl.Visibility != Visibility.Visible
+                        || clsPnl.Visibility != Visibility.Collapsed)
+                        throw new Exception("切回班级视图后第四张卡没回到本机状态：" + title4.Text);
+
+                    // r158：台账「只看我发的」——判定口径与今日卡 / 角标必须同一份
+                    if (!PendingTodoService.IsMine(new BoardChangeOrder { Sender = "张三" }, "张三"))
+                        throw new Exception("自己发的单没算成「我发的」");
+                    if (PendingTodoService.IsMine(new BoardChangeOrder { Sender = "李四" }, "张三"))
+                        throw new Exception("别人发的单被算成了「我发的」");
+                    if (!PendingTodoService.IsMine(new BoardChangeOrder { Sender = "" }, "张三"))
+                        throw new Exception("发件人为空的老单被筛掉了（会漏单）");
+
+                    var ledger = new BoardSyncWindow();
+                    try
+                    {
+                        var bfl = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                        bool mineFlag = (bool)typeof(BoardSyncWindow).GetField("_mineOnly", bfl)!.GetValue(ledger)!;
+                        if (mineFlag != PendingTodoService.MineOnlyDefault)
+                            throw new Exception("台账「只看我发的」默认值与今日卡口径不一致");
+                        var boxMine = (System.Windows.Controls.CheckBox)
+                            typeof(BoardSyncWindow).GetField("_mineOnlyBox", bfl)!.GetValue(ledger)!;
+                        if (boxMine.IsChecked != PendingTodoService.MineOnlyDefault)
+                            throw new Exception("勾选框状态与内部筛选状态对不上");
+                        if (BoardSyncService.IsClassroomMachine && boxMine.Visibility != Visibility.Collapsed)
+                            throw new Exception("教室机上还留着「只看我发的」（收件箱按人筛会漏单）");
+
+                        var shown = (List<BoardMessageRecord>)
+                            typeof(BoardSyncWindow).GetField("_records", bfl)!.GetValue(ledger)!;
+                        if (shown.Any(r => !PendingTodoService.IsMine(r.Order)))
+                            throw new Exception("台账列表混进了别人发的单");
+                    }
+                    finally { ledger.Close(); }
+
+                    // 再切回我的课表，验证不会一刷新就被拉回班级视图
+                    typeof(MainWindow).GetMethod("ApplyOwnScheduleDefault", bf)!.Invoke(w, new object[] { false });
+                    if (cbClass.Visibility != Visibility.Collapsed)
+                        throw new Exception("再次应用教师默认值没生效");
+                    return w;
+                }
+                finally
+                {
+                    if (prevUser != null) UserSession.SignIn(prevUser); else UserSession.SignOut();
+                    var s1 = Store.LoadSettings();
+                    s1.ScheduleKind = oldKind;
+                    s1.SelectedTeacher = oldTeacher;
+                    s1.SelectedClass = oldClass;
+                    s1.BoardSyncIsClassroom = oldClassroom;
+                    if (Store.EnablePersistence) Store.SaveSettings(s1);
+                    Store.EnablePersistence = oldPersist;
+                }
+            });
+
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
@@ -5443,7 +6601,6 @@ public partial class App : System.Windows.Application
                 w.Close();
             }
             catch (Exception ex) { Check("诊断自身异常", false, ex.GetType().Name + ": " + ex.Message); }
-
 
             sb.AppendLine($"RESULT {(fail == 0 ? "PASS" : "FAIL")}  {pass}/{pass + fail}");
             try { File.WriteAllText(dlog, sb.ToString()); } catch { }
@@ -6709,6 +7866,26 @@ public partial class App : System.Windows.Application
     /// <para>登录之后、主面板起来时创建：登录窗里要写的是账号密码（字母数字），用不着手写，
     /// 而登录前 <see cref="Store.EnablePersistence"/> 还是关的，球的拖动位置存不住。</para>
     /// </summary>
+    /// <summary>诊断用：跑一段消息泵（DispatcherTimer 只有泵着才会 Tick）。</summary>
+    static void PumpFor(int ms, Action<string>? trace = null)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            var one = System.Diagnostics.Stopwatch.StartNew();
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Background,
+                new Action(() => frame.Continue = false));
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+            one.Stop();
+            // 单条消息占住 UI 线程超过 400 ms：十有八九就是「未响应」的来源，留个时间戳
+            if (trace != null && one.ElapsedMilliseconds >= 400)
+                trace($"  ⚠ 泵内单条消息 {one.ElapsedMilliseconds} ms（累计 {sw.ElapsedMilliseconds}）");
+            System.Threading.Thread.Sleep(15);
+        }
+    }
+
     public static HandwritingBallWindow? HandwritingBall { get; private set; }
 
     /// <summary>按设置创建 / 显示 / 隐藏手写球（幂等，设置勾选、取消背景时都可以再调一次）。</summary>
@@ -6892,6 +8069,31 @@ public partial class App : System.Windows.Application
     /// 因为诊断副本里本来就没有今天的通知作业，直接读只会拍到空态、看不出卡片长什么样。</para>
     /// </summary>
     /// <summary>诊断：便签板上有一张自动便签套用了自定义格式（验证格式真的落到卡片上）。</summary>
+    /// <summary>
+    /// --shot teacheraccountgroup：在「按科目」下拉里选中第一组后截图。
+    /// 要核对的是三件事：下拉里能看出各科人数、列表真的只剩这一组、整批都选中了。
+    /// </summary>
+    private static Window DiagTeacherAccountGroup()
+    {
+        var w = new TeacherAccountWindow(Store.LoadUsers());
+
+        // 构造函数里注册的 Loaded 先跑（填下拉），这里后跑才能选到填好的项
+        w.Loaded += (_, _) =>
+        {
+            try
+            {
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var combo = (System.Windows.Controls.ComboBox)typeof(TeacherAccountWindow)
+                    .GetField("_groupCombo", bf)!.GetValue(w)!;
+
+                if (combo.Items.Count > 1) combo.SelectedIndex = 1;
+            }
+            catch { /* 截图用，失败就让画面自己说话 */ }
+        };
+
+        return w;
+    }
+
     /// <summary>--shot receipts：造四台机的假回执，核对发布端面板的汇总卡与四态排版。</summary>
     private static Window DiagReceiptShot()
     {
@@ -6921,7 +8123,9 @@ public partial class App : System.Windows.Application
             ActorId = "a-shot04", DeviceName = "四楼一教室", TargetSha = sha,
             State = "applied", ClassCount = 18, AppVersion = AppInfo.VersionText
         }, createdAt: DateTime.Now.AddHours(-4));
-        return new UpdateReceiptWindow(src, sha, 30);
+        var w = new UpdateReceiptWindow(src, sha, 30);
+        w.RefreshSync();   // r153：窗口改成显示后异步读；截图要当场就有数据
+        return w;
     }
 
     private static Window DiagDoodleFormatted()
@@ -7226,6 +8430,71 @@ public partial class App : System.Windows.Application
         var w = (DoodleBoardWindow)DiagDoodleBoard(DoodleBoardThemes.DefaultKey, DoodleModes.Notes, false);
         w.DiagCollapse(true);
         return w;
+    }
+
+    /// <summary>
+    /// r158 截图用：把本机临时当成教师机打开消息台账，看「只看我发的」筛选的排版。
+    /// <para>★ 真实数据副本可能被设成教室机，而教室机上这个筛选按设计是隐藏的，直接截会看不到。</para>
+    /// </summary>
+    private static Window DiagLedgerTeacher()
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            s.BoardSyncIsClassroom = false;
+            Store.SaveSettings(s);
+        }
+        catch { }
+        return new BoardSyncWindow();
+    }
+
+    /// <summary>
+    /// r157 截图用：把设置临时切到「教师课表（选一位真实教师）」再打开主窗指定页，
+    /// 这样顶栏 / 今日页 / 提醒设置页呈现的就是老师登录后的样子。
+    /// <para>★ 只写 <c>CB_DATA_DIR</c> 指向的数据副本（--shot 已放开落盘）。</para>
+    /// </summary>
+    private static Window DiagTeacherView(int tab)
+    {
+        try
+        {
+            var s = Store.LoadSettings();
+            var ts = Store.LoadTeacherSchedule();
+            string name = ts?.Classes.FirstOrDefault(c => c.Data.Count > 0)?.ClassName ?? "";
+            if (!string.IsNullOrEmpty(name))
+            {
+                s.ScheduleKind = "Teacher";
+                s.SelectedTeacher = name;
+                Store.SaveSettings(s);
+            }
+        }
+        catch { }
+        return new MainWindow { InitialTabIndex = tab };
+    }
+
+    /// <summary>
+    /// r157 截图用：以「带两个任教班的教师账号」登录后打开信息管理页，
+    /// 看任教班级那排 chips 里账号带来的班是否带「账号」标、布局是否正常。
+    /// </summary>
+    private static Window DiagTeacherInfoView()
+    {
+        try
+        {
+            var sc = Store.LoadSchedule();
+            var ts = Store.LoadTeacherSchedule();
+            string name = ts?.Classes.FirstOrDefault(c => c.Data.Count > 0)?.ClassName ?? "张三";
+            var acc = new AppUser { Username = name, Role = UserRole.Teacher };
+            if (sc != null)
+            {
+                foreach (var c in sc.Classes.Take(2)) acc.ClassNames.Add(c.ClassName);
+            }
+            UserSession.SignIn(acc);
+            var s = Store.LoadSettings();
+            s.ScheduleKind = "Teacher";
+            s.SelectedTeacher = name;
+            Store.SaveSettings(s);
+        }
+        catch { }
+        return new MainWindow { InitialTabIndex = 6 };
     }
 
     private static Window DiagReminderPopup()
@@ -7785,6 +9054,8 @@ public partial class App : System.Windows.Application
             BoardSyncService.MarkSeen(msgId);
             Check("打开=已阅（不等于已改好）",
                   BoardSyncService.LoadState().Records.Single(r => r.MsgId == msgId).Status == BoardSyncConsts.StSeen);
+            // r154：回执改后台补发，诊断要等它写完再让教师机去读
+            Check("已阅回执已写出（后台队列）", BoardSyncService.FlushReceipts(), "queue flush");
 
             UseMachine(teacherDir, "a-teacher");
             BoardSyncService.Pull(new[] { cls });
@@ -8145,6 +9416,11 @@ public partial class App : System.Windows.Application
                       .First(r => r.MsgId == styOrder.Order!.MsgId).Status == BoardSyncConsts.StRevoked);
             Check("重复撤回幂等（不再改数据）",
                   BoardSyncService.RestoreArchived(styOrder.Order!.MsgId, bypassRole: true).Ok);
+
+            // r154 起回执由后台泵补发（不在锁内写共享盘）。诊断里换机之前必须等它真写完，
+            // 否则「教师机这一轮读不到 restored 回执」—— 那是测试抢先，不是功能坏了。
+            Check("撤回回执已写到共享盘", BoardSyncService.FlushReceipts(),
+                  "积压 " + BoardSyncService.PendingReceipts + " 条");
 
             UseMachine(teacherDir, "a-teacher");
             BoardSyncService.Pull(new[] { cls });
@@ -8602,6 +9878,21 @@ public partial class App : System.Windows.Application
                       s1 == 1 && s2 == 2 && fileCount == 1,
                       $"Seq {s1}→{s2}，文件 {fileCount} 份");
 
+                // r153：连不上 ≠ 没有回执 —— 今日页和回执窗都靠这个区分「去查网络」还是「等教室机开机」
+                var (rcOk, reachOk) = rsrc.ListStatusEx();
+                string emptyDir = Path.Combine(Path.GetTempPath(), "cbempty-" + Guid.NewGuid().ToString("N")[..6]);
+                string goneDir = Path.Combine(Path.GetTempPath(), "cbgone-" + Guid.NewGuid().ToString("N")[..6], "share");
+                Directory.CreateDirectory(emptyDir);
+                try
+                {
+                    var (rcEmpty, reachEmpty) = new FolderFeedSource(emptyDir).ListStatusEx();
+                    var (rcGone, reachGone) = new FolderFeedSource(goneDir).ListStatusEx();
+                    Check("r153 回执目录：读不到标「不可达」、读到但没 status/ 仍算可达",
+                          reachOk && rcOk.Count >= 1 && reachEmpty && rcEmpty.Count == 0 && !reachGone,
+                          $"有回执={reachOk}({rcOk.Count}份) / 空目录={reachEmpty} / 不存在={reachGone}");
+                }
+                finally { try { Directory.Delete(emptyDir, true); } catch { } }
+
                 UpdateReceiptService.Write(rsrc, new UpdateReceipt
                 {
                     ActorId = "a-diag02", DeviceName = "CLASS-ROOM-02",
@@ -8649,6 +9940,7 @@ public partial class App : System.Windows.Application
                       string.Join(",", rdevs2.Select(d => d.ActorId + ":" + d.Code)));
 
                 var rwin = new UpdateReceiptWindow(rsrc, curSha, 30);
+                rwin.RefreshSync();   // 诊断要即时数据（数据源是本机临时目录，不会阻塞）
                 Check("r146 回执：发布端面板列全设备并给出详情",
                       rwin.DiagRowCount == 4 && rwin.DiagStates.Contains("latest") &&
                       rwin.DiagStates.Contains("stale"), rwin.DiagStates);

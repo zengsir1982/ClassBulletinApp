@@ -46,12 +46,44 @@ public static class PendingTodoService
             : r.Direction == BoardSyncConsts.DirOut;
     }
 
-    public static Counts Compute(BoardSyncState? state = null, bool? classroomSide = null)
+    /// <summary>
+    /// 这条变更单算不算「我发的」。
+    /// <para>★ <b>今日卡、托盘角标、台账筛选都走这一个判定</b>：以前各处各写一遍，
+    /// 迟早出现「今日卡说 2 条、台账列表 5 条」，老师会以为丢了单。</para>
+    /// <para>★ <b>Sender 为空的老记录一律算</b>：升级到 r157 之前的单没记发件人，
+    /// 按发件人筛掉等于把老单藏起来，宁可多条也不漏单。</para>
+    /// </summary>
+    public static bool IsMine(BoardChangeOrder order, string? me = null)
+    {
+        string sender = (order.Sender ?? "").Trim();
+        if (sender.Length == 0) return true;
+        string who = (me ?? UserSession.Current?.Username ?? "").Trim();
+        if (who.Length == 0) return true;    // 没登录（游客 / 教室机自动登录未识别）时不过滤
+        return sender.Equals(who, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 默认要不要「只算我发的」。
+    /// <para>教师机 + 非管理员 + 已登录 → 是：办公室机器上多人共用，A 老师不该看到 B 老师的单。
+    /// 教室机恒否（那台机器要确认的是本班<b>所有</b>到件，不看是谁发的）。</para>
+    /// </summary>
+    public static bool MineOnlyDefault
+        => !BoardSyncService.IsClassroomMachine
+           && UserSession.Current != null
+           && !UserSession.IsAdmin
+           && !string.IsNullOrWhiteSpace(UserSession.Current.Username);
+
+    public static Counts Compute(BoardSyncState? state = null, bool? classroomSide = null, bool? mineOnly = null)
     {
         var c = new Counts();
         if (!Store.EnablePersistence) return c;
 
         bool classSide = classroomSide ?? BoardSyncService.IsClassroomMachine;
+        // ★ 只对「教师机发件」这一侧生效：教室机的收件是全班共用的，按发件人筛会漏单。
+        bool mine = (mineOnly ?? MineOnlyDefault) && !classSide;
+        string me = mine ? (UserSession.Current?.Username ?? "").Trim() : "";
+        mine = mine && me.Length > 0;
+
         List<BoardMessageRecord> recs;
         try { recs = (state ?? BoardSyncService.LoadState()).Records; }
         catch { return c; }   // 台账坏了就当没有待办；绝不让角标把主窗启动挡掉
@@ -59,6 +91,8 @@ public static class PendingTodoService
         foreach (var r in recs)
         {
             if (r.Order.IsRevoke) continue;
+            // 别人的单不算我的待办；★ Sender 为空的老记录仍算 —— 升级前的单没人想漏掉。
+            if (mine && !IsMine(r.Order, me)) continue;
             bool conflict = r.Status == BoardSyncConsts.StConflict;
             bool live = conflict || !r.IsTerminal;
 

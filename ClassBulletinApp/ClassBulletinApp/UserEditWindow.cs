@@ -26,6 +26,8 @@ public class UserEditWindow : Window
     readonly TextBox _display = new();
     readonly ComboBox _role = new();
     readonly TextBox _classes = new();
+    readonly TextBox _heads = new();
+    readonly TextBlock _headHint = new();
     readonly TextBox _subject = new();
     readonly TextBlock _subjectHint = new();
     readonly PasswordBox _pwd = new();
@@ -107,6 +109,21 @@ public class UserEditWindow : Window
             });
         }
 
+        root.Children.Add(Label("班主任班级（决定能改哪个班的课表；留空 = 与所属班级相同）"));
+        _heads.FontSize = 14;
+        _heads.Padding = new Thickness(8, 6, 8, 6);
+        _heads.Text = string.Join("，", existing?.HeadClassNames ?? new List<string>());
+        _heads.ToolTip = "只有这里填的班才能改课表。\n"
+                       + "班主任通常还兼教别的班：那些班填在「所属班级」里，能发作业 / 缺交，但改不了课表。\n"
+                       + "留空 = 按「所属班级」处理（老账号升级前后行为不变）。";
+        root.Children.Add(_heads);
+
+        _headHint.FontSize = 11.5;
+        _headHint.Foreground = System.Windows.Media.Brushes.Gray;
+        _headHint.TextWrapping = TextWrapping.Wrap;
+        _headHint.Margin = new Thickness(0, 4, 0, 0);
+        root.Children.Add(_headHint);
+
         root.Children.Add(Label("任课科目（只填一个，如「语文」；留空 = 不限科目）"));
         _subject.FontSize = 14;
         _subject.Padding = new Thickness(8, 6, 8, 6);
@@ -120,9 +137,11 @@ public class UserEditWindow : Window
         _subjectHint.TextWrapping = TextWrapping.Wrap;
         _subjectHint.Margin = new Thickness(0, 4, 0, 0);
         root.Children.Add(_subjectHint);
-        _role.SelectionChanged += (_, _) => UpdateSubjectHint();
+        _role.SelectionChanged += (_, _) => { UpdateSubjectHint(); UpdateHeadState(); };
         _subject.TextChanged += (_, _) => UpdateSubjectHint();
+        _heads.TextChanged += (_, _) => UpdateHeadHint();
         UpdateSubjectHint();
+        UpdateHeadState();
 
         root.Children.Add(Label(existing == null ? "密码" : "新密码（留空表示不修改）"));
         _pwd.FontSize = 14;
@@ -169,6 +188,38 @@ public class UserEditWindow : Window
         }
     }
 
+    /// <summary>按当前角色启用 / 清空「班主任班级」，并刷新提示。</summary>
+    void UpdateHeadState()
+    {
+        string role = (_role.SelectedItem as ComboBoxItem)?.Tag as string ?? UserRole.Student;
+        bool isTeacher = role == UserRole.Teacher;
+
+        _heads.IsEnabled = isTeacher;
+        // 非班主任留着这一项没有意义，还会在下次切回班主任时冒出个意外值
+        if (!isTeacher) _heads.Text = "";
+
+        UpdateHeadHint();
+    }
+
+    void UpdateHeadHint()
+    {
+        string role = (_role.SelectedItem as ComboBoxItem)?.Tag as string ?? UserRole.Student;
+        if (role != UserRole.Teacher)
+        {
+            _headHint.Foreground = System.Windows.Media.Brushes.Gray;
+            _headHint.Text = "只有「班主任」看这一项；其他角色能不能改课表由角色权限决定，与这里无关。";
+            return;
+        }
+
+        bool empty = string.IsNullOrWhiteSpace(_heads.Text);
+        _headHint.Foreground = empty
+            ? System.Windows.Media.Brushes.DarkOrange
+            : System.Windows.Media.Brushes.Gray;
+        _headHint.Text = empty
+            ? "★ 留空时改课范围 = 所属班级（老账号兼容）。建议填上，避免兼教的班也能改课。"
+            : "只能改这里列的班的课表；任教的其他班可以发作业 / 缺交，但改不了课表。";
+    }
+
     void Confirm()
     {
         string user = (_user.Text ?? "").Trim();
@@ -184,6 +235,26 @@ public class UserEditWindow : Window
             .Where(s => s.Length > 0)
             .Distinct()
             .ToList();
+
+        var heads = (_heads.Text ?? "")
+            .Split(new[] { ',', '，', '、', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .Distinct()
+            .ToList();
+        if (role != UserRole.Teacher) heads.Clear();
+
+        // 班主任班级必须是所属班级的子集：否则"改课范围"会跑出"作业范围"之外，
+        // 出现"能改某个班课表、却连那个班的作业都发不了"的怪状态。
+        if (heads.Count > 0)
+        {
+            var outside = heads.Where(h => !classes.Contains(h, StringComparer.Ordinal)).ToList();
+            if (outside.Count > 0)
+            {
+                Err($"班主任班级必须在「所属班级」里：{string.Join("、", outside)} 不在所属班级中。");
+                return;
+            }
+        }
 
         // 班主任 / 科任老师的权限范围恒为"所属班级"，没填班级等于什么都不能改
         if ((role == UserRole.Teacher || role == UserRole.SubjectTeacher) && classes.Count == 0)
@@ -210,6 +281,7 @@ public class UserEditWindow : Window
         target.DisplayName = (_display.Text ?? "").Trim();
         target.Role = role;
         target.ClassNames = classes;
+        target.HeadClassNames = heads;
         // 单选、自由文本、归一化（去全角/半角空白）；留空 = 不限科目
         target.Subject = BoardIds.NormalizeSubject(_subject.Text);
         target.Enabled = true;

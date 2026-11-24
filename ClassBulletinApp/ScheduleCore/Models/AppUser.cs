@@ -92,6 +92,43 @@ public class AppUser
         return string.Equals(mine, BoardIds.NormalizeSubject(subject), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 该账号「当班主任」的班级（「从课表生成教师账号」按班主任课判定得出）。
+    /// <para>★ 与 <see cref="ClassNames"/> 分开是有必要的：班主任通常还兼教别的班，
+    /// 那些班他要能发作业 / 缺交（走 <see cref="ClassNames"/>），<b>但不能改课表</b>（走这里）。</para>
+    /// <para>★ 为空 = 回退 <see cref="ClassNames"/>，保证老账号升级前后行为完全不变。</para>
+    /// </summary>
+    public List<string> HeadClassNames { get; set; } = new();
+
+    /// <summary>
+    /// 账号来源标记：<c>"schedule"</c> = 由「从课表生成教师账号」写入，可被下次生成按指纹刷新；
+    /// 空 = 手工创建 / 手工改过，生成工具永不覆盖。
+    /// </summary>
+    public string GeneratedFromSchedule { get; set; } = "";
+
+    /// <summary>
+    /// 工具最近一次写入时，<see cref="Role"/> / <see cref="ClassNames"/> / <see cref="HeadClassNames"/> /
+    /// <see cref="Subject"/> / <see cref="DisplayName"/> 五项的指纹。
+    /// <para>★ 刷新前先比对：当前字段算出的指纹与本值不一致 → 说明管理员手工改过，本次跳过、保留人工结果。
+    /// 这比「手工改过就打标记」更稳妥：打开编辑窗点一下确定但什么都没改，不该被判定为人工接管。</para>
+    /// </summary>
+    public string GenerationFingerprint { get; set; } = "";
+
+    /// <summary>
+    /// 该账号能否改指定班级的课表 —— 范围取 <see cref="HeadClassNames"/>，
+    /// 为空时回退 <see cref="ClassNames"/>（老账号兼容）。
+    /// <para>★ 注意与 <see cref="OwnsClass"/> 的区别：那个是「作业 / 缺交 / 发信息」的任教范围。</para>
+    /// </summary>
+    public bool OwnsHeadClass(string? className)
+    {
+        if (string.IsNullOrWhiteSpace(className)) return false;
+        var scope = HeadClassNames != null && HeadClassNames.Count > 0 ? HeadClassNames : ClassNames;
+        foreach (var c in scope)
+            if (string.Equals((c ?? "").Trim(), className.Trim(), StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
     /// <summary>是否启用（停用后不能登录，但保留记录）。</summary>
     public bool Enabled { get; set; } = true;
 

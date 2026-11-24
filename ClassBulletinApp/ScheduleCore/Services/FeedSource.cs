@@ -47,6 +47,15 @@ public interface IFeedSource
     /// </summary>
     System.Collections.Generic.List<string> ListStatus();
 
+    /// <summary>
+    /// r153：同 <see cref="ListStatus"/>，但同时告诉调用方「目录到底读到了没有」。
+    /// <para>★ 「连不上」和「还没有回执」在界面上是两件事：前者要人去查网络 / 权限 / 共享名，
+    /// 后者只能等教室机开机。老接口把两种都压成空表，于是共享盘掉线时今日页会显示
+    /// 「设备回执：暂无上报」，反而把排查方向带偏。</para>
+    /// <para>★ 这是同步调用，可能因为 SMB / FTP 超时阻塞很久，只许在后台线程调。</para>
+    /// </summary>
+    (System.Collections.Generic.List<string> Names, bool Reachable) ListStatusEx();
+
     /// <summary>读一份回执原文；不存在返回 null。名字必须来自 <see cref="ListStatus"/>，不接受外部路径。</summary>
     string? ReadStatus(string name);
 
@@ -153,22 +162,30 @@ public class FolderFeedSource : IFeedSource
 
     string StatusPath(string name) => Path.Combine(_dir, FeedSourceFactory.StatusDir, name);
 
-    public System.Collections.Generic.List<string> ListStatus()
+    public System.Collections.Generic.List<string> ListStatus() => ListStatusEx().Names;
+
+    /// <summary>
+    /// <c>Directory.Exists</c> 在 UNC 路径断网时不会抛异常，而是先阻塞（SMB 超时）
+    /// 再返回 false —— 所以「根目录进不去」和「根目录通了但没有 status/」必须分开判。
+    /// </summary>
+    public (System.Collections.Generic.List<string> Names, bool Reachable) ListStatusEx()
     {
+        var names = new System.Collections.Generic.List<string>();
         try
         {
+            if (!Directory.Exists(_dir)) return (names, false);      // 连不上 / 路径错 / 无权限
             string dir = Path.Combine(_dir, FeedSourceFactory.StatusDir);
-            if (!Directory.Exists(dir)) return new System.Collections.Generic.List<string>();
-            var names = new System.Collections.Generic.List<string>();
+            if (!Directory.Exists(dir)) return (names, true);        // 源通的，只是还没人写过回执
+
             foreach (var f in Directory.GetFiles(dir, "u-*.json"))
             {
                 string n = Path.GetFileName(f);
                 if (FeedSourceFactory.ValidStatusName(n)) names.Add(n);
             }
             names.Sort(StringComparer.Ordinal);
-            return names;
+            return (names, true);
         }
-        catch { return new System.Collections.Generic.List<string>(); }
+        catch { return (names, false); }
     }
 
     public string? ReadStatus(string name)
@@ -319,7 +336,9 @@ public class FtpFeedSource : IFeedSource
 
     // ---------- r146：更新回执通道（status/ 目录） ----------
 
-    public System.Collections.Generic.List<string> ListStatus()
+    public System.Collections.Generic.List<string> ListStatus() => ListStatusEx().Names;
+
+    public (System.Collections.Generic.List<string> Names, bool Reachable) ListStatusEx()
     {
         var names = new System.Collections.Generic.List<string>();
         try
@@ -338,9 +357,20 @@ public class FtpFeedSource : IFeedSource
                     names.Add(n);
             }
         }
-        catch { /* 目录不存在 / 列表被禁 = 还没有回执，不当成错误 */ }
+        catch (WebException we) when (IsNotFound(we))
+        {
+            // 服务器答话了，只是没有 status/ 目录 = 还没有回执（不是连不上）
+            names.Sort(StringComparer.Ordinal);
+            return (names, true);
+        }
+        catch
+        {
+            // DNS / 端口 / 账号密码 / 被动模式 —— 一律「连不上」
+            names.Clear();
+            return (names, false);
+        }
         names.Sort(StringComparer.Ordinal);
-        return names;
+        return (names, true);
     }
 
     public string? ReadStatus(string name)
