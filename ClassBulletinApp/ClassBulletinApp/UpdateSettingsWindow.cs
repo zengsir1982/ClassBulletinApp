@@ -355,7 +355,7 @@ public class UpdateSettingsWindow : Window
     }
 
     /// <summary>选一个文件夹填进「发布源目录」。</summary>
-    void BrowseSourceDir()
+    async void BrowseSourceDir()
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
@@ -364,8 +364,17 @@ public class UpdateSettingsWindow : Window
         };
 
         // 粘过来的路径常带双引号（资源管理器「复制路径」的默认行为），先剥掉再判存在
+        // ★ r160：这里填的往往是 UNC 共享路径，不可达时 Directory.Exists 会卡几十秒；
+        //   以前直接在 UI 线程判 —— 点「浏览…」窗口就假死。改到后台判，判不出来就不预设起始目录。
         var cur = _sourceDir.Text.Trim().Trim('"');
-        if (cur.Length > 0 && System.IO.Directory.Exists(cur)) dlg.InitialDirectory = cur;
+        if (cur.Length > 0)
+        {
+            bool usable = await System.Threading.Tasks.Task.Run(() =>
+            {
+                try { return System.IO.Directory.Exists(cur); } catch { return false; }
+            });
+            if (usable) dlg.InitialDirectory = cur;
+        }
 
         if (dlg.ShowDialog(this) != true) return;
         _sourceDir.Text = dlg.FolderName;

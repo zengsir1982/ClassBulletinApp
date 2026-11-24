@@ -168,6 +168,8 @@
                                 <Button Content="数据管理" Tag="1" Style="{StaticResource AppSubNavButton}" Click="NavSub_Click"/>
                                 <Button Content="用户中心" Tag="7" Style="{StaticResource AppSubNavButton}" Click="NavSub_Click"/>
                                 <Button Content="关于" Tag="8" Style="{StaticResource AppSubNavButton}" Click="NavSub_Click"/>
+                                <Button Content="帮助" Tag="help" Style="{StaticResource AppSubNavButton}" Click="NavSub_Click"
+                                        ToolTip="F1 随时打开；会落在当前页面相关的主题上"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>

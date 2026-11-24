@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -42,6 +42,9 @@ public class UserManagerWindow : Window
     readonly Grid _header;
     readonly List<Button> _headerButtons = new();
     readonly UserBook _book;
+
+    /// <summary>导出按钮（导出期间置灰，避免连点写同一个文件）。</summary>
+    Button? _btnExport;
 
     enum SortField { Role, Username, Display, ClassCount, Subject, Enabled }
 
@@ -129,10 +132,21 @@ public class UserManagerWindow : Window
         buildRow.Children.Add(btnAdd);
 
         var btnImport = Mk("从 Excel / CSV 导入名单", "#E8F6EE");
-        btnImport.ToolTip = "列顺序：用户名 | 显示名 | 角色 | 班级 | 密码 | 任课科目（第 6 列可选）。\n"
-                          + "第一行是表头；同名账号会被更新而不是新增，密码留空则保留原密码。";
+        btnImport.ToolTip = "第一行写表头，按列名认列（插入新列、调换列顺序都不影响）：\n"
+                          + "用户名 | 显示名 | 角色 | 任教班级 | 新密码 | 任课科目 | 班主任班级 | 状态。\n"
+                          + "同名账号＝更新，不同名＝新增；密码留空保留原密码，单元格留空＝这一项不动（写「-」表示清空）。\n"
+                          + "写完盘之前会先列出「新增 / 更新 / 停用 / 跳过」的明细，确认后才生效。";
         btnImport.Click += (_, _) => ImportUsers();
         buildRow.Children.Add(btnImport);
+
+        // 导出：与导入配成一对（拿到表 → 改 → 导回）
+        _btnExport = Mk("导出账号表…", "#F3EEFB");
+        _btnExport.ToolTip = "把账号资料导成 Excel：第 1 页账号表（可改完再导回）、第 2 页填写说明、第 3 页角色权限矩阵。\n"
+                          + "出于安全，密码不出现在表格里 ——「新密码」列恒空，留空导回时保留原密码。\n"
+                          + "这不是完整备份：要连密码一起备份，请用「设置 → 数据管理 → 备份与恢复」。\n"
+                          + "列表里有筛选时，会先问是导全部还是只导当前显示的这些。";
+        _btnExport.Click += (_, _) => ExportUsers();
+        buildRow.Children.Add(_btnExport);
 
         // 从课表底表批量生成全校教师账号（预览确认后才写盘）
         var btnGen = Mk("从课表生成账号", "#EAF6F4");
@@ -148,7 +162,7 @@ public class UserManagerWindow : Window
 
         buildRow.Children.Add(new TextBlock
         {
-            Text = "批量生成前会先预览，确认后才写盘。",
+            Text = "改动确认后才写盘",
             FontSize = 11.5,
             Foreground = ChromePalette.BrushOf(ChromePalette.Muted, "#667085"),
             VerticalAlignment = VerticalAlignment.Center,
@@ -540,8 +554,12 @@ public class UserManagerWindow : Window
             int idx = 0;
             if (_subjectFilter != null)
             {
-                int found = entries.FindIndex(e => string.Equals(e.Key ?? "", _subjectFilter, StringComparison.Ordinal));
-                if (found > 0) idx = found;
+                // ★ 不能用 `e.Key ?? ""` 合并空科目：空科目组的 Key 本来就是 ""，
+                //   合并后会和「全部科目」（Key=null）撞上 —— 下拉自己跳回「全部」，
+                //   而列表还筛着「未填」那 95 人，看上去像「选了全部却没恢复」。
+                int found = entries.FindIndex(e =>
+                    e.Key != null && string.Equals(e.Key, _subjectFilter, StringComparison.Ordinal));
+                if (found >= 0) idx = found;
             }
             _subjectCombo.SelectedIndex = idx;
         }
@@ -731,13 +749,104 @@ public class UserManagerWindow : Window
     void Tip(string msg)
         => System.Windows.MessageBox.Show(msg, "用户管理", MessageBoxButton.OK, MessageBoxImage.Information);
 
-    // ================== 导入名单 ==================
+    // ================== 导出 / 导入名单 ==================
+
+    /// <summary>单元格写「-」表示"清空这一项"（空单元格一律理解为"不动"）。</summary>
+    static bool IsClearCell(string cell)
+    {
+        var t = (cell ?? "").Trim();
+        return t == "-" || t == "—" || t == "－" || t == "无" || t == "/";
+    }
 
     /// <summary>
-    /// 从表格导入：列顺序 用户名 | 显示名 | 角色 | 班级 | 密码 | 任课科目（可选第 6 列）。
-    /// 第一行是表头（会被跳过）；角色可写 管理员/班主任/学生，也可写 admin/teacher/student。
-    /// 用户名已存在的会被更新（同名不新增），密码留空则保留原密码，
-    /// 任课科目留空则不覆盖原值（老账号保持「不限」）。
+    /// 导出账号资料表（.xlsx）。列表里有筛选时先问范围 —— 默认导全部，
+    /// 因为"筛着筛着把半个名单当备份导走"是最容易犯的错。
+    /// </summary>
+    async void ExportUsers()
+    {
+        int total = _book.Users.Count;
+        if (total == 0) { Tip("现在还没有任何账号，没什么可导出的。"); return; }
+
+        var shown = _list.Items.OfType<ListBoxItem>()
+                        .Select(i => i.Tag as AppUser)
+                        .Where(u => u != null).Select(u => u!).ToList();
+
+        List<AppUser> scope = _book.Users.ToList();
+
+        if (shown.Count > 0 && shown.Count < total)
+        {
+            var pick = System.Windows.MessageBox.Show(
+                $"列表里有筛选：现在显示 {shown.Count} 个，账号一共 {total} 个。\n\n"
+                + "「是」＝ 导出全部（适合备份、核对）\n"
+                + "「否」＝ 只导出当前显示的这些（适合只发某个年级）",
+                "导出范围", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            if (pick == MessageBoxResult.Cancel) return;
+            if (pick == MessageBoxResult.No) scope = shown;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "导出账号资料表",
+            Filter = "Excel 工作簿 (*.xlsx)|*.xlsx",
+            DefaultExt = ".xlsx",
+            AddExtension = true,
+            FileName = $"用户账号_{DateTime.Now:yyyyMMdd}.xlsx"
+        };
+        try { dlg.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory); }
+        catch { /* 没有桌面目录就用系统默认 */ }
+        if (dlg.ShowDialog() != true) return;
+
+        string path = dlg.FileName;
+        if (!path.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+            path = Path.ChangeExtension(path, ".xlsx");
+
+        string scopeNote = scope.Count == total
+            ? $"本次导出全部 {total} 个账号。"
+            : $"本次只导出当前筛选出的 {scope.Count} 个账号（账号一共 {total} 个）。";
+
+        // 目标可能是网络盘 / OneDrive：写盘一律后台，别让窗口假死
+        if (_btnExport != null) _btnExport.IsEnabled = false;
+        try
+        {
+            await System.Threading.Tasks.Task.Run(
+                () => UserExportService.Export(_book, scope, path, scopeNote));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Tip($"没有写入权限，导出失败：\n{path}\n\n换一个文件夹（比如桌面）再试，或看看这个文件是不是只读。");
+            return;
+        }
+        catch (IOException ex)
+        {
+            Tip($"写不进去：{ex.Message}\n\n最常见的原因是同名文件正被 Excel / WPS 打开——先关掉它再导出。");
+            return;
+        }
+        catch (Exception ex)
+        {
+            Tip("导出失败：" + ex.Message);
+            return;
+        }
+        finally
+        {
+            if (_btnExport != null) _btnExport.IsEnabled = true;
+        }
+
+        var ask = System.Windows.MessageBox.Show(
+            $"已导出 {scope.Count} 个账号：\n{path}\n\n"
+            + "提醒：文件里有全校账号名单，别发到班级群 / 家长群。\n\n要打开所在文件夹吗？",
+            "导出完成", MessageBoxButton.YesNo, MessageBoxImage.Information);
+        if (ask == MessageBoxResult.Yes)
+        {
+            try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\""); }
+            catch { /* 打开失败不影响导出结果 */ }
+        }
+    }
+
+    // ---------------- 导入：读表 → 建计划 → 预览确认 → 应用 ----------------
+
+    /// <summary>
+    /// 从表格导入账号。列按第一行表头认（认不出表头就按老的位置顺序读，第 1 行仍跳过）；
+    /// 空单元格＝这一项不动，写「-」＝清空。写盘前统一弹预览确认。
     /// </summary>
     void ImportUsers()
     {
@@ -749,136 +858,36 @@ public class UserManagerWindow : Window
         if (dlg.ShowDialog() != true) return;
 
         List<string[]> rows;
-        try { rows = ReadTable(dlg.FileName); }
+        try { rows = UserImportService.ReadTable(dlg.FileName); }
         catch (Exception ex) { Tip("读取失败：" + ex.Message); return; }
 
-        if (rows.Count == 0) { Tip("没读到任何数据行。"); return; }
+        if (rows.Count == 0) { Tip("这个文件里没有内容。"); return; }
+        if (rows.Count == 1) { Tip("只有表头，没有数据行。"); return; }
 
-        int added = 0, updated = 0, skipped = 0;
-        var errors = new List<string>();
+        // 认不出表头 → 退回老的位置模式（第 1 行照样当表头跳过），升级前后老表格都能导
+        var map = UserImportService.MapColumns(rows[0]) ?? UserImportService.Positional();
+        var result = UserImportService.Build(_book, rows.Skip(1).ToList(), map);
 
-        for (int i = 0; i < rows.Count; i++)
+        if (!result.AnyChange)
         {
-            var r = rows[i];
-            if (r.Length == 0 || string.IsNullOrWhiteSpace(Cell(r, 0))) { skipped++; continue; }
-
-            string user = Cell(r, 0);
-            string display = Cell(r, 1);
-            string roleText = Cell(r, 2);
-            string clsText = Cell(r, 3);
-            string pwd = Cell(r, 4);
-            string subjectText = r.Length > 5 ? Cell(r, 5) : "";   // 可选的「任课科目」列
-
-            // 没写角色时按"有班级 = 班主任，无班级 = 电教管理员"推断，比默认成管理员安全
-            string role = ParseRole(roleText)
-                          ?? (string.IsNullOrWhiteSpace(clsText) ? UserRole.Student : UserRole.Teacher);
-
-            var classes = clsText
-                .Split(new[] { ',', '，', '、', ';', '；', '/', ' ' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(s => s.Trim()).Where(s => s.Length > 0).Distinct().ToList();
-
-            if ((role == UserRole.Teacher || role == UserRole.SubjectTeacher) && classes.Count == 0)
-            {
-                errors.Add($"第 {i + 2} 行「{user}」是{UserRole.Display(role)}但没填班级，已跳过");
-                skipped++;
-                continue;
-            }
-
-            var exist = _book.Find(user);
-            if (exist != null)
-            {
-                exist.DisplayName = string.IsNullOrWhiteSpace(display) ? exist.DisplayName : display;
-                exist.Role = role;
-                exist.ClassNames = classes;
-                // 只在表格里确实填了科目时才覆盖，留空保持原值（老账号 = 不限）
-                if (!string.IsNullOrWhiteSpace(subjectText))
-                    exist.Subject = ScheduleCore.Models.BoardIds.NormalizeSubject(subjectText);
-                if (!string.IsNullOrEmpty(pwd)) PasswordHasher.SetPassword(exist, pwd);
-                updated++;
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(pwd))
-                {
-                    errors.Add($"第 {i + 2} 行「{user}」是新增账号但没填密码，已跳过");
-                    skipped++;
-                    continue;
-                }
-                var u = new AppUser
-                {
-                    Username = user,
-                    DisplayName = display,
-                    Role = role,
-                    ClassNames = classes,
-                    Subject = ScheduleCore.Models.BoardIds.NormalizeSubject(subjectText)
-                };
-                PasswordHasher.SetPassword(u, pwd);
-                _book.Users.Add(u);
-                added++;
-            }
+            Tip(result.Same > 0
+                ? $"表里 {result.Same} 个账号都跟现有资料一样，没有需要改的。"
+                : "没读到有效的数据行，或者每一行都被跳过了。");
+            return;
         }
 
-        // 至少得留一个管理员
-        if (_book.AdminCount == 0)
-        {
-            errors.Add("导入后没有任何管理员，已自动把第一个账号设为管理员");
-            var first = _book.Users.FirstOrDefault();
-            if (first != null) first.Role = UserRole.Admin;
-        }
+        var preview = new UserImportPreviewWindow(result, Path.GetFileName(dlg.FileName)) { Owner = this };
+        if (preview.ShowDialog() != true) return;
 
+        UserImportService.Apply(_book, result.Plans);
         SaveAll();
         Reload();
 
-        var msg = $"导入完成：新增 {added} 个、更新 {updated} 个、跳过 {skipped} 个。";
-        if (errors.Count > 0) msg += "\n\n" + string.Join("\n", errors.Take(10))
-                                    + (errors.Count > 10 ? $"\n…另有 {errors.Count - 10} 条" : "");
-        Tip(msg);
-    }
-
-    static string Cell(string[] r, int i) => i < r.Length ? (r[i] ?? "").Trim() : "";
-
-    static string? ParseRole(string text)
-    {
-        var t = (text ?? "").Trim().ToLowerInvariant();
-        if (t.Length == 0) return null;
-        return t switch
-        {
-            "管理员" or "admin" or "administrator" => UserRole.Admin,
-            "班主任" or "teacher" or "老师" => UserRole.Teacher,
-            "科任老师" or "科任" or "任课老师" or "subject" or "subjectteacher" or "subject_teacher" => UserRole.SubjectTeacher,
-            "学生" or "电教" or "电教管理员" or "student" or "local" => UserRole.Student,
-            _ => null
-        };
-    }
-
-    static List<string[]> ReadTable(string path)
-    {
-        var rows = new List<string[]>();
-
-        if (path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
-        {
-            var lines = File.ReadAllLines(path);
-            // 跳过表头
-            foreach (var line in lines.Skip(1))
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                rows.Add(line.Split(','));
-            }
-            return rows;
-        }
-
-        using var wb = new ClosedXML.Excel.XLWorkbook(path);
-        var ws = wb.Worksheet(1);
-        bool first = true;
-        foreach (var row in ws.RowsUsed())
-        {
-            if (first) { first = false; continue; }   // 表头
-            var vals = new List<string>();
-            int last = row.LastCellUsed()?.Address.ColumnNumber ?? 0;
-            for (int c = 1; c <= Math.Max(last, 1); c++)
-                vals.Add(row.Cell(c).GetString() ?? "");
-            rows.Add(vals.ToArray());
-        }
-        return rows;
+        string msg = $"已应用：新增 {result.Add} 个、更新 {result.Update} 个";
+        if (result.Enable > 0) msg += $"、启用 {result.Enable} 个";
+        if (result.Disable > 0) msg += $"、停用 {result.Disable} 个";
+        if (result.Skip > 0) msg += $"、跳过 {result.Skip} 个";
+        if (result.Same > 0) msg += $"（{result.Same} 个无需改动）";
+        Tip(msg + "。\n\n要下发到教室机，还需要「发布数据包」。");
     }
 }

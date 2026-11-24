@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <!--
@@ -18,9 +18,9 @@
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
 
     <!-- 版本信息：发版时只需改这里 -->
-    <Version>1.0.19</Version>
-    <AssemblyVersion>1.0.19.0</AssemblyVersion>
-    <FileVersion>1.0.19.0</FileVersion>
+    <Version>1.0.20</Version>
+    <AssemblyVersion>1.0.20.0</AssemblyVersion>
+    <FileVersion>1.0.20.0</FileVersion>
     <Company>逆流的鱼</Company>
     <Product>班级公布栏</Product>
     <Title>班级公布栏</Title>
@@ -29,5 +29,14 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ScheduleCore\ScheduleCore.csproj" />
+  </ItemGroup>
+  <!--
+    帮助中心：正文与配图作为 Resource 内嵌（pack://application:,,,/Resources/Help/...）。
+    不用 Content 复制到输出目录 —— 免安装版已经 470 多个文件，再多一个 help 目录，
+    换机时最容易漏拷的偏偏就是它。
+  -->
+  <ItemGroup>
+    <Resource Include="Resources\Help\*.txt" />
+    <Resource Include="Resources\Help\*.jpg" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -113,8 +113,9 @@ public partial class App : System.Windows.Application
 
             var diagUser = new ScheduleCore.Models.AppUser
             {
-                Username = "diag",
-                DisplayName = "诊断预览",
+                // 截图会进帮助文档，所以这里用"演示账号"而不是内部的 diag/诊断预览
+                Username = "demo",
+                DisplayName = "信息中心",
                 Role = diagRole
             };
             // 班主任 / 科任老师身份要真的能改到某个班，否则截图里连本班都是灰的，看不出区别
@@ -411,6 +412,8 @@ public partial class App : System.Windows.Application
                     "maininfoopen" => new MainWindow { InitialTabIndex = 6, InfoSettingsExpanded = true },
                     "boardsend" => new BoardSendWindow(new[] { "八年级(1)班" }, null),
                     "boardsendduty" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityDuty),
+                    // r161：缺交名单形态（帮助配图用；duty 那张是值日，别混用）
+                    "boardsendmissing" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityMissing),
                     "boardsendweek" => DiagBoardSendWeekly(),
                     "boardsendnotice" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityNotice),
                     "boardsync" => new BoardSyncWindow(),
@@ -504,6 +507,11 @@ public partial class App : System.Windows.Application
                     "clearoverrides" => new ClearOverridesWindow(),
                     "suspended" => new SuspendedOverridesWindow(),
                     "usermanager" => new UserManagerWindow(),
+                    // r161：帮助中心（卡片首页 / 单篇正文）与「用户中心」页（帮助配图用）
+                    "help" => new HelpWindow(),
+                    "helptopic" => new HelpWindow("publish"),
+                    // r161：导入预览（新增 / 更新 / 停用 / 跳过四种行都要能看到样子）
+                    "importpreview161" => DiagImportPreview161(),
                     "useredit" => new UserEditWindow(null, new ScheduleCore.Models.UserBook(), new[] { "八(22)班", "八(23)班" }),
                     "rolepolicy" => new RolePolicyWindow(Store.LoadUsers()),
                     "teacheraccount" => new TeacherAccountWindow(Store.LoadUsers()),
@@ -608,11 +616,84 @@ public partial class App : System.Windows.Application
                 // 只按 ActualWidth/Height 开画布会把右、下各切掉 18px，看起来像按钮被裁一半）。
                 int pw0 = Math.Max(1, (int)Math.Ceiling(root0.RenderSize.Width + root0.Margin.Left + root0.Margin.Right));
                 int ph0 = Math.Max(1, (int)Math.Ceiling(root0.RenderSize.Height + root0.Margin.Top + root0.Margin.Bottom));
-                var rtb0 = new System.Windows.Media.Imaging.RenderTargetBitmap(
-                    pw0, ph0, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-                rtb0.Render(root0);
 
-                var enc0 = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                // 可选参数（r161，供帮助文档配图）：
+                //   hl=控件名[,控件名]  在该控件周围画红框（名字就是 XAML 里的 x:Name）
+                //   scale=1.6           放大渲染，缩小显示时文字才不糊
+                //   *.jpg               输出 JPEG（帮助图 30 张 PNG 会把安装包撑大一圈）
+                var marks = new List<System.Windows.Rect>();
+                double scale = 1;
+                for (int ai = 3; ai < e.Args.Length; ai++)
+                {
+                    string a = e.Args[ai] ?? "";
+                    if (a.StartsWith("scale=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (double.TryParse(a.Substring(6), out double s) && s > 0.2 && s <= 4) scale = s;
+                    }
+                    else if (a.StartsWith("hl=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foreach (var nm in a.Substring(3).Split(',', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            try
+                            {
+                                if (w0.FindName(nm.Trim()) is FrameworkElement fe
+                                    && fe.IsVisible && fe.ActualWidth > 0 && fe.ActualHeight > 0)
+                                {
+                                    var pt = fe.TransformToAncestor(root0).Transform(new System.Windows.Point(0, 0));
+                                    marks.Add(new System.Windows.Rect(pt.X - 7, pt.Y - 7,
+                                                                      fe.ActualWidth + 14, fe.ActualHeight + 14));
+                                }
+                            }
+                            catch { /* 控件不在可视树里（被折叠 / 滚出视野）就跳过 */ }
+                        }
+                    }
+                }
+
+                System.Windows.Media.Imaging.RenderTargetBitmap rtb0;
+                if (marks.Count == 0 && Math.Abs(scale - 1) < 0.001)
+                {
+                    rtb0 = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                        pw0, ph0, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                    rtb0.Render(root0);
+                }
+                else
+                {
+                    // 走 VisualBrush 重绘一遍：这样放大的是"矢量再光栅化"，字是清晰的，不是把位图拉大。
+                    // ★ 必须先铺一层白底：毛玻璃 / 半透明根元素的透明像素，JPEG 里会变成纯黑，
+                    //   截图看着像窗口炸了（BoardSendWindow、BoardSyncWindow 就是这种情况）。
+                    int pw = Math.Max(1, (int)Math.Ceiling(pw0 * scale));
+                    int ph = Math.Max(1, (int)Math.Ceiling(ph0 * scale));
+                    var dv = new System.Windows.Media.DrawingVisual();
+                    using (var dc = dv.RenderOpen())
+                    {
+                        dc.PushTransform(new System.Windows.Media.ScaleTransform(scale, scale));
+                        // 底色不用纯白：毛玻璃窗的内层是半透明白，铺纯白会让"面板"整个消失、
+                        // 看起来像没画完的窗口。浅灰能把半透明层衬出来。
+                        dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(
+                                             System.Windows.Media.Color.FromRgb(0xEC, 0xEF, 0xF5)), null,
+                                         new System.Windows.Rect(0, 0, pw0, ph0));
+                        dc.DrawRectangle(new System.Windows.Media.VisualBrush(root0), null,
+                                         new System.Windows.Rect(0, 0, pw0, ph0));
+                        foreach (var m in marks)
+                        {
+                            // 线宽除以 scale：变形会把线一起放大，否则 1.6 倍下红框粗得像色块
+                            var pen = new System.Windows.Media.Pen(
+                                new System.Windows.Media.SolidColorBrush(
+                                    System.Windows.Media.Color.FromRgb(0xE0, 0x2B, 0x2B)), 2.5 / scale);
+                            dc.DrawRoundedRectangle(null, pen, m, 9, 9);
+                        }
+                        dc.Pop();
+                    }
+                    rtb0 = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                        pw, ph, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                    rtb0.Render(dv);
+                }
+
+                System.Windows.Media.Imaging.BitmapEncoder enc0 =
+                    e.Args[2].EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                    || e.Args[2].EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                        ? new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 88 }
+                        : new System.Windows.Media.Imaging.PngBitmapEncoder();
                 enc0.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb0));
                 using (var fs0 = File.Create(e.Args[2])) enc0.Save(fs0);
 
@@ -674,6 +755,29 @@ public partial class App : System.Windows.Application
         if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--test-backdrop-off", StringComparison.OrdinalIgnoreCase))
         {
             RunBackdropOffDiag(e.Args[1]);
+            return;
+        }
+
+        // 诊断：--user-export <xlsx> 把本机账号表导出一份并立刻读回（验真实规模下的导出 / 表头 / 行数）
+        if (e.Args.Length >= 2 && string.Equals(e.Args[0], "--user-export", StringComparison.OrdinalIgnoreCase))
+        {
+            string log = Path.Combine(Path.GetTempPath(), "ClassBulletinApp.userexport.log");
+            try
+            {
+                var book = ScheduleCore.Services.Store.LoadUsers();
+                ScheduleCore.Services.UserExportService.Export(book, book.Users, e.Args[1],
+                    $"诊断导出全部 {book.Users.Count} 个账号。");
+                var rows = ScheduleCore.Services.UserImportService.ReadTable(e.Args[1]);
+                var map = ScheduleCore.Services.UserImportService.MapColumns(rows[0]);
+                var back = map == null ? null
+                    : ScheduleCore.Services.UserImportService.Build(book, rows.Skip(1).ToList(), map);
+                File.WriteAllText(log,
+                    $"users={book.Users.Count} rows={rows.Count} cols={rows[0].Length}\n"
+                    + $"headerOk={map != null} roundTripClean={back != null && !back.AnyChange && back.Same == book.Users.Count}\n"
+                    + (back == null ? "no-map\n" : string.Join("；", back.Plans.Where(x => x.Applies).Take(5).Select(x => x.Username + "→" + x.Note))));
+            }
+            catch (Exception ex) { try { File.WriteAllText(log, "FAIL " + ex); } catch { } }
+            Shutdown(0);
             return;
         }
 
@@ -4569,7 +4673,16 @@ public partial class App : System.Windows.Application
                 if (!(combo.Items[0]?.ToString() ?? "").StartsWith("全部科目", StringComparison.Ordinal))
                     throw new Exception("下拉首项不是「全部科目」：" + combo.Items[0]);
 
-                combo.SelectedIndex = 1;
+                // 第 1 项可能是「未填（不限）」—— 它确实是有效筛选，但测不出「按科目筛」，
+                // 所以往下找第一个真填了科目的项（名字不以「未填」开头），不依赖数据分布。
+                int pick = -1;
+                for (int i = 1; i < combo.Items.Count; i++)
+                {
+                    if (!(combo.Items[i]?.ToString() ?? "").StartsWith("未填", StringComparison.Ordinal))
+                    { pick = i; break; }
+                }
+                if (pick < 0) throw new Exception("下拉里没有可筛的科目（只剩「未填」）");
+                combo.SelectedIndex = pick;
                 content.UpdateLayout();
 
                 int shown = list.Items.Count;
@@ -4615,6 +4728,179 @@ public partial class App : System.Windows.Application
                     if (targets.Any(n => book.Find(n)?.Enabled != true))
                         throw new Exception("批量启用没把状态改回来");
                 }
+
+                return w;
+            });
+            // ---------------- r161：账号表导出 / 导回 ----------------
+            // 导出的表要能"原样导回"才算可用：这里用临时 UserBook 走完整闭环，
+            // 任何一处列错位 / 值不认 / 空值把数据洗掉，都会在这几条里立刻现形。
+            Check("r161 导出账号表：三页结构 + 9 列表头 + 密码列恒空", () =>
+            {
+                var book = MakeDiagUserBook();
+                string tmp = Path.Combine(Path.GetTempPath(), "cb_r161_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                try
+                {
+                    ScheduleCore.Services.UserExportService.Export(book, book.Users, tmp, "诊断导出");
+                    if (!File.Exists(tmp)) throw new Exception("没写出文件");
+
+                    using var wb = new ClosedXML.Excel.XLWorkbook(tmp);
+                    if (wb.Worksheets.Count != 3)
+                        throw new Exception("工作表不是 3 页：" + wb.Worksheets.Count);
+                    if (wb.Worksheet("填写说明") == null || wb.Worksheet("角色权限") == null)
+                        throw new Exception("缺少「填写说明」或「角色权限」页");
+
+                    var ws = wb.Worksheet("账号表");
+                    for (int i = 0; i < ScheduleCore.Services.UserExportService.Headers.Length; i++)
+                    {
+                        string got = ws.Cell(1, i + 1).GetString();
+                        if (got != ScheduleCore.Services.UserExportService.Headers[i])
+                            throw new Exception($"第 {i + 1} 列表头是「{got}」");
+                    }
+                    // 密码列：整列必须为空（哈希绝不能进表格）
+                    for (int r = 2; r <= ws.LastRowUsed()!.RowNumber(); r++)
+                        if (ws.Cell(r, 5).GetString().Length != 0)
+                            throw new Exception($"第 {r} 行「新密码」不是空的：{ws.Cell(r, 5).GetString()}");
+
+                    if (ws.Cell(2, 3).GetString() != "班主任") throw new Exception("角色没写中文：" + ws.Cell(2, 3).GetString());
+                    if (ws.Cell(2, 4).GetString() != "八(1)班、八(2)班") throw new Exception("任教班级连接符不对：" + ws.Cell(2, 4).GetString());
+                    if (ws.Cell(2, 7).GetString() != "八(1)班") throw new Exception("班主任班级列不对：" + ws.Cell(2, 7).GetString());
+                    if (ws.Cell(4, 8).GetString() != "停用") throw new Exception("状态列不对：" + ws.Cell(4, 8).GetString());
+                    if (ws.Cell(2, 9).GetString() != "手工") throw new Exception("来源列不对：" + ws.Cell(2, 9).GetString());
+                }
+                finally { try { File.Delete(tmp); } catch { } }
+                return (Window?)null;
+            });
+
+            // 往返一致性：导出的表直接导回，必须"零改动"。这是整条链路的总检验。
+            Check("r161 导出→导回零改动（往返一致）", () =>
+            {
+                var book = MakeDiagUserBook();
+                string tmp = Path.Combine(Path.GetTempPath(), "cb_r161rt_" + Guid.NewGuid().ToString("N") + ".xlsx");
+                try
+                {
+                    ScheduleCore.Services.UserExportService.Export(book, book.Users, tmp, "诊断导出");
+                    var rows = ScheduleCore.Services.UserImportService.ReadTable(tmp);
+                    if (rows.Count != book.Users.Count + 1)
+                        throw new Exception($"读回行数不对：{rows.Count}（应为 {book.Users.Count + 1}）");
+
+                    var map = ScheduleCore.Services.UserImportService.MapColumns(rows[0]);
+                    if (map == null) throw new Exception("导出的表头自己都认不出来");
+
+                    var res = ScheduleCore.Services.UserImportService.Build(book, rows.Skip(1).ToList(), map);
+                    if (res.AnyChange)
+                        throw new Exception("原样导回居然要改："
+                            + string.Join("；", res.Plans.Where(p => p.Applies).Select(p => p.Username + "→" + p.Note)));
+                    if (res.Same != book.Users.Count)
+                        throw new Exception($"判为无变化的是 {res.Same} 个（应为 {book.Users.Count}）");
+                }
+                finally { try { File.Delete(tmp); } catch { } }
+                return (Window?)null;
+            });
+
+            // 列序可自由调整（插入 / 挪动列不影响），空单元格不清数据，状态列能真的停用
+            Check("r161 表头认列：调换列序 / 空值不动 / 状态生效", () =>
+            {
+                var book = MakeDiagUserBook();
+                var svc = typeof(ScheduleCore.Services.UserImportService);
+
+                // ① 「新密码」挪到第 1 列、「用户名」挪到第 3 列：按列名仍应正确识别
+                var header = new[] { "新密码", "状态", "用户名", "任教班级", "角色", "显示名", "任课科目", "班主任班级", "来源" };
+                var map = ScheduleCore.Services.UserImportService.MapColumns(header);
+                if (map == null) throw new Exception("调换列序后认不出用户名");
+                if (map[ScheduleCore.Services.UserImportService.Field.User] != 2)
+                    throw new Exception("用户名列定位错：" + map[ScheduleCore.Services.UserImportService.Field.User]);
+                if (map[ScheduleCore.Services.UserImportService.Field.Password] != 0)
+                    throw new Exception("密码列定位错");
+
+                // 用这张"乱序表"导一遍：只有用户名和状态两格有值 → 只改状态，班级一个都不许被洗掉
+                var row = new[] { "", "停用", "李四", "", "", "", "", "", "" };
+                var res = ScheduleCore.Services.UserImportService.Build(book, new List<string[]> { row }, map);
+                if (res.Update != 1) throw new Exception("乱序表没识别出 1 条更新：" + res.Update);
+                var plan = res.Plans[0];
+                if (plan.Classes != null) throw new Exception("空单元格居然要改任教班级（会顺手洗掉数据）");
+                if (plan.Enabled != false) throw new Exception("状态「停用」没生效");
+                ScheduleCore.Services.UserImportService.Apply(book, res.Plans);
+                if (book.Find("李四")?.Enabled != false) throw new Exception("应用后状态没变");
+                if (book.Find("李四")?.ClassNames.Count != 1) throw new Exception("应用后班级被洗掉了");
+
+                // ② 写「-」才是显式清空（注意 Build 只吃数据行，表头不进）
+                var clearMap = ScheduleCore.Services.UserImportService.MapColumns(new[] { "用户名", "任教班级" });
+                if (clearMap == null) throw new Exception("「用户名 | 任教班级」认不出");
+                var clear = ScheduleCore.Services.UserImportService.Build(book,
+                    new List<string[]> { new[] { "李四", "-" } }, clearMap);
+                if (clear.Plans.Count == 0 || clear.Plans[0].Classes == null || clear.Plans[0].Classes!.Count != 0)
+                    throw new Exception("写「-」没被理解成清空");
+
+                // ③ 认不出表头 → 返回 null（调用方回退位置模式），不能崩
+                if (ScheduleCore.Services.UserImportService.MapColumns(new[] { "编号", "备注" }) != null)
+                    throw new Exception("没有用户名列却认出了表头");
+
+                // ④ 角色写错必须跳过并说明，不能静默按班级推断
+                var badMap = ScheduleCore.Services.UserImportService.MapColumns(new[] { "用户名", "角色", "任教班级" });
+                if (badMap == null) throw new Exception("「用户名 | 角色 | 任教班级」认不出");
+                var bad = ScheduleCore.Services.UserImportService.Build(book,
+                    new List<string[]> { new[] { "王五", "校领导", "八(9)班" } }, badMap);
+                if (bad.Plans.Count != 1 || bad.Plans[0].Kind != ScheduleCore.Services.UserImportKind.Skip
+                    || bad.Plans[0].Note.IndexOf("认不出", StringComparison.Ordinal) < 0)
+                    throw new Exception("认不出的角色没有跳过并说明");
+
+                return (Window?)null;
+            });
+            // ---------------- r161：帮助中心 ----------------
+            Check("r161 帮助中心：主题数量 / 分组 / 搜索 / 配图全部可加载", () =>
+            {
+                var topics = Help.HelpCatalog.Topics;
+                if (topics.Count < 14) throw new Exception("帮助主题只有 " + topics.Count + " 篇");
+                if (topics.Any(t => t.Title.Length == 0 || t.Summary.Length == 0 || t.Body.Length == 0))
+                    throw new Exception("有主题缺标题 / 摘要 / 正文");
+                if (topics.Select(t => t.Id).Distinct().Count() != topics.Count)
+                    throw new Exception("主题 id 有重复（卡片点进去会串篇）");
+
+                int quick = topics.Count(t => t.Group == "quick");
+                int fix = topics.Count(t => t.Group == "fix");
+                if (quick < 8 || fix < 6)
+                    throw new Exception($"分组数量不对：快速上手 {quick} 篇 / 故障速查 {fix} 条");
+
+                // 配图：URI 必须都能取到流。漏打包一张图，运行时就是一个空白框，最难查。
+                foreach (var t in topics)
+                {
+                    foreach (System.Text.RegularExpressions.Match m in
+                             System.Text.RegularExpressions.Regex.Matches(t.Body, @"!\[\]\((.+?)\)"))
+                    {
+                        var uri = new Uri("pack://application:,,,/Resources/Help/" + m.Groups[1].Value.Trim());
+                        if (System.Windows.Application.GetResourceStream(uri) == null)
+                            throw new Exception($"{t.Id} 的配图 {m.Groups[1].Value} 没打进资源");
+                    }
+                }
+
+                if (Help.HelpCatalog.Search("作业").Count == 0) throw new Exception("搜「作业」一篇都没有");
+                if (Help.HelpCatalog.Search("密码").Count == 0) throw new Exception("搜「密码」一篇都没有");
+                if (Help.HelpCatalog.Find("publish") == null) throw new Exception("找不到 publish 主题");
+
+                return new HelpWindow("publish");
+            });
+
+            // F1 要落在"当前这一页"的说明上，而不是每次回首页；映射写错就会指到不相干的文章
+            Check("r161 帮助上下文：十个页签都能落到存在的主题", () =>
+            {
+                var w = new MainWindow();
+                var mi = typeof(MainWindow).GetMethod("HelpTopicForCurrentTab",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                if (mi == null) throw new Exception("找不到 HelpTopicForCurrentTab");
+
+                for (int i = 0; i < w.MainTabs.Items.Count; i++)
+                {
+                    w.MainTabs.SelectedIndex = i;
+                    string id = (string)mi.Invoke(w, null)!;
+                    if (Help.HelpCatalog.Find(id) == null)
+                        throw new Exception($"页签 {i} 指向了不存在的主题「{id}」");
+                }
+
+                // 「设置」二级条里必须有帮助入口（F1 之外的第二条路，不然触屏机器上没人知道按 F1）
+                var sub = w.FindName("SubNavSetting") as System.Windows.Controls.StackPanel;
+                bool hasHelp = sub != null && sub.Children.OfType<System.Windows.Controls.Button>()
+                    .Any(b => (b.Tag as string) == "help");
+                if (!hasHelp) throw new Exception("设置二级条里没有「帮助」按钮");
 
                 return w;
             });
@@ -8939,6 +9225,62 @@ public partial class App : System.Windows.Application
             if (t.Assembly == typeof(ScheduleCore.Models.AppSettings).Assembly)
                 DumpBadDoubles(v, np, sb, depth + 1);
         }
+    }
+
+    /// <summary>r161 截图用：构造一张混合了新增 / 更新 / 停用 / 跳过的导入计划。</summary>
+    static Window DiagImportPreview161()
+    {
+        var book = MakeDiagUserBook();
+        var rows = new List<string[]>
+        {
+            new[] { "用户名", "显示名", "角色", "任教班级", "新密码", "任课科目", "班主任班级", "状态" },
+            new[] { "王五", "八(9)班 班主任 王五", "班主任", "八(9)班", "123", "历史", "八(9)班", "启用" },
+            new[] { "赵六", "", "科任老师", "八(9)班", "123", "", "", "停用" },
+            new[] { "张三", "八(1)班 班主任 张三", "班主任", "八(1)班、八(2)班", "", "数学", "八(1)班", "停用" },
+            new[] { "无名氏", "", "科任老师", "", "", "", "", "" }
+        };
+        var map = ScheduleCore.Services.UserImportService.MapColumns(rows[0])!;
+        var res = ScheduleCore.Services.UserImportService.Build(book, rows.Skip(1).ToList(), map);
+        return new UserImportPreviewWindow(res, "用户账号_20261124.xlsx");
+    }
+
+    /// <summary>
+    /// r161 诊断用：一张固定的三账号用户表 —— 覆盖多班任教、班主任班、无班主任班、
+    /// 已停用、科目留空这几种"导出最容易写错"的形态。
+    /// </summary>
+    static ScheduleCore.Models.UserBook MakeDiagUserBook()
+    {
+        var book = new ScheduleCore.Models.UserBook();
+
+        book.Users.Add(new ScheduleCore.Models.AppUser
+        {
+            Username = "张三",
+            DisplayName = "八(1)班 班主任 张三",
+            Role = ScheduleCore.Models.UserRole.Teacher,
+            ClassNames = new List<string> { "八(1)班", "八(2)班" },
+            HeadClassNames = new List<string> { "八(1)班" },
+            Subject = "数学",
+            Enabled = true
+        });
+        book.Users.Add(new ScheduleCore.Models.AppUser
+        {
+            Username = "李四",
+            DisplayName = "李四",
+            Role = ScheduleCore.Models.UserRole.SubjectTeacher,
+            ClassNames = new List<string> { "八(3)班" },
+            Subject = "语文",
+            Enabled = true
+        });
+        book.Users.Add(new ScheduleCore.Models.AppUser
+        {
+            Username = "local",
+            Role = ScheduleCore.Models.UserRole.Student,
+            Enabled = false
+        });
+
+        // 只存哈希：导出的表格里绝不该出现任何一段
+        foreach (var u in book.Users) ScheduleCore.Services.PasswordHasher.SetPassword(u, "123");
+        return book;
     }
 
     private static bool RunSyncCheck(string log)

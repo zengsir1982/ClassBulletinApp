@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -3627,7 +3627,28 @@ public partial class MainWindow : Window
             case "pull": BtnInfoPull_Click(this, args); break;
             case "layout": BtnLayout_Click(this, args); break;
             case "backdrop": BtnWpSettings_Click(this, args); break;
+            case "help": HelpWindow.ShowHelp(this, HelpTopicForCurrentTab()); break;
         }
+    }
+
+    /// <summary>
+    /// 帮助的上下文映射：F1 / 「设置 → 帮助」按当前页签落到对应主题，而不是每次回首页。
+    /// <para>★ 没有专篇的页面（显示设置、提醒设置、便签）落到「第一次用」——
+    /// 宁可从首页多看一眼，也不要指到一篇不相干的文章上。</para>
+    /// </summary>
+    string HelpTopicForCurrentTab()
+    {
+        int i = MainTabs?.SelectedIndex ?? 9;
+        return i switch
+        {
+            0 => "schedule",     // 周课程表
+            1 => "import",       // 数据管理
+            4 => "notice",       // 通知公告
+            5 => "notice",       // 便签管理
+            6 => "ledger",       // 信息管理 / 同步
+            7 => "account",      // 用户中心
+            _ => "start"
+        };
     }
 
     /// <summary>把运行信息填进「关于」页（只读，不涉及权限）。</summary>
@@ -5119,6 +5140,13 @@ public partial class MainWindow : Window
     /// <summary>检查/下载进行中，避免定时器与手动点击撞车。</summary>
     private bool _updBusy;
 
+    /// <summary>
+    /// 回执写盘单泵（r160）：写回执要读旧文件 + 写新文件，两次共享盘 I/O。
+    /// 数据源不可达时一次就是 SMB 超时级别，所以它必须跑在后台，且同一时刻只许一个 ——
+    /// 否则 5 分钟一轮的检查会越积越多，把线程池吃光。
+    /// </summary>
+    private int _receiptBusy;
+
     /// <summary>source 目录里"已确认处理过"的指纹（发布成功或确认无变化）。</summary>
     private string _srcFp = "";
 
@@ -5212,19 +5240,32 @@ public partial class MainWindow : Window
         _srcProbeBusy = true;
         bool exists;
         string fp = "";
+        string reason = "";
         try
         {
-            (exists, fp) = await Task.Run(() =>
+            // ★ r160：原因也必须在后台算出来。以前是 Directory.Exists（把"共享没了 / 网络不通 /
+            //   没权限"全吞成 false）→ 回到 UI 线程再调 ExplainDirUnreachable 列一次目录找异常码，
+            //   于是不可达时 UI 线程被**再**卡一次（发布机开着自动发布时每 30 秒一次）。
+            //   现在只列一次目录：既判在不在，也顺手拿到真实异常码。
+            (exists, fp, reason) = await Task.Run<(bool, string, string)>(() =>
             {
                 try
                 {
-                    if (!Directory.Exists(dir)) return (false, "");
-                    return (true, SourcePublisher.SourceFingerprint(dir));
+                    Directory.GetFileSystemEntries(dir);
                 }
-                catch
+                catch (Exception ex)
+                {
+                    return (false, "", ExplainDirException(ex));
+                }
+
+                try
+                {
+                    return (true, SourcePublisher.SourceFingerprint(dir), "");
+                }
+                catch (Exception ex)
                 {
                     // 目录能进但读不了文件（权限掉了）——按"不可用"处理，别当成"没有变化"
-                    return (false, "");
+                    return (false, "", ExplainDirException(ex));
                 }
             });
         }
@@ -5236,7 +5277,7 @@ public partial class MainWindow : Window
         if (!exists)
         {
             WarnPublishSource($"读不到发布源目录：{dir}\n"
-                + ExplainDirUnreachable(dir)
+                + reason
                 + "自动发布已停摆（Excel 改了也不会传出去）。");
             return;
         }
@@ -5262,38 +5303,27 @@ public partial class MainWindow : Window
     /// <summary>
     /// 目录读不到时给出<b>具体原因</b>。
     /// <para>★ <c>Directory.Exists</c> 会把"共享被删了 / 网络不通 / 没权限"全部吞成 false，
-    /// 只报"读不到"等于让人去猜。这里再列一次目录，用真实异常码把原因分开 ——
-    /// 现场最常见的三种（共享被删、凭据失效、445 被拦）处理办法完全不同。</para>
+    /// 只报"读不到"等于让人去猜。现场最常见的三种（共享被删、凭据失效、445 被拦）处理办法完全不同。</para>
+    /// <para>★ r160：本方法只做纯字符串翻译，<b>不再自己列目录</b> —— 异常由后台调用方传进来。
+    /// 老版本在这里再列一次目录找错误码，而那一次枚举同样会 SMB 超时，却被 UI 线程调着。</para>
     /// </summary>
-    private static string ExplainDirUnreachable(string dir)
+    private static string ExplainDirException(Exception ex)
     {
-        try
-        {
-            Directory.GetFileSystemEntries(dir);
-            return "（目录列举居然成功了，可能是瞬时故障，下一轮会自动重试。）";
-        }
-        catch (UnauthorizedAccessException)
-        {
+        if (ex is UnauthorizedAccessException || (ex.HResult & 0xFFFF) == 5)
             return "原因是【没有访问权限】：凭据失效、账号密码改了，或者共享权限 / NTFS 权限没给到。\n";
-        }
-        catch (DirectoryNotFoundException)
-        {
+        if (ex is DirectoryNotFoundException || (ex.HResult & 0xFFFF) == 3)
             return "原因是【路径不存在】：共享名写错了，或者办公电脑上那个共享 / 子目录被删掉了。\n"
                  + "在办公电脑上执行 net share 可以看当前真实共享名。\n";
-        }
-        catch (Exception ex)
+
+        int code = ex.HResult & 0xFFFF;
+        return "原因是" + (code switch
         {
-            int code = ex.HResult & 0xFFFF;
-            return "原因是" + (code switch
-            {
-                53 => "【找不到网络路径】：办公电脑关机 / IP 变了 / 445 端口被防火墙拦，或者共享被停掉了。\n",
-                67 => "【共享名不存在】：办公电脑上已经没有这个共享，执行 net share 看真实共享名。\n",
-                5 => "【拒绝访问】：账号没有该共享的读取权限（共享权限和 NTFS 权限都要给）。\n",
-                86 or 1326 => "【账号或密码不对】：到「自动更新设置 → 共享访问向导」第 2 步重新存一次凭据。\n",
-                1219 => "【凭据冲突】：这台机器已用别的账号连过同一台电脑，先执行 net use \\\\主机 /delete 断开。\n",
-                _ => $"【系统返回错误码 {code}】{ex.Message}\n"
-            });
-        }
+            53 => "【找不到网络路径】：办公电脑关机 / IP 变了 / 445 端口被防火墙拦，或者共享被停掉了。\n",
+            67 => "【共享名不存在】：办公电脑上已经没有这个共享，执行 net share 看真实共享名。\n",
+            86 or 1326 => "【账号或密码不对】：到「自动更新设置 → 共享访问向导」第 2 步重新存一次凭据。\n",
+            1219 => "【凭据冲突】：这台机器已用别的账号连过同一台电脑，先执行 net use \\\\主机 /delete 断开。\n",
+            _ => $"【系统返回错误码 {code}】{ex.Message}\n"
+        });
     }
 
     /// <summary>源目录有问题时把话说清楚 —— 自动发布静默停摆是最难查的一类故障。</summary>
@@ -5741,9 +5771,17 @@ public partial class MainWindow : Window
 
             // r146：统一写回执。手写 Times 不进这里 —— 所有 return 分支都走这一处。
             // ★ 写失败只留本地，绝不让它把「已经成功的更新」变成失败。
+            //
+            // ★ r160 血案：这一段以前是**同步**跑的，而它前面全是 await Task.Run（回来就在 UI 上下文），
+            //   于是 finally 里的 UpdateReceiptService.Write（= 读自己旧回执拿 Seq + 写新回执，
+            //   两次共享盘 I/O）直接压在 UI 线程上。数据源一断，SMB 每次超时 20~60 秒，
+            //   而检查失败后 receipt.State=failed 让 due 恒为 true —— 表现就是
+            //   「数据源连不上 → 每隔几分钟（检查周期）窗口未响应一分钟」，鼠标点哪都没反应。
+            //   现在只把「读设置 / 生成回执字段」留在 UI（纯本地），两次网络 I/O 扔后台，
+            //   并且单泵防重入：数据源持续不可达时最多一个后台写任务在等，不会越积越多。
             try
             {
-                if (Store.EnablePersistence)
+                if (Store.EnablePersistence && System.Threading.Interlocked.CompareExchange(ref _receiptBusy, 1, 0) == 0)
                 {
                     var stNow = Store.LoadSettings();
                     receipt.ActorId = BoardSyncService.EnsureActorId();
@@ -5752,10 +5790,22 @@ public partial class MainWindow : Window
                     receipt.AppliedCalendarRev = stNow.AppliedCalendarRev;
                     receipt.LastSettingsPushId = stNow.LastSettingsPushId ?? "";
 
-                    bool due = !silent                        // 手动点检查：总是写
-                               || receipt.State != "checked"   // 有实际落地 / 失败：总是写
-                               || ReceiptHeartbeatDue(src, receipt.ActorId);
-                    if (due) UpdateReceiptService.Write(src, receipt);
+                    var rc = receipt;
+                    bool quiet = silent;
+                    var feed = src;
+                    // 故意不等：界面不为了"报个到"等共享盘；_receiptBusy 保证同时只有一个在写
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            bool due = !quiet                        // 手动点检查：总是写
+                                       || rc.State != "checked"      // 有实际落地 / 失败：总是写
+                                       || ReceiptHeartbeatDue(feed, rc.ActorId);
+                            if (due) UpdateReceiptService.Write(feed, rc);
+                        }
+                        catch { /* 写不出去就下一轮再试 */ }
+                        finally { System.Threading.Interlocked.Exchange(ref _receiptBusy, 0); }
+                    });
                 }
             }
             catch { /* 数据源不可写时，回执写不出去是「不知道」，不是更新失败 */ }
@@ -5862,7 +5912,28 @@ public partial class MainWindow : Window
         if (fromSource)
         {
             // 发布前预检：底表缺年级、临时表没带日期这类问题，必须在"传上去"之前摆到人面前
-            var pre = SourcePublisher.Scan(st.PublishSourcePath);
+            // ★ r160：Scan 要遍历整个 source 目录并读 Excel —— 源在共享盘上、盘又不可达时
+            //   这一步会卡几十秒。以前它直接跑在 UI 线程里（点「发布」后窗口未响应），现在放后台。
+            BtnPublishNow.IsEnabled = false;
+            TxtStatus.Text = "正在扫描源目录…";
+            SourcePublisher.Precheck pre;
+            try
+            {
+                pre = await Task.Run(() => SourcePublisher.Scan(st.PublishSourcePath));
+            }
+            catch (Exception ex)
+            {
+                // 源目录在半路上被拔掉 / 权限掉了：后台线程的异常别让它冒到 Dispatcher 上
+                TxtStatus.Text = "扫描源目录失败：" + ex.Message;
+                MessageBox.Show("扫描源目录失败：\n" + ex.Message, "发布数据包",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            finally
+            {
+                BtnPublishNow.IsEnabled = true;
+            }
+
             if (!pre.Ok)
             {
                 TxtStatus.Text = pre.Message;
@@ -7042,6 +7113,12 @@ public partial class MainWindow : Window
         else if (e.Key == Key.F11)
         {
             SetFullscreen(!_isFull);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F1)
+        {
+            // 帮助：落在当前页对应的主题上（找不到就回首页）
+            HelpWindow.ShowHelp(this, HelpTopicForCurrentTab());
             e.Handled = true;
         }
         else if (e.Key == Key.Escape)

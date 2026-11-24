@@ -1,9 +1,9 @@
-; 班级公布栏 安装脚本（Inno Setup 7）
+﻿; 班级公布栏 安装脚本（Inno Setup 7）
 ; 构建：ISCC.exe ClassBulletinApp.iss
 ; 前置：先执行 publish，生成 ..\dist\portable 目录
 
 #define MyAppName      "班级公布栏"
-#define MyAppVersion   "1.0.19"
+#define MyAppVersion   "1.0.20"
 #define MyAppPublisher "逆流的鱼"
 #define MyAppURL       ""
 #define MyAppExeName   "ClassBulletinApp.exe"
