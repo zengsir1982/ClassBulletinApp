@@ -22,10 +22,28 @@ public static class TeacherExtractor
     /// <summary>由课表文件生成教师个人课表文件。</summary>
     public static ScheduleFile Build(ScheduleFile source)
     {
+        // r162：节次时间 / 校历 / 固定时段是全校统一口径，派生出的教师个人课表必须继承。
+        // 少了 Bell 时，代课 / 调课那一格在 BoardBuilder 里是用空 Lesson 现查作息的，
+        // 只会回退到空串 —— 悬浮课表时间栏空白，今日卡按时间筛不到正在上的代课节。
+        // 这里各自复制一份容器，避免改教师表作息时反过来动到底表。
+        var bell = source?.Bell;
         var result = new ScheduleFile
         {
             SourceFile = source?.SourceFile ?? "",
-            ImportedAt = DateTime.Now
+            TermName = source?.TermName ?? "",
+            ImportedAt = DateTime.Now,
+            Bell = bell == null ? null : new BellSchedule
+            {
+                Name = bell.Name,
+                UpdatedAt = bell.UpdatedAt,
+                UpdatedFrom = bell.UpdatedFrom,
+                Periods = bell.Periods.ToList(),
+                FixedSlots = bell.FixedSlots.ToList()
+            },
+            Calendar = source?.Calendar?.ToList() ?? new List<SchoolCalendarRule>(),
+            FixedByGrade = source?.FixedByGrade == null
+                ? new Dictionary<string, List<FixedSlot>>()
+                : source.FixedByGrade.ToDictionary(k => k.Key, v => v.Value.ToList())
         };
         if (source?.Classes == null || source.Classes.Count == 0) return result;
 

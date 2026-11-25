@@ -186,7 +186,13 @@ public partial class ScheduleWindow : Window, IGlassSurface
         InitHandChrome();      // 板书工具条：放大按钮 + 图标 + 窗口几何监听（见 HandInk.cs）
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-        _timer.Tick += (_, _) => Refresh();
+        // r162：不关软件跨天时，昨天选的固定显示日必须自动失效。
+        // 只重置「已过去」的日期，未来的调休预告照旧保留；重置后通知其它窗口一起换日。
+        _timer.Tick += (_, _) =>
+        {
+            if (BoardBuilder.ResetExpiredDisplayDate()) AppEvents.RaiseScheduleChanged();
+            Refresh();
+        };
 
         // 日期旁的实时时钟：每秒只更新那一个 TextBlock，不触发整窗刷新（30 秒的 _timer 只管数据）
         _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };

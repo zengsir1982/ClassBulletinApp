@@ -549,8 +549,10 @@ public partial class MainWindow : Window
             // r157：教师个人课表可能落后于底表（二一缓存启动 / 别人直接换 data 目录都没走导入链路），
             // 老师登录会看到上周的课、提醒也跟着错。这里比一次时间戳，旧了就重建（10 毫秒级）。
             EnsureTeacherScheduleFresh();
-            // r157：教师 / 科任老师登录后默认看「我的课表」（管理员与教室机不参与）
-            ApplyOwnScheduleDefault();
+            // r157：教师 / 科任老师登录后默认看「我的课表」（管理员与自动登录的教室机不参与）。
+            // r162：人从登录窗亲手登录时要传 manual=true —— 否则教室机上这台机器自身的
+            //   BoardSyncIsClassroom 标记会把老师挡在本班课表上（另一台非教室机却正常）。
+            ApplyOwnScheduleDefault(App.StartupLoginWasManual);
             RefreshTeacherCombo();
             UpdateModeIndicator();
             ReloadReminderUi();
@@ -3094,13 +3096,30 @@ public partial class MainWindow : Window
         int changed = rows.Count(r => r.Lessons.Any(l => l.IsOverridden));
         var now = DateTime.Now.TimeOfDay;
         PeriodRow? focus = null;
+        PeriodRow? noTimeFirst = null;
         bool ongoing = false;
+        bool anyFutureTimed = false;
         foreach (var r in rows)
         {
-            if (!TryParseTime(r.TimeRange, out var start, out var end)) continue;
+            if (!TryParseTime(r.TimeRange, out var start, out var end))
+            {
+                // r163：时间解析不出来 ≠ 这节课不存在。旧教师表没有作息时，
+                // 代课 / 调课那格只有节次没有时间，旧写法直接 continue 让它彻底出局，
+                // 于是「下一节」跳到下午八竿子打不着的课。留作兜底。
+                if (noTimeFirst == null || r.Period < noTimeFirst.Period) noTimeFirst = r;
+                continue;
+            }
             if (now >= start && now <= end) { focus = r; ongoing = true; break; }
-            if (start > now && focus == null) focus = r;
+            if (start > now)
+            {
+                anyFutureTimed = true;
+                if (focus == null) focus = r;
+            }
         }
+        // 还有带时间的课在未来时，缺时间的节按节次补进候选（节次小的优先）。
+        // 若所有带时间的课都过去了（晚上），维持「今日课程已结束」，不把老早的课误报成下一节。
+        if (!ongoing && anyFutureTimed && noTimeFirst != null
+            && (focus == null || noTimeFirst.Period < focus.Period)) focus = noTimeFirst;
 
         string value, detail, pill;
         System.Windows.Media.Brush pillBg, pillFg;
@@ -3342,6 +3361,29 @@ public partial class MainWindow : Window
     /// <para>★ 这里<b>不判断「必须发」</b>：只把「今天有课却一条都没发」标出来，老师自己决定要不要补；
     /// 没课的班写「今天没课」，不参与待发计数。</para>
     /// </summary>
+    /// <summary>r163：班级名比较键。全半角括号 / 空格统一 —— 账号里填的班名和课表里的
+    /// 只要括号样式不同就会查不到，老师明明有课却被写成「今天没课」。</summary>
+    internal static string BriefClassKey(string? raw)
+        => (raw ?? "").Trim().Replace("（", "(").Replace("）", ")").Replace(" ", "").Replace("　", "");
+
+    /// <summary>r163：教师今日课表 → 每个班今天第几节。纯函数，诊断可直接断言班级 / 节次映射。</summary>
+    internal static Dictionary<string, List<int>> ClassPeriodMap(TodayResult board)
+    {
+        var periods = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        foreach (var row in board.Rows)
+        {
+            if (row.IsFixed || row.Period <= 0) continue;
+            foreach (var l in row.Lessons)
+            {
+                string cls = BriefClassKey(l.Teacher);
+                if (cls.Length == 0) continue;
+                if (!periods.TryGetValue(cls, out var ps)) periods[cls] = ps = new List<int>();
+                if (!ps.Contains(row.Period)) ps.Add(row.Period);
+            }
+        }
+        return periods;
+    }
+
     private void RefreshTodayClassesCard(TodayResult board, string me)
     {
         if (PnlTodayClasses == null || TxtTodayClassesValue == null || PnlTodayClassRows == null) return;
@@ -3355,18 +3397,7 @@ public partial class MainWindow : Window
         try
         {
             // 今天每班几节（教师视角 Lesson.Teacher 存所教班级；调代课已在上层 board 换算过）
-            var periods = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-            foreach (var row in board.Rows)
-            {
-                if (row.IsFixed || row.Period <= 0) continue;
-                foreach (var l in row.Lessons)
-                {
-                    string cls = (l.Teacher ?? "").Trim();
-                    if (cls.Length == 0) continue;
-                    if (!periods.TryGetValue(cls, out var ps)) periods[cls] = ps = new List<int>();
-                    if (!ps.Contains(row.Period)) ps.Add(row.Period);
-                }
-            }
+            var periods = ClassPeriodMap(board);
 
             var classes = TeachingClasses();
             // 账号没填任教班时，从今天的课表反推（老师课表里 Lesson.Teacher 就是他要去的班）——
@@ -3413,7 +3444,7 @@ public partial class MainWindow : Window
                                    System.Windows.Media.Brush Fg, bool Pend)>();
             foreach (var cls in classes)
             {
-                bool has = periods.TryGetValue(cls, out var ps) && ps.Count > 0;
+                bool has = periods.TryGetValue(BriefClassKey(cls), out var ps) && ps.Count > 0;
                 var by = sent.TryGetValue(cls, out var m) ? m : new Dictionary<string, int>(StringComparer.Ordinal);
                 int Cnt(string e) => by.TryGetValue(e, out var v) ? v : 0;
 
@@ -3859,8 +3890,9 @@ public partial class MainWindow : Window
     /// <para>匹配靠姓名：账号用户名和教师个人课表用的是同一个归一化规则，
     /// 所以「张三」这种账号一级就命中；手工建的「张三老师」「八(22)班 班主任 张三」走二三级。</para>
     ///
-    /// <para>★ 三种身份<b>绝不参与</b>：管理员（他看全校，切走是常态）、游客、教室机
-    /// （大屏必须显示本班课表，改成电教管理员本人的课表等于整班看不到课）。</para>
+    /// <para>★ 三种身份<b>不参与</b>：游客、电教管理员（学生账号）、自动登录的教室机
+    /// （大屏必须显示本班课表）。<b>管理员本人若也是任课教师则参与</b>（r162）：
+    /// 权限照旧是全校权限，但今日页 / 悬浮课表按他本人的课来显示。</para>
     /// <para>★ 与 <see cref="ApplyOwnClassDefault"/> 同一批调用时机，<b>不要</b>放进刷新流程，
     /// 否则老师手动切去看别的课表，一刷新就被拉回来。</para>
     /// </summary>
@@ -3907,6 +3939,11 @@ public partial class MainWindow : Window
     {
         try
         {
+            // r163：先把旧教师表缺的作息 / 校历补回去。这步必须在 IsStale 闸门之前 ——
+            // 底表的 ImportedAt 取自源文件 mtime，常常比教师表本机生成时间还旧，
+            // 光靠「底表更新才重建」永远等不到，代课节就一直没时间。
+            Store.UpgradeTeacherScheduleMetadata();
+
             var source = Store.LoadSchedule();
             var teachers = Store.LoadTeacherSchedule();
             if (!TeacherScheduleMaintenance.IsStale(source, teachers)) return;
@@ -3927,9 +3964,11 @@ public partial class MainWindow : Window
     internal static string? ResolveOwnTeacherName(AppUser? u, ScheduleFile? teachers, bool classroomMachine)
     {
         if (u == null) return null;
-        if (string.Equals(u.Role, UserRole.Admin, StringComparison.Ordinal)) return null;
+        // r162：管理员若本人也是任课教师，登录后就该看自己的课表和教师版今日页。
+        // 「能不能管全校」与「今天看谁的课表」是两件事；权限仍由 IsAdmin 独占，
+        // 这里只是拿账号名去教师表认人 —— 认不出（纯电教管理员）自然返回 null。
         if (string.Equals(u.Role, UserRole.Student, StringComparison.Ordinal)) return null;
-        if (classroomMachine) return null;   // 教室机大屏必须显示本班课表
+        if (classroomMachine) return null;   // 教室机自动登录的大屏必须显示本班课表
         return TeacherScheduleMaintenance.MatchTeacher(u, teachers);
     }
 
@@ -4201,6 +4240,8 @@ public partial class MainWindow : Window
         existing.SourceFile = imported.SourceFile;
         existing.ImportedAt = DateTime.Now;
         Store.SaveTeacherSchedule(existing);
+        // r163：单独导入的教师表往往不带作息；合并完立刻从底表补齐，别等下次启动。
+        Store.UpgradeTeacherScheduleMetadata();
         RefreshTeacherCombo();
     }
 

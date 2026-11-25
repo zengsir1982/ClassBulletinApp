@@ -32,6 +32,51 @@ public static class TeacherScheduleMaintenance
     }
 
     /// <summary>
+    /// r163：给<b>已经存在</b>的教师表补上缺失的全校元数据（作息 / 校历 / 固定时段 / 学期名）。
+    /// <para>教师表是派生数据，但 r162 之前生成的旧表没有 Bell：代课 / 调课那一格在
+    /// <c>BoardBuilder</c> 里是用空 Lesson 现查作息的，查不到就只剩"第 N 节"没有时间，
+    /// 今日页还会把这一格从"下一节"里漏掉。</para>
+    /// <para>★ 只补元数据，<b>绝不动 Classes</b>：单独导入过教师表的那份名单是用户自己的数据。
+    /// 条件本身就是代次 —— 补齐后再调返回 false，天然只做一次，不用新字段。</para>
+    /// <returns>是否真的改动了内存里的教师表（调用方据此决定是否写盘）。</returns>
+    /// </summary>
+    public static bool CopyMissingMetadata(ScheduleFile? source, ScheduleFile? teachers)
+    {
+        if (source == null || teachers == null) return false;
+        bool changed = false;
+
+        if ((teachers.Bell == null || teachers.Bell.IsEmpty) && source.Bell is { IsEmpty: false })
+        {
+            var b = source.Bell;
+            teachers.Bell = new BellSchedule
+            {
+                Name = b.Name,
+                UpdatedAt = b.UpdatedAt,
+                UpdatedFrom = b.UpdatedFrom,
+                Periods = b.Periods.ToList(),
+                FixedSlots = b.FixedSlots.ToList()
+            };
+            changed = true;
+        }
+        if ((teachers.Calendar?.Count ?? 0) == 0 && (source.Calendar?.Count ?? 0) > 0)
+        {
+            teachers.Calendar = source.Calendar!.ToList();
+            changed = true;
+        }
+        if ((teachers.FixedByGrade?.Count ?? 0) == 0 && (source.FixedByGrade?.Count ?? 0) > 0)
+        {
+            teachers.FixedByGrade = source.FixedByGrade!.ToDictionary(k => k.Key, v => v.Value.ToList());
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(teachers.TermName) && !string.IsNullOrWhiteSpace(source.TermName))
+        {
+            teachers.TermName = source.TermName;
+            changed = true;
+        }
+        return changed;
+    }
+
+    /// <summary>
     /// 在教师表里找「这个账号是谁」。三级匹配：全等 → 去空格 / 去括号后相等 → 唯一包含。
     /// <para>返回教师表里的原始姓名（即 <c>ClassSchedule.ClassName</c>），匹配不到返回 null。</para>
     /// <para>★ 账号用户名与教师表姓名用的是同一个归一化函数

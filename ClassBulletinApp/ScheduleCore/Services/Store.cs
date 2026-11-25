@@ -313,6 +313,25 @@ public static class Store
         => ReadJsonOrNull<ScheduleFile>(TeacherSchedulePath);
 
     /// <summary>
+    /// r163：把旧教师表缺的全校元数据补回去（只补 Bell / Calendar / FixedByGrade / TermName，
+    /// 绝不碰 Classes）。用原子写，并在游客 / 诊断模式下直接跳过 —— 写不了盘就不算升级成功，
+    /// 下次能写时还会再试。条件本身就是代次，补完后自然不再触发。
+    /// </summary>
+    public static bool UpgradeTeacherScheduleMetadata()
+    {
+        if (!EnablePersistence || SuppressWrites) return false;
+        try
+        {
+            var teachers = LoadTeacherSchedule();
+            if (teachers == null || teachers.Classes.Count == 0) return false;
+            var source = LoadSchedule();
+            if (!TeacherScheduleMaintenance.CopyMissingMetadata(source, teachers)) return false;
+            return WriteJsonAtomic(TeacherSchedulePath, teachers);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
     /// 读手动录入模板。文件不存在 / 空 / 损坏时返回带内置预置项的新对象（不写盘，
     /// 诊断模式下也不产生副作用）；首次真正修改由 <see cref="SaveScheduleTemplates"/> 落盘。
     /// </summary>

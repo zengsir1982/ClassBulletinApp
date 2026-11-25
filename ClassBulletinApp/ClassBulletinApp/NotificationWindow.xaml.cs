@@ -378,7 +378,11 @@ public partial class NotificationWindow : Window, IGlassSurface
         try
         {
             var settings = Store.LoadSettings();
-            string? cls = settings.SelectedClass;
+            // r162：徽标必须跟着「当前在看谁的课表」走。教师模式下 SelectedClass 会按设计保留，
+            // 拿它去筛就会显示某个班的换课数；教师本人没有教师表时宁可不显示换课徽章，
+            // 也绝不退回班级口径（倒计时徽章不受影响）。
+            bool teacherMode = string.Equals(settings.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+            string? who = teacherMode ? settings.SelectedTeacher : settings.SelectedClass;
             var today = DateTime.Today;
 
             // ① 当天生效的换课
@@ -389,20 +393,30 @@ public partial class NotificationWindow : Window, IGlassSurface
             //   这样徽章数字与课表上真正变了样的格子数一致。
             // r133：星期几改由校历裁决 —— 周六补周三的课时，今天这一列是"周三"，
             //   调课也按被映射的那天取。
-            var overrides = DiagTodayOverrides ?? Store.LoadOverrides();
-            var schedule = Store.LoadSchedule();
-            var plan = SchoolCalendar.Resolve(schedule, today, settings.SemesterStartMonday);
+            var raw = DiagTodayOverrides ?? Store.LoadOverrides();
+            var schedule = teacherMode ? Store.LoadTeacherSchedule() : Store.LoadSchedule();
+            // 班级覆盖 → 教师名下的换算，与今日页 / 悬浮课表 / 周视图同一条链。
+            // 诊断注入的 DiagTodayOverrides 已经是换算好的口径，不再过一遍换算。
+            var overrides = teacherMode && schedule != null && DiagTodayOverrides == null
+                ? TeacherOverrideApplier.BuildTeacherOverrides(schedule, who, raw)
+                : raw;
+            var plan = SchoolCalendar.Resolve(schedule ?? Store.LoadSchedule(), today, settings.SemesterStartMonday);
             int todayIdx = plan.DayIdx;   // 0=周一 .. 6=周日
-            var todayList = plan.UsesOverrides
-                ? OverrideExpander.MapForDate(overrides, cls, plan.OverrideDate).Values
-                    .Where(o => o.DayIdx == todayIdx)
-                    .OrderBy(o => o.Period).ToList()
-                : new List<LessonOverride>();
+            var todayList = new List<LessonOverride>();
+            if (!teacherMode || schedule != null)
+            {
+                todayList = plan.UsesOverrides
+                    ? OverrideExpander.MapForDate(overrides, who, plan.OverrideDate).Values
+                        .Where(o => o.DayIdx == todayIdx)
+                        .OrderBy(o => o.Period).ToList()
+                    : new List<LessonOverride>();
+            }
 
             if (todayList.Count > 0)
             {
                 ShowBadge("今日换课", todayList.Count.ToString(), "#C0392B", "#FFD166", "#7A2B12",
-                    tooltip: "点开看今天的调课 / 代课明细（只统计当前班「" + (cls ?? "") + "」）");
+                    tooltip: "点开看今天的调课 / 代课明细（只统计当前"
+                             + (teacherMode ? "教师「" : "班「") + (who ?? "") + "」）");
                 _badgeKind = BadgeKind.Changes;
                 _badgeChanges = todayList;
                 return;

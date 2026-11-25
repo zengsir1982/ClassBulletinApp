@@ -23,6 +23,26 @@ public static class BoardBuilder
     }
 
     /// <summary>
+    /// r162：把「已经过去」的固定显示日清回今天，并落盘。悬浮课表 / 壁纸 / 提醒 / 变化检测
+    /// 都从同一份设置取显示日，所以在这里治一次，四处一起好。
+    /// <para>启动调一次；软件不关跨天时由悬浮课表的 30 秒定时器再调一次。</para>
+    /// <para>★ 只清过去的日期：用户为调休提前选的未来日期必须留着，否则预告就没了。</para>
+    /// <returns>是否真的重置了（用于调用方决定是否抛 <see cref="AppEvents.ScheduleChanged"/>）。</returns>
+    /// </summary>
+    public static bool ResetExpiredDisplayDate()
+    {
+        var s = Store.LoadSettings();
+        if (!string.Equals(s.DisplayDateMode, "Fixed", StringComparison.OrdinalIgnoreCase)
+            || !DateTime.TryParse(s.FixedDisplayDate, out var d)
+            || d.Date >= DateTime.Today) return false;
+
+        s.DisplayDateMode = "Today";
+        s.FixedDisplayDate = "";
+        if (Store.EnablePersistence) Store.SaveSettings(s);
+        return true;
+    }
+
+    /// <summary>
     /// 按指定的显示日期构建课表。
     /// 支持调休：选某工作日即显示该天课；周末/无基础课数据的日子会显示该日已有的调课 override，否则提示休息。
     /// override 命中且 IsEmpty 时，该节课显示为空白（被调空）。

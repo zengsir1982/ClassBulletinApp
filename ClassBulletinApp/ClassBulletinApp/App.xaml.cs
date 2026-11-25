@@ -18,6 +18,13 @@ public partial class App : System.Windows.Application
     /// </summary>
     public static bool IsDiagnostic { get; private set; }
 
+    /// <summary>
+    /// r162：这次启动是「人在登录窗亲手登录」还是「教室机自动登录」。
+    /// 真正的教师默认课表判定在 MainWindow.ApplyOwnScheduleDefault(manual)；
+    /// 自动登录的大屏必须留在本班课表，人工登录则允许教室机也切到本人课表。
+    /// </summary>
+    internal static bool StartupLoginWasManual { get; private set; }
+
     /// <summary>诊断用：某个窗口句柄当前是否处于"可用"状态（被 ShowDialog 禁用就是 false）。</summary>
     [DllImport("user32.dll")]
     private static extern bool IsWindowEnabled(IntPtr hWnd);
@@ -2146,7 +2153,13 @@ public partial class App : System.Windows.Application
                         .GetValue(w)!;
                     var label = (System.Windows.Controls.TextBlock)w.FindName("BadgeLabel")!;
                     var value = (System.Windows.Controls.TextBlock)w.FindName("BadgeValue")!;
-                    string cls = Store.LoadSettings().SelectedClass ?? "七年级(9)班";
+                    // r162：徽章口径跟着「当前在看谁的课表」走；诊断注入也要用同一个对象名，
+                    // 否则本机正处在教师模式时，注入班级覆盖会被正确过滤掉，断言反而假失败。
+                    var stBadge = Store.LoadSettings();
+                    bool badgeTeacher = string.Equals(stBadge.ScheduleKind, "Teacher", StringComparison.OrdinalIgnoreCase);
+                    string cls = badgeTeacher
+                        ? (stBadge.SelectedTeacher ?? "")
+                        : (stBadge.SelectedClass ?? "七年级(9)班");
                     var today = DateTime.Today;
                     // r133：徽章的「今天」走校历。诊断注入的数据必须用同一口径，
                     // 否则本机设了调休（周六补周三）时注入到周六列、徽章却去周三列找，会假失败。
@@ -2900,7 +2913,6 @@ public partial class App : System.Windows.Application
             // r144：通知公告的「风格…」与「编辑…」里的主题/字号重复，删前者、字号并进编辑窗。
             Check("r144 便签管理去掉重复的风格入口", () =>
             {
-                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var mw = new MainWindow { InitialTabIndex = 1 };
                 if (mw.FindName("BtnStyleNotice") != null)
                     throw new Exception("「便签管理」里那个「风格…」按钮还在（与编辑窗里的风格重复）");
@@ -6308,9 +6320,14 @@ public partial class App : System.Windows.Application
                 var acc = new AppUser { Username = teacher, Role = UserRole.Teacher };
                 if (sc != null && sc.Classes.Count > 0) acc.ClassNames.Add(sc.Classes[0].ClassName);
 
-                // 决策函数：管理员 / 学生 / 教室机都不许切
-                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(new AppUser { Username = teacher, Role = UserRole.Admin }, ts, false) != null)
-                    throw new Exception("管理员被切成了教师课表");
+                // 决策函数：学生 / 教室机 / 不任课的管理员都不许切；
+                // r162：管理员本人若也是任课教师，就要按他的个人课表显示
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(
+                        new AppUser { Username = teacher, Role = UserRole.Admin }, ts, false) != teacher)
+                    throw new Exception("管理员本人也是教师时没切到自己的课表");
+                if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(
+                        new AppUser { Username = "admin001", Role = UserRole.Admin }, ts, false) != null)
+                    throw new Exception("不任课的管理员被切成了教师课表");
                 if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(new AppUser { Username = teacher, Role = UserRole.Student }, ts, false) != null)
                     throw new Exception("学生账号被切成了教师课表");
                 if (ClassBulletinApp.MainWindow.ResolveOwnTeacherName(acc, ts, true) != null)
@@ -6456,6 +6473,190 @@ public partial class App : System.Windows.Application
                     if (Store.EnablePersistence) Store.SaveSettings(s1);
                     Store.EnablePersistence = oldPersist;
                 }
+            });
+
+            // ---- r162：启动显示日 / 教师登录（含教室机人工登录）/ 代课节次时间 / 换课徽标口径 ----
+            Check("r162 教师登录与显示日口径", () =>
+            {
+                bool oldPersist = Store.EnablePersistence;
+                var prevUser = UserSession.Current;
+                var oldSettings = Store.LoadSettings();
+                var oldTeacherFile = Store.LoadTeacherSchedule();
+                string oldMode = oldSettings.DisplayDateMode, oldFixed = oldSettings.FixedDisplayDate;
+                string oldKind = oldSettings.ScheduleKind, oldTeacher = oldSettings.SelectedTeacher;
+                string? oldClass = oldSettings.SelectedClass;
+                bool oldClassroom = oldSettings.BoardSyncIsClassroom;
+                try
+                {
+                    Store.EnablePersistence = true;
+
+                    // ① 固定显示日：昨天的自动回今天；用户为调休提前选的未来日期必须留着
+                    var s = Store.LoadSettings();
+                    s.DisplayDateMode = "Fixed";
+                    s.FixedDisplayDate = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd");
+                    Store.SaveSettings(s);
+                    if (!BoardBuilder.ResetExpiredDisplayDate()
+                        || Store.LoadSettings().DisplayDateMode != "Today"
+                        || !string.IsNullOrEmpty(Store.LoadSettings().FixedDisplayDate))
+                        throw new Exception("昨天的固定显示日没有自动回到今天");
+                    s = Store.LoadSettings();
+                    s.DisplayDateMode = "Fixed";
+                    s.FixedDisplayDate = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd");
+                    Store.SaveSettings(s);
+                    if (BoardBuilder.ResetExpiredDisplayDate() || Store.LoadSettings().DisplayDateMode != "Fixed")
+                        throw new Exception("未来的调休显示日被误清了");
+
+                    // ② 教师个人课表必须继承作息，否则代课格（底表没这一节）时间为空
+                    const string bellTime = "10:00-10:45";
+                    var src = new ScheduleFile { ImportedAt = DateTime.Now, Bell = new BellSchedule() };
+                    src.Bell.Periods.Add(new PeriodTime { Index = 3, TimeRange = bellTime });
+                    var derived = TeacherExtractor.Build(src);
+                    if (derived.Bell == null || derived.Bell.Periods.Count != 1
+                        || derived.Bell.Periods[0].TimeRange != bellTime)
+                        throw new Exception("教师个人课表没继承底表作息，代课节时间会空");
+
+                    const string who = "诊断代课教师";
+                    var tsf = new ScheduleFile { ImportedAt = DateTime.Now, Bell = derived.Bell };
+                    tsf.Classes.Add(new ClassSchedule { ClassName = who });
+                    Store.SaveTeacherSchedule(tsf);
+                    int todayIdx = SchoolCalendar.Resolve(tsf, DateTime.Today, oldSettings.SemesterStartMonday).DayIdx;
+                    var board = BoardBuilder.Build(who, oldSettings.SemesterStartMonday, tsf, DateTime.Today,
+                        new List<LessonOverride>
+                        {
+                            new LessonOverride { ClassName = who, DayIdx = todayIdx, Period = 3,
+                                Subject = "数学", Teacher = "八年级(1)班", Type = "代", Source = "teacher-view" }
+                        });
+                    var row3 = board.Rows.FirstOrDefault(r => r.Period == 3);
+                    if (row3 == null || row3.TimeRange != bellTime)
+                        throw new Exception("代课节没有节次时间：" + (row3?.TimeRange ?? "无该行"));
+
+                    // ③ 教室机上「人主动登录」必须能切教师课表；自动登录口径（manual=false）仍被拦
+                    UserSession.SignIn(new AppUser { Username = who, Role = UserRole.Teacher });
+                    var sb = Store.LoadSettings();
+                    sb.BoardSyncIsClassroom = true;
+                    Store.SaveSettings(sb);
+                    var w = new MainWindow();
+                    var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                    if (!(bool)typeof(MainWindow).GetMethod("ApplyOwnScheduleDefault", bf)!
+                            .Invoke(w, new object[] { true })!
+                        || Store.LoadSettings().ScheduleKind != "Teacher")
+                        throw new Exception("教室机上人工登录没切到教师个人课表");
+                    var sb2 = Store.LoadSettings();
+                    sb2.ScheduleKind = "Class";
+                    Store.SaveSettings(sb2);
+                    if ((bool)typeof(MainWindow).GetMethod("ApplyOwnScheduleDefault", bf)!
+                            .Invoke(w, new object[] { false })!
+                        || Store.LoadSettings().ScheduleKind == "Teacher")
+                        throw new Exception("自动登录口径被误当成人工登录，大屏会切走本班课表");
+                    w.Close();
+
+                    // ④ 教师模式徽标只数教师本人，不数 SelectedClass 残留的某个班
+                    var sb3 = Store.LoadSettings();
+                    sb3.ScheduleKind = "Teacher";
+                    sb3.SelectedTeacher = who;
+                    Store.SaveSettings(sb3);
+                    var nw = new NotificationWindow();
+                    try
+                    {
+                        nw.DiagTodayOverrides = new List<LessonOverride>
+                        {
+                            new LessonOverride { ClassName = who, DayIdx = todayIdx, Period = 3,
+                                Subject = "数学", Source = "teacher-view" },
+                            new LessonOverride { ClassName = oldClass ?? "八年级(2)班", DayIdx = todayIdx, Period = 5,
+                                Subject = "语文", Source = "manual" }   // 干扰项：旧的 SelectedClass
+                        };
+                        nw.RefreshBadge();
+                        var badgeVal = (System.Windows.Controls.TextBlock)nw.FindName("BadgeValue")!;
+                        if (badgeVal.Text != "1")
+                            throw new Exception("教师模式换课徽标串到了班级口径：" + badgeVal.Text);
+                    }
+                    finally { nw.DiagTodayOverrides = null; nw.Close(); }
+                    return null;
+                }
+                finally
+                {
+                    if (prevUser != null) UserSession.SignIn(prevUser); else UserSession.SignOut();
+                    var back = Store.LoadSettings();
+                    back.DisplayDateMode = oldMode;
+                    back.FixedDisplayDate = oldFixed;
+                    back.ScheduleKind = oldKind;
+                    back.SelectedTeacher = oldTeacher;
+                    back.SelectedClass = oldClass;
+                    back.BoardSyncIsClassroom = oldClassroom;
+                    if (Store.EnablePersistence) Store.SaveSettings(back);
+                    if (oldTeacherFile != null) Store.SaveTeacherSchedule(oldTeacherFile);
+                    Store.EnablePersistence = oldPersist;
+                }
+            });
+
+            // ---- r163：旧教师表补作息 + 班级速览节次映射 ----
+            Check("r163 旧教师表补作息与班级速览映射", () =>
+            {
+                var bell = new BellSchedule();
+                bell.Periods.Add(new PeriodTime { Index = 3, TimeRange = "10:00-10:40" });
+                var src = new ScheduleFile { Bell = bell };
+                var legacy = new ScheduleFile();
+                legacy.Classes.Add(new ClassSchedule { ClassName = "诊断代课教师" });
+                if (!TeacherScheduleMaintenance.CopyMissingMetadata(src, legacy))
+                    throw new Exception("旧教师表没补上作息");
+                if (legacy.Classes.Count != 1 || legacy.Classes[0].ClassName != "诊断代课教师"
+                    || legacy.Bell == null || legacy.Bell.Periods.Count != 1
+                    || legacy.Bell.Periods[0].TimeRange != "10:00-10:40")
+                    throw new Exception("补元数据时动了 Classes 或补进去的值不对");
+                if (TeacherScheduleMaintenance.CopyMissingMetadata(src, legacy))
+                    throw new Exception("补元数据不幂等，会每次启动都写盘");
+
+                var board = new TodayResult();
+                board.Rows.Add(new PeriodRow
+                {
+                    Period = 3,
+                    Lessons = { new LessonView { Teacher = "八年级(16)班" } }
+                });
+                board.Rows.Add(new PeriodRow
+                {
+                    Period = 4,
+                    Lessons = { new LessonView { Teacher = "八年级（22）班" } }
+                });
+                var map = ClassBulletinApp.MainWindow.ClassPeriodMap(board);
+                if (!map.TryGetValue(ClassBulletinApp.MainWindow.BriefClassKey("八年级(16)班"), out var p16)
+                    || p16.Count != 1 || p16[0] != 3)
+                    throw new Exception("八16的节次映射不对：" + string.Join(",", p16 ?? new List<int>()));
+                if (!map.TryGetValue(ClassBulletinApp.MainWindow.BriefClassKey("八年级(22)班"), out var p22)
+                    || p22.Count != 1 || p22[0] != 4)
+                    throw new Exception("八22的节次映射不对（全角括号没归一化）："
+                                        + string.Join(",", p22 ?? new List<int>()));
+
+                // 端到端：磁盘上那份「无 Bell 的旧教师表」真的能被升级写回
+                bool oldSuppress = Store.SuppressWrites, oldPersist = Store.EnablePersistence;
+                var backupTeacher = Store.LoadTeacherSchedule();
+                try
+                {
+                    Store.SuppressWrites = false;   // 诊断副本可写
+                    Store.EnablePersistence = true;
+                    if (backupTeacher != null)
+                    {
+                        Store.SaveTeacherSchedule(new ScheduleFile
+                        {
+                            SourceFile = backupTeacher.SourceFile,
+                            ImportedAt = DateTime.Now,
+                            Classes = backupTeacher.Classes
+                        });
+                    }
+                    if (!Store.UpgradeTeacherScheduleMetadata())
+                        throw new Exception("旧教师表升级写盘失败");
+                    var after = Store.LoadTeacherSchedule();
+                    if (after == null || after.Bell == null)
+                        throw new Exception("升级后磁盘上的教师表仍没有作息");
+                    if (backupTeacher != null && after.Classes.Count != backupTeacher.Classes.Count)
+                        throw new Exception("升级把教师名单改了");
+                }
+                finally
+                {
+                    if (backupTeacher != null) Store.SaveTeacherSchedule(backupTeacher);
+                    Store.SuppressWrites = oldSuppress;
+                    Store.EnablePersistence = oldPersist;
+                }
+                return null;
             });
 
             try
@@ -8049,6 +8250,7 @@ public partial class App : System.Windows.Application
                 // 直接以保存的受限账号进入（管理员永不参与自动登录，见 ShouldAutoLogin）
                 UserSession.SignIn(autoUser);
                 Store.EnablePersistence = true;
+                StartupLoginWasManual = false;   // 大屏自动登录：绝不切教师个人课表
             }
             else
             {
@@ -8056,6 +8258,7 @@ public partial class App : System.Windows.Application
                 if (login.ShowDialog() != true) { Shutdown(0); return; }
                 Store.EnablePersistence = !login.IsGuest;
                 if (login.User != null) UserSession.SignIn(login.User);
+                StartupLoginWasManual = login.User != null;   // 人主动登录：教室机也允许切自己的课表
             }
         }
         catch (Exception ex)
@@ -8069,6 +8272,9 @@ public partial class App : System.Windows.Application
         // 启动主控制面板（原来的 StartupUri 改为手动创建，便于支持上面的诊断模式）
         try
         {
+            // r162：昨天双击日期区留下的「固定显示日」不能在今天继续占着悬浮课表 / 壁纸 / 提醒。
+            // 只清已经过去的日期；用户特意选的未来日期（调休预告）照旧保留。
+            BoardBuilder.ResetExpiredDisplayDate();
             var s0 = Store.LoadSettings();
 
             // r79：登录后默认只显示悬浮窗（悬浮课表 + 上次开着的各种便签），控制面板留到需要时再开。
