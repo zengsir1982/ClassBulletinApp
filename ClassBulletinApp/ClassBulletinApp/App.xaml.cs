@@ -4481,12 +4481,27 @@ public partial class App : System.Windows.Application
                 pick.IsSelected = true;
                 content.UpdateLayout();
 
-                string want = draft.TaughtSubjects[0];
-                string got = bulk.Items.Count > 0 ? (bulk.Items[0]?.ToString() ?? "") : "";
-                if (!string.Equals(got, want, StringComparison.Ordinal))
-                    throw new Exception($"下拉首项是「{got}」，应为「{want}」（这人主要教的课）");
-                if (!string.Equals((bulk.Text ?? "").Trim(), want, StringComparison.Ordinal))
-                    throw new Exception($"下拉没有预填：现在填的是「{bulk.Text}」");
+                // ★ 只选了一个人时，他教的每门课命中数都是 1，下拉内部会按中文序排；
+                //   不能假定「TaughtSubjects[0]」就是首项（真实数据里顺序不保证）。
+                //   这里只验证「他教的科目全部排在别人科目之前，且预填的是其中一门」。
+                var mine = draft.TaughtSubjects
+                    .Select(s => (s ?? "").Trim()).Where(s => s.Length > 0)
+                    .Distinct(StringComparer.Ordinal).ToList();
+                var items = bulk.Items.Cast<object>().Select(x => x?.ToString() ?? "").ToList();
+                int lastMine = -1, firstOther = -1;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    bool isMine = mine.Contains(items[i], StringComparer.Ordinal);
+                    if (isMine) lastMine = i;
+                    else if (firstOther < 0) firstOther = i;
+                }
+                string got = items.Count > 0 ? items[0] : "";
+                if (lastMine < 0 || (firstOther >= 0 && firstOther < lastMine))
+                    throw new Exception("选中的人的任教科目没有排在前面：" + string.Join("/", items.Take(6)));
+                if (!mine.Contains(got, StringComparer.Ordinal))
+                    throw new Exception($"下拉首项是「{got}」，不是这人教的课：{string.Join("/", mine)}");
+                if (!mine.Contains((bulk.Text ?? "").Trim(), StringComparer.Ordinal))
+                    throw new Exception($"下拉没有预填这人教的课：现在填的是「{bulk.Text}」");
 
                 return w;
             });
@@ -5267,6 +5282,16 @@ public partial class App : System.Windows.Application
                 var w = new CountdownEditWindow();
                 w.WindowStartupLocation = WindowStartupLocation.Manual;
                 w.Left = -3000; w.Top = -3000;
+                // ★ 真实数据副本里倒计时可能被老师清空，模板就不会生成「剩余」输入框。
+                //   先往草稿里注入一条固定事件，跟用户数据分布解耦。
+                var bf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var items = (System.Collections.ObjectModel.ObservableCollection<ScheduleCore.Models.CountdownItem>)
+                    typeof(CountdownEditWindow).GetField("_items", bf)!.GetValue(w)!;
+                items.Add(new ScheduleCore.Models.CountdownItem
+                {
+                    Name = "诊断倒计时",
+                    TargetDate = DateTime.Today.AddDays(3).ToString("yyyy-MM-dd")
+                });
                 w.Show();   // 让 ItemsControl 模板真正生成（剩余输入框只在模板里）
                 Exception? err = null;
                 try
@@ -6659,6 +6684,56 @@ public partial class App : System.Windows.Application
                 return null;
             });
 
+            // ---- r164：语音可打断（新播报抢占 + 托盘 / 全屏提醒两个入口）----
+            Check("r164 语音打断入口与抢占", () =>
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+                // 抢占：Speak 之前必须先 Stop 一次；DiagSuppressSpeak 保证不出声、不碰音频设备
+                VoiceSpeaker.DiagStopCalls = 0;
+                VoiceSpeaker.DiagSuppressSpeak = true;
+                try
+                {
+                    VoiceSpeaker.Speak("诊断语音", null, 0, 100);
+                    if (VoiceSpeaker.DiagStopCalls != 1)
+                        throw new Exception("新播报没有先抢占上一条：Stop 调用 " + VoiceSpeaker.DiagStopCalls + " 次");
+                }
+                finally { VoiceSpeaker.DiagSuppressSpeak = false; }
+
+                var mw = new MainWindow { InitialTabIndex = 0 };
+                try
+                {
+                    var run = typeof(MainWindow).GetMethod("RunTrayCommand", flags);
+                    if (run == null) throw new Exception("找不到托盘命令入口 RunTrayCommand");
+                    if (TrayCommands.Find(TrayCommands.StopVoice) != null)
+                        throw new Exception("停止播报是固定项，不应进用户可排的 TrayCommands.All");
+                    VoiceSpeaker.DiagStopCalls = 0;
+                    run.Invoke(mw, new object[] { TrayCommands.StopVoice });
+                    if (VoiceSpeaker.DiagStopCalls != 1)
+                        throw new Exception("托盘「停止播报」没接到 VoiceSpeaker.Stop");
+                }
+                finally { mw.Close(); }
+
+                // 人点掉全屏提醒 = 停语音；定时器自动关闭不走 Root_Click，不截断长播报
+                var rem = new FullScreenReminderWindow();
+                try
+                {
+                    var click = typeof(FullScreenReminderWindow).GetMethod("Root_Click", flags);
+                    if (click == null) throw new Exception("找不到全屏提醒点击关闭入口");
+                    VoiceSpeaker.DiagStopCalls = 0;
+                    click.Invoke(rem, new object[]
+                    {
+                        rem, new System.Windows.Input.MouseButtonEventArgs(
+                            System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+                    });
+                    if (VoiceSpeaker.DiagStopCalls != 1)
+                        throw new Exception("点掉全屏提醒没有停语音");
+                }
+                finally { rem.Close(); }
+                VoiceSpeaker.DiagStopCalls = 0;
+                return null;
+            });
+
             try
             {
                 File.WriteAllText(Path.Combine(Path.GetTempPath(), "ClassBulletinApp.uicheck.log"), sb.ToString());
@@ -7446,6 +7521,20 @@ public partial class App : System.Windows.Application
                     // r103：十套板面统一木色包边
                     Check("所有板面都有木色包边", ui.DiagWoodFrameIsWood,
                           ui.DiagWoodFrameWidth.ToString("0"));
+                    // ★ r103/r104 这三条断言以前吃真实数据副本的第一张自动卡：
+                    //   老师把模块顺序 / 便签清空后，首卡可能是「值日」这种没有结构化行的卡，
+                    //   就会假失败。这里注入一张固定的作业卡，跟用户数据分布解耦。
+                    ui.DiagAutoOverride = new List<AutoNote>
+                    {
+                        new AutoNote
+                        {
+                            Source = "作业", Module = DoodleModules.Homework, Id = "diag-r104",
+                            Title = "诊断作业", Body = "语文：练习册 P1",
+                            Lines = new List<AutoLine> { new AutoLine { Subject = "语文", Text = "练习册 P1" } }
+                        }
+                    };
+                    ui.DiagRebuildNotes();
+
                     // r103：卡片左上角不再有浅色模块名（标题即小标题）
                     Check("便签不再重复显示模块名", ui.DiagNoteHasNoSourceLabel);
                     // r104：行首科目单独一套字体格式（作业 / 缺交的科目名、课表的第N节）
@@ -7458,6 +7547,8 @@ public partial class App : System.Windows.Application
                           Math.Abs(ui.DiagFirstNoteSubjectFontSize - 30) < 0.6 &&
                           ui.DiagFirstNoteSubjectColor.Contains("C0392B", StringComparison.OrdinalIgnoreCase),
                           $"{ui.DiagFirstNoteSubjectFontSize:0.#} {ui.DiagFirstNoteSubjectColor}");
+                    ui.DiagAutoOverride = null;
+                    ui.DiagRebuildNotes();
                     // r102：板头并成一行 —— 班级/时间在左、菜单按钮在右，两者垂直居中
                     Check("板头只有一行（班级时间与菜单栏同一行）", ui.DiagHeadSingleRow);
                     Check("板头班级时间与菜单栏纵向对齐", ui.DiagHeadAlignDelta <= 6,
@@ -9630,6 +9721,8 @@ public partial class App : System.Windows.Application
             Check("重复同一裁决幂等", ap2.Ok && Store.LoadHomework()!.LiveCount == 2);
             Check("教室机本机到已核对",
                   BoardSyncService.LoadState().Records.Single(r => r.MsgId == msgId).Status == BoardSyncConsts.StVerified);
+            // r154：回执走后台队列，换机前必须等它落盘，否则教师机还停在「已阅」
+            Check("已核对回执已写出（后台队列）", BoardSyncService.FlushReceipts(), "queue flush");
 
             UseMachine(teacherDir, "a-teacher");
             BoardSyncService.Pull(new[] { cls });

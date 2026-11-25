@@ -817,6 +817,8 @@ public static class TrayCommands
     public const string BackdropMissing = "backdrop_missing";
     public const string BackdropOff = "backdrop_off";
     public const string ToggleHandBall = "toggle_handball";
+    // 固定项：不进 TrayMenuItems / All（避免被用户配置打乱顺序），始终挂在托盘菜单里
+    public const string StopVoice = "stop_voice";
     public const string Exit = "exit";
 
     /// <summary>一条命令的默认文字与说明。</summary>

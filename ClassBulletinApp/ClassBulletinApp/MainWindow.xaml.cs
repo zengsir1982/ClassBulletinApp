@@ -2489,6 +2489,15 @@ public partial class MainWindow : Window
         };
         menu.Items.Add(_doodleMenu);
 
+        // 停止播报：固定项，不写进 TrayMenuItems，避免用户重排菜单后找不到入口。
+        // 自动登录的大屏上隐藏，防止学生顺手把紧急通知静音；人工登录才显示。
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator { Tag = "stop_voice_sep" });
+        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("停止播报", null, (_, _) => RunTrayCommand(TrayCommands.StopVoice))
+        {
+            Tag = TrayCommands.StopVoice,
+            ToolTipText = "立即停止正在朗读的语音（不关提醒窗，也不改语音开关）"
+        });
+
         menu.Opening += (_, _) => UpdateTrayMenuState();
 
         var old = _tray.ContextMenuStrip;
@@ -2514,8 +2523,16 @@ public partial class MainWindow : Window
             case TrayCommands.BackdropMissing: ToggleBackdropMissing(); break;
             case TrayCommands.BackdropOff: CancelBackdrop(confirm: false); break;
             case TrayCommands.ToggleHandBall: SetHandwritingBall(!Store.LoadSettings().ShowHandwritingBall); break;
+            case TrayCommands.StopVoice: StopVoiceNow(); break;
             case TrayCommands.Exit: ExitApp(); break;
         }
+    }
+
+    /// <summary>人工打断语音播报：只停这一次，不改「语音提醒」总开关，也不关任何窗口。</summary>
+    private void StopVoiceNow()
+    {
+        VoiceSpeaker.Stop();
+        TxtStatus.Text = "已停止语音播报";
     }
 
     /// <summary>打开「任务栏菜单」编辑器；保存后立刻重建（不必重启程序）。</summary>
@@ -2606,6 +2623,11 @@ public partial class MainWindow : Window
             var b = Store.LoadSettings().Backdrop ?? new BackdropSettings();
             foreach (System.Windows.Forms.ToolStripItem item in _trayMenu.Items)
             {
+                if ((item.Tag as string) == "stop_voice_sep")
+                {
+                    item.Visible = App.StartupLoginWasManual;   // 跟「停止播报」一起藏，别留一条空分隔线
+                    continue;
+                }
                 if (item is not System.Windows.Forms.ToolStripMenuItem mi) continue;
                 switch (mi.Tag as string)
                 {
@@ -2617,6 +2639,7 @@ public partial class MainWindow : Window
                     case TrayCommands.BackdropHomework: mi.Checked = b.ShowHomework; break;
                     case TrayCommands.BackdropMissing: mi.Checked = b.ShowMissing; break;
                     case TrayCommands.ToggleHandBall: mi.Checked = Store.LoadSettings().ShowHandwritingBall; break;
+                    case TrayCommands.StopVoice: mi.Visible = App.StartupLoginWasManual; break;
                 }
             }
         }
@@ -7146,7 +7169,13 @@ public partial class MainWindow : Window
     // ---------- 快捷键 ----------
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.L)
+        // Ctrl+M：人工打断当前播报（M = mute）；自动登录的大屏不响应，避免误触静音
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.M && App.StartupLoginWasManual)
+        {
+            StopVoiceNow();
+            e.Handled = true;
+        }
+        else if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.L)
         {
             ToggleLock();
             e.Handled = true;

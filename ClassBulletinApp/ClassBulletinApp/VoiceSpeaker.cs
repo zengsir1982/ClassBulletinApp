@@ -10,11 +10,18 @@ namespace ClassBulletinApp;
 /// </summary>
 public static class VoiceSpeaker
 {
-    // SVSFlagsAsync = 1（异步播报），SVSFPurgeBeforeSpeak = 2（打断上一条）
-    private const int SpeakFlags = 1 | 2;
+    // SVSFlagsAsync = 1（异步播报）。抢占不再依赖 SVSFPurgeBeforeSpeak 的引擎行为，
+    // 而是在每次 Speak 前显式调用 Stop()（同步 purge），保证「新播报一定打断上一条」。
+    private const int SpeakFlags = 1;
 
     private static object? _voice;
     private static readonly object Gate = new();
+
+    /// <summary>诊断用：记录 Stop() 被调用次数；不发声，用来断言各入口确实接上了停止。</summary>
+    internal static int DiagStopCalls;
+
+    /// <summary>诊断用：置 true 时 Speak() 只做抢占、不调用 SAPI 发声。</summary>
+    internal static bool DiagSuppressSpeak;
 
     private static object? GetVoice()
     {
@@ -62,6 +69,12 @@ public static class VoiceSpeaker
     public static void Speak(string text, string? voiceName, int rate, int volume)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
+
+        // r164：新播报先确定性抢占上一条（同步 purge），再发新的。
+        // 原来靠 flag 2 让 SAPI「顺手清队列」，不同引擎版本行为不一致；现在显式停一次。
+        Stop();
+        if (DiagSuppressSpeak) return;
+
         try
         {
             dynamic? sp = GetVoice();
@@ -125,13 +138,16 @@ public static class VoiceSpeaker
         return "";
     }
 
-    /// <summary>立即停止当前播报。</summary>
+    /// <summary>立即停止当前播报（同步 purge，不等 SAPI 异步队列慢慢执行）。</summary>
     public static void Stop()
     {
+        DiagStopCalls++;
         try
         {
             dynamic? sp = GetVoice();
-            sp?.Speak(string.Empty, 3);   // SVSFPurgeBeforeSpeak
+            // 只用 SVSFPurgeBeforeSpeak(2)，不再带 Async(1)：
+            // 以前带 1 会把「清空」也排进异步队列，调用返回时声音可能还没停。
+            sp?.Speak(string.Empty, 2);
         }
         catch { }
     }

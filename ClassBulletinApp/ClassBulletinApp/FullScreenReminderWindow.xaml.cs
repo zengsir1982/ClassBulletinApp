@@ -90,6 +90,9 @@ public partial class FullScreenReminderWindow : Window, IGlassSurface
 
     private void Root_Click(object sender, MouseButtonEventArgs e)
     {
+        // 人主动点掉提醒 = 同时打断语音；自动关闭（_closeTimer）不走这里，
+        // 不截断还没念完的长通知。
+        VoiceSpeaker.Stop();
         _closeTimer?.Stop();
         Hide();
     }
