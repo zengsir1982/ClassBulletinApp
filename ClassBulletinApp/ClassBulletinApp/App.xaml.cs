@@ -4671,6 +4671,21 @@ public partial class App : System.Windows.Application
                     .GetField("_list", bf)!.GetValue(w)!;
                 var combo = (System.Windows.Controls.ComboBox)typeof(UserManagerWindow)
                     .GetField("_subjectCombo", bf)!.GetValue(w)!;
+
+                // ★ 自带数据：真实账号表可能一门科目都没填（下拉只剩「未填」组），
+                //   给前两个非管理员账号临时补科目并重建下拉，断言不依赖用户的数据分布。
+                //   诊断模式 Store.SuppressWrites=true，只改窗口内存里的 _book，不会写盘。
+                var seedBook = (ScheduleCore.Models.UserBook)typeof(UserManagerWindow)
+                    .GetField("_book", bf)!.GetValue(w)!;
+                var seedUsers = seedBook.Users
+                    .Where(u => u.Role != ScheduleCore.Models.UserRole.Admin).Take(2).ToList();
+                if (seedUsers.Count < 2) throw new Exception("用户太少，无法注入诊断科目");
+                seedUsers[0].Subject = "诊断语文";
+                seedUsers[1].Subject = "诊断数学";
+                typeof(UserManagerWindow).GetMethod("RefreshSubjects", bf)!.Invoke(w, null);
+                typeof(UserManagerWindow).GetMethod("Reload", bf)!.Invoke(w, new object?[] { null });
+                content.UpdateLayout();
+
                 var hb = (System.Collections.Generic.List<System.Windows.Controls.Button>)
                     typeof(UserManagerWindow).GetField("_headerButtons", bf)!.GetValue(w)!;
 
@@ -6731,6 +6746,74 @@ public partial class App : System.Windows.Application
                 }
                 finally { rem.Close(); }
                 VoiceSpeaker.DiagStopCalls = 0;
+                return null;
+            });
+
+            // ---- 悬浮课表「停止播报」按钮（所有登录方式都显示，只停本次 + 状态栏短提示）----
+            Check("r165 悬浮课表停止播报按钮", () =>
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var apply = typeof(ScheduleWindow).GetMethod("ApplyQuickActionPermissions", flags);
+                var click = typeof(ScheduleWindow).GetMethod("BtnStopVoice_Click", flags);
+                if (apply == null || click == null) throw new Exception("找不到停止播报按钮的接线函数");
+
+                var w = new ScheduleWindow();
+                try
+                {
+                    apply.Invoke(w, null);
+                    if (w.BtnStopVoice.Visibility != Visibility.Visible)
+                        throw new Exception("悬浮课表没显示「停止播报」（大屏也要能看到）");
+
+                    VoiceSpeaker.DiagStopCalls = 0;
+                    click.Invoke(w, new object[] { w.BtnStopVoice, new RoutedEventArgs() });
+                    if (VoiceSpeaker.DiagStopCalls != 1)
+                        throw new Exception("悬浮课表「停止播报」没接到 VoiceSpeaker.Stop");
+                    if (!w.DiagVoiceHintVisible)
+                        throw new Exception("点了停止播报后状态栏没有短提示");
+                }
+                finally
+                {
+                    w.Close();
+                    VoiceSpeaker.DiagStopCalls = 0;
+                }
+                return null;
+            });
+
+            // ---- 消息台账窗口：显示期间只显示不朗读，关闭后恢复 ----
+            Check("台账窗口打开期间静音", () =>
+            {
+                VoiceSpeaker.DiagStopCalls = 0;
+                VoiceSpeaker.DiagSpeakCalls = 0;
+                VoiceSpeaker.DiagSuppressSpeak = true;   // 不发声，但 DiagSpeakCalls 仍计数
+                var w = new BoardSyncWindow();
+                try
+                {
+                    w.Show();   // Loaded → EnterSuppression：停当前 + 拦后续
+                    if (!VoiceSpeaker.IsSuppressed)
+                        throw new Exception("台账窗口显示后没有进入静音");
+                    if (VoiceSpeaker.DiagStopCalls != 1)
+                        throw new Exception("台账窗口打开时没有停掉当前播报");
+
+                    VoiceSpeaker.Speak("诊断语音", null, 0, 100);
+                    if (VoiceSpeaker.DiagSpeakCalls != 0)
+                        throw new Exception("台账窗口开着时仍然朗读了");
+
+                    w.Close();  // Closed → ExitSuppression
+                    if (VoiceSpeaker.IsSuppressed)
+                        throw new Exception("台账窗口关闭后没有恢复朗读");
+
+                    VoiceSpeaker.Speak("诊断语音", null, 0, 100);
+                    if (VoiceSpeaker.DiagSpeakCalls != 1)
+                        throw new Exception("台账窗口关闭后 Speak 没有恢复");
+                }
+                finally
+                {
+                    while (VoiceSpeaker.IsSuppressed) VoiceSpeaker.ExitSuppression();
+                    w.Close();
+                    VoiceSpeaker.DiagSuppressSpeak = false;
+                    VoiceSpeaker.DiagStopCalls = 0;
+                    VoiceSpeaker.DiagSpeakCalls = 0;
+                }
                 return null;
             });
 
@@ -9798,6 +9881,27 @@ public partial class App : System.Windows.Application
             var rvr = BoardSyncService.LoadState().Records.FirstOrDefault(r => r.MsgId == rvId);
             Check("教室机标记已撤回", rvr != null && rvr.Status == BoardSyncConsts.StRevoked,
                   rvr?.Status ?? "null");
+
+            // 台账展示：撤回通知默认不列（原记录已是「已撤回」），勾「显示全部」仍能查到
+            // ★ 发送箱是教师机视角，必须先切回教师机；教室机台账里这些记录是 DirIn，不在 Outbox。
+            UseMachine(teacherDir, "a-teacher");
+            var ledgerDiag = new BoardSyncWindow();
+            try
+            {
+                var lf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var viewBox = (System.Windows.Controls.ComboBox)
+                    typeof(BoardSyncWindow).GetField("_view", lf)!.GetValue(ledgerDiag)!;
+                viewBox.SelectedIndex = 1;   // 发送箱；SelectedIndex 变化会触发 Refresh
+                var recs = (List<BoardMessageRecord>)
+                    typeof(BoardSyncWindow).GetField("_records", lf)!.GetValue(ledgerDiag)!;
+                Check("发送箱默认不列撤回通知", !recs.Any(r => r.Order.IsRevoke));
+                typeof(BoardSyncWindow).GetField("_showAll", lf)!.SetValue(ledgerDiag, true);
+                typeof(BoardSyncWindow).GetMethod("Refresh", lf)!.Invoke(ledgerDiag, null);
+                recs = (List<BoardMessageRecord>)
+                    typeof(BoardSyncWindow).GetField("_records", lf)!.GetValue(ledgerDiag)!;
+                Check("显示全部能查到撤回通知", recs.Any(r => r.Order.IsRevoke));
+            }
+            finally { ledgerDiag.Close(); UseMachine(classDir, "a-classroom"); }
 
             // ⑦ 坏文件 / 过期 / 通知 / 游客 / 权限 / 断连
             File.WriteAllText(Path.Combine(msgDir, "m-bad.json"), "{ this is not json");

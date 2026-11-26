@@ -428,13 +428,9 @@
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
-                    <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼 -->
+                    <!-- 右侧操作区：自动隐藏 / 常驻显示 与 更新课表 上下排列，同白底半透明风格，整齐显眼。
+                         板书入口只在底部快捷区保留一份（✍ 板书），标题栏不再重复放。 -->
                     <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Top" HorizontalAlignment="Right">
-                        <!-- 板书模式开关：点一下在左边多长出一块手写区，再点收起。
-                             放在这一组最上面，与「自动隐藏 / 更新课表」同一套白底按钮样式。 -->
-                        <Button x:Name="BtnHandToggle" Content="板书" Click="BtnHandToggle_Click"
-                                VerticalAlignment="Top" Margin="0,0,0,4" Style="{StaticResource FloatScheduleButton}"
-                                ToolTip="在旁边多开一块手写板（板书），可以随手写；再点一次收起"/>
                         <Button x:Name="BtnHide" Content="自动隐藏" Click="BtnHide_Click"
                                 VerticalAlignment="Top" Margin="0,0,0,4" Style="{StaticResource FloatScheduleButton}"
                                 ToolTip="点「自动隐藏」可切换为靠边自动隐藏（鼠标移到屏幕边沿滑出）；点「常驻显示」则始终常驻屏幕最前"/>
@@ -443,6 +439,12 @@
                                 ToolTip="立即从数据源检查并应用最新的课表 / 调代课">
                             <TextBlock x:Name="TxtQaUpdate" Text="更新课表"/>
                         </Button>
+                        <!-- 人工打断当前播报：所有登录方式都显示（大屏上老师也要能手动停）。
+                             固定项，不进底部可配置的内置快捷，避免被用户在「应用快捷方式」里关掉。 -->
+                        <Button x:Name="BtnStopVoice" Content="停止播报" Click="BtnStopVoice_Click"
+                                Visibility="Visible" VerticalAlignment="Top" Margin="0,4,0,0"
+                                Style="{StaticResource FloatScheduleButton}"
+                                ToolTip="只停当前正在念的这一句，不改「语音提醒」开关；下次到点照常播报"/>
                     </StackPanel>
                 </Grid>
             </Border>

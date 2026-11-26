@@ -2490,7 +2490,7 @@ public partial class MainWindow : Window
         menu.Items.Add(_doodleMenu);
 
         // 停止播报：固定项，不写进 TrayMenuItems，避免用户重排菜单后找不到入口。
-        // 自动登录的大屏上隐藏，防止学生顺手把紧急通知静音；人工登录才显示。
+        // 所有登录方式都显示，和悬浮课表按钮 / Ctrl+M 同一口径。
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator { Tag = "stop_voice_sep" });
         menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("停止播报", null, (_, _) => RunTrayCommand(TrayCommands.StopVoice))
         {
@@ -2639,7 +2639,7 @@ public partial class MainWindow : Window
                     case TrayCommands.BackdropHomework: mi.Checked = b.ShowHomework; break;
                     case TrayCommands.BackdropMissing: mi.Checked = b.ShowMissing; break;
                     case TrayCommands.ToggleHandBall: mi.Checked = Store.LoadSettings().ShowHandwritingBall; break;
-                    case TrayCommands.StopVoice: mi.Visible = App.StartupLoginWasManual; break;
+                    case TrayCommands.StopVoice: mi.Visible = true; break;
                 }
             }
         }
@@ -7169,8 +7169,8 @@ public partial class MainWindow : Window
     // ---------- 快捷键 ----------
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        // Ctrl+M：人工打断当前播报（M = mute）；自动登录的大屏不响应，避免误触静音
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.M && App.StartupLoginWasManual)
+        // Ctrl+M：人工打断当前播报（M = mute）；所有登录方式都响应，和悬浮按钮 / 托盘同口径
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && e.Key == Key.M)
         {
             StopVoiceNow();
             e.Handled = true;

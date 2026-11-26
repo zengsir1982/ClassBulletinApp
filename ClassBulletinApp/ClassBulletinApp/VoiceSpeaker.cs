@@ -20,8 +20,36 @@ public static class VoiceSpeaker
     /// <summary>诊断用：记录 Stop() 被调用次数；不发声，用来断言各入口确实接上了停止。</summary>
     internal static int DiagStopCalls;
 
+    /// <summary>诊断用：记录 Speak() 真正走到 SAPI 前的次数，用来断言抑制期间没有朗读。</summary>
+    internal static int DiagSpeakCalls;
+
     /// <summary>诊断用：置 true 时 Speak() 只做抢占、不调用 SAPI 发声。</summary>
     internal static bool DiagSuppressSpeak;
+
+    /// <summary>打开消息台账窗口期间 > 0：Speak 只停不念，窗口关掉后自然恢复。</summary>
+    private static int _suppressDepth;
+
+    /// <summary>
+    /// 进入「只显示不朗读」模式（打开消息台账窗口时）。可嵌套，和 <see cref="ExitSuppression"/> 配对。
+    /// 进入瞬间先停掉当前这一句，之后新播报也会被拦住。
+    /// </summary>
+    public static void EnterSuppression()
+    {
+        lock (Gate) { _suppressDepth++; }
+        Stop();
+    }
+
+    /// <summary>退出一次抑制；多次调用不会把计数压成负数。</summary>
+    public static void ExitSuppression()
+    {
+        lock (Gate) { if (_suppressDepth > 0) _suppressDepth--; }
+    }
+
+    /// <summary>当前是否处于「只显示不朗读」模式。</summary>
+    public static bool IsSuppressed
+    {
+        get { lock (Gate) return _suppressDepth > 0; }
+    }
 
     private static object? GetVoice()
     {
@@ -73,6 +101,8 @@ public static class VoiceSpeaker
         // r164：新播报先确定性抢占上一条（同步 purge），再发新的。
         // 原来靠 flag 2 让 SAPI「顺手清队列」，不同引擎版本行为不一致；现在显式停一次。
         Stop();
+        if (IsSuppressed) return;
+        DiagSpeakCalls++;               // 抑制判定在前：诊断静音时也计数，能断言「没被拦住」
         if (DiagSuppressSpeak) return;
 
         try

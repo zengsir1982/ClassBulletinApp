@@ -46,7 +46,7 @@ public class BoardSyncWindow : Window
     {
         Content = "显示全部", FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         Margin = new Thickness(0, 0, 10, 0),
-        ToolTip = "默认只列最近 N 天的记录（N 在「信息管理 → ③ 同步设置」里改，默认 7 天）；勾上则连更早的一起显示"
+        ToolTip = "默认只列最近 N 天的记录（N 在「信息管理 → ③ 同步设置」里改，默认 7 天），发送箱也不列撤回通知；勾上则连更早的记录和撤回通知一起显示"
     };
 
     /// <summary>
@@ -102,6 +102,10 @@ public class BoardSyncWindow : Window
         LoadHints();
         Refresh();
     
+        // 台账窗口开着时所有通知都能看到，不再朗读：打开（真正显示）时进入抑制，
+        // 关闭时退出。用 Loaded 而不是构造函数 —— 诊断里大量 new 窗口只为读字段，不该静音。
+        Loaded += (_, _) => VoiceSpeaker.EnterSuppression();
+        Closed += (_, _) => VoiceSpeaker.ExitSuppression();
         GlassChrome.Prepare(this);}
 
     void BuildUi()
@@ -523,9 +527,15 @@ public class BoardSyncWindow : Window
             // 保留期只影响「默认显示哪一段」：勾了「显示全部」就一股脑列出来。
             // ★ 未处理的收件箱不受保留期影响（见 FilterByKeepDays），避免消息被藏起来。
             int keepDays = KeepDays();
-            var shown = _showAll ? all : BoardSyncService.FilterByKeepDays(all, keepDays);
-            int hidden = all.Count - shown.Count;
-            _showAllBox.Content = hidden > 0 ? $"显示全部（另有 {hidden} 条更早）" : "显示全部";
+            var withinKeep = _showAll ? all : BoardSyncService.FilterByKeepDays(all, keepDays);
+            int hiddenByTime = all.Count - withinKeep.Count;
+            // 撤回通知只是技术回执：原记录已经显示「已撤回」，默认不该再列一条
+            // 「[已发出] … 撤回：xxx」让人误以为又发了新信息。勾「显示全部」仍可查审计痕迹。
+            var shown = IsOut && !_showAll
+                ? withinKeep.Where(r => !r.Order.IsRevoke).ToList()
+                : withinKeep;
+            _showAllBox.Content = hiddenByTime > 0
+                ? $"显示全部（另有 {hiddenByTime} 条更早）" : "显示全部";
             _records = shown;
 
             int prev = _list.SelectedIndex;

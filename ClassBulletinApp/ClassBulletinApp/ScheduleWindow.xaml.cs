@@ -48,6 +48,12 @@ public partial class ScheduleWindow : Window, IGlassSurface
     /// <summary>「已是最新版本」红字提示的截止时刻；过了这个点就恢复常规字幕。</summary>
     private DateTime _upToDateUntil;
 
+    /// <summary>「已停止语音播报」红字提示的截止时刻；过了这个点就恢复常规字幕。</summary>
+    private DateTime _voiceHintUntil;
+
+    /// <summary>诊断用：状态栏是否正在显示「已停止语音播报」提示（不出声、不依赖音频设备）。</summary>
+    internal bool DiagVoiceHintVisible => _voiceHintUntil > DateTime.Now;
+
     /// <summary>「课表有变化」红字内容（空 = 当前没有变化提示）。</summary>
     private string _flashText = "";
 
@@ -299,6 +305,10 @@ public partial class ScheduleWindow : Window, IGlassSurface
         // 「更新课表」在标题栏，按「管理更新」权限独立显隐（与底部快捷栏无关）
         BtnQaUpdate.Visibility = UserSession.CanManageUpdate ? Visibility.Visible : Visibility.Collapsed;
 
+        // 「停止播报」所有登录方式都显示：大屏上老师也要能手动打断正在念的通知。
+        // 与托盘固定项、Ctrl+M 同一口径；固定项，不进 QuickActionCatalog。
+        BtnStopVoice.Visibility = Visibility.Visible;
+
         BuiltinWrap.Visibility = vis.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         _qaAppliedFont = -1;         // 新加的胶囊也要吃到当前字号档（否则会被「同档不重排」挡掉）
@@ -358,6 +368,35 @@ public partial class ScheduleWindow : Window, IGlassSurface
     private void BtnQaNotice_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenNotice();
 
     private void BtnQaBoard_Click(object sender, RoutedEventArgs e) => AppEvents.RaiseQuickOpenBoard();
+
+    /// <summary>
+    /// r165：人工打断当前播报。只停这一次，不改语音总开关、不关任何窗口；
+    /// 悬浮窗自己处理即可，不必经主窗（诊断模式单独 new 窗口时也能用）。
+    /// </summary>
+    private void BtnStopVoice_Click(object sender, RoutedEventArgs e)
+    {
+        VoiceSpeaker.Stop();
+        ShowVoiceStoppedHint();
+    }
+
+    /// <summary>状态栏红字提示「已停止语音播报」，6 秒后自动消失。</summary>
+    private void ShowVoiceStoppedHint()
+    {
+        _voiceHintUntil = DateTime.Now.AddSeconds(6);
+        UpdateStatusText();
+
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            if (DateTime.Now >= _voiceHintUntil)
+            {
+                _voiceHintUntil = default;
+                UpdateStatusText();
+            }
+        };
+        t.Start();
+    }
 
     /// <summary>
     /// 主窗回执的「通知便签 / 黑板」开关状态。诊断模式没有主窗订阅 Query，这里不会被调用，
@@ -679,7 +718,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
             //   而且烤完之后那块区域点不动、写不了字 —— 等于把板书废了。
             BtnWp.IsEnabled = !_handMode;
             if (_handMode)
-                BtnWp.ToolTip = "板书模式下不能设为背景（手写内容画不进壁纸）；先点「收起板书」回到简洁模式";
+                BtnWp.ToolTip = "板书模式下不能设为背景（手写内容画不进壁纸）；先点底部「✍ 板书」关掉手写区";
         }
         catch { }
     }
@@ -771,6 +810,10 @@ public partial class ScheduleWindow : Window, IGlassSurface
             string timeText = string.IsNullOrWhiteSpace(at) ? "课表尚未同步更新" : "课表更新于：" + at;
             string failText = _qaFailed ? "更新失败：" + _qaFailMessage : "";
 
+            // r165：「已停止语音播报」短提示排在状态栏最前面（状态栏常只露出开头十来个字）
+            bool voiceStopped = _voiceHintUntil > DateTime.Now;
+            string voiceStopText = voiceStopped ? "已停止语音播报（下次照常）" : "";
+
             // 「已是最新版本」只在点完更新后的 10 秒内显示（红字，与失败同色系）
             bool upToDate = _upToDateUntil > DateTime.Now;
             string upText = upToDate ? $"已是最新版本（{_upToDateAt:HH:mm:ss}）" : "";
@@ -780,11 +823,20 @@ public partial class ScheduleWindow : Window, IGlassSurface
                 ? "课表有变化：" + _flashText
                 : "";
 
-            string sig = timeText + "|" + failText + "|" + flashText + "|" + upText;
+            string sig = voiceStopText + "|" + timeText + "|" + failText + "|" + flashText + "|" + upText;
             if (sig == _marqueeSig) return;      // 内容没变：保留正在滚动的动画，不打断
             _marqueeSig = sig;
 
             TxtMarquee.Inlines.Clear();
+            if (voiceStopped)
+            {
+                TxtMarquee.Inlines.Add(new Run(voiceStopText)
+                {
+                    Foreground = MarqueeFailBrush,
+                    FontWeight = FontWeights.SemiBold
+                });
+                TxtMarquee.Inlines.Add(new Run("　·　") { Foreground = MarqueeNormalBrush });
+            }
             if (failText.Length > 0)
             {
                 TxtMarquee.Inlines.Add(new Run("⚠ " + failText)
@@ -1167,7 +1219,7 @@ public partial class ScheduleWindow : Window, IGlassSurface
         }
         finally { _applyingLayout = false; }
         if (_clickThrough)
-            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnQaUpdate, BtnWp, BtnTop, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel, BtnHandToggle);
+            FloatingHelper.SetClickThrough(this, true, BtnHide, BtnQaUpdate, BtnStopVoice, BtnWp, BtnTop, BtnLock, BtnPos, ClassHeader, DateHeader, TodayPanel);
         else
             FloatingHelper.SetClickThrough(this, false);
 

@@ -173,7 +173,6 @@ public partial class ScheduleWindow
         HandSplitter.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         if (HandLeftHint != null) HandLeftHint.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         HandCol.Width = new GridLength(on ? _handWidth : 0);
-        BtnHandToggle.Content = on ? "收起板书" : "板书";
         // ★ 最窄宽度跟着手写区走（手写区 + 课表列保底），不写死 520：
         //   写死时，简洁模式下窗口若比 240 还窄，一进板书模式会被强制加宽 —— 那又把课表列改了。
         MinWidth = on ? Math.Max(HandMinWidth, HandWidthFloor) + HandCourseMinWidth : 220;
@@ -208,7 +207,7 @@ public partial class ScheduleWindow
         SaveHandMode();
         UpdateBackdropButton();
         if (expandWindow) SavePlacement();
-        // 底部快捷区的「板书 / 黑板」胶囊跟着亮灭（标题栏按钮、启动恢复都走这条）
+        // 底部快捷区的「板书 / 黑板」胶囊跟着亮灭（快捷区点击、启动恢复、诊断都走这条）
         RefreshQaToggleVisuals();
     }
 
@@ -224,9 +223,7 @@ public partial class ScheduleWindow
         catch { /* 存不上只是下次打开不记得，不该影响写字 */ }
     }
 
-    private void BtnHandToggle_Click(object sender, RoutedEventArgs e) => ToggleHandMode();
-
-    /// <summary>「板书 / 收起板书」按钮的全部行为（诊断也走这一条，别另写一份）。</summary>
+    /// <summary>底部快捷区「✍ 板书」的全部行为（诊断也走这一条，别另写一份）。</summary>
     private void ToggleHandMode()
     {
         bool on = !_handMode;
