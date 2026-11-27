@@ -5667,6 +5667,9 @@ public partial class MainWindow : Window
                 receipt.SettingsDone = true;
                 if (pr.ResetDone) receipt.RevResetDone = true;
                 st = Store.LoadSettings();     // 重新取一次，后续流程按新设置走
+                // ★ 教师机轮询开关 / 轮询秒数可能刚被下发改掉：立刻刷新，不等重启、不等下个周期。
+                //   Tick 每轮都重读开关，所以「开→关」下一轮自然停；这里保证间隔也同步生效。
+                BoardSyncNotifier.RefreshPolling();
                 ApplyPermissions();
                 // ★ r114/r115：下发只写磁盘，界面控件不会自己变。按"真的变了哪一组"精确重载：
                 //   提醒 → 提醒设置页；同步开关 / 同步根目录 → 信息管理页。
@@ -5792,7 +5795,7 @@ public partial class MainWindow : Window
             if (_manualKept > 0) sb.Append("　" + _manualKept + " 个手动录入的班原样保留。");
             if (ap.UserCount > 0) sb.Append($"　用户表 {ap.UserCount} 个账号已同步。");
             if (ap.SettingsApplied)
-                sb.Append($"　设置已按代次应用（{ap.SettingsReason}）：显示 / 同步开关已更新（提醒不随包）。");
+                sb.Append($"　设置已按代次应用（{ap.SettingsReason}）：显示 / 同步开关已更新（提醒 / 教师机轮询不随包）。");
 
             // ★ 自动更新是无人值守跑的，不能弹模态框（会在上课时突然挡住屏幕）。
             //   身份被包踢掉时只写状态栏 + 立刻把入口全灰，用户一操作就会发现并看到原因。
@@ -5813,7 +5816,7 @@ public partial class MainWindow : Window
             report = sb.ToString();
 
             ApplyPermissions();   // 角色 / 角色权限可能随包变了，按钮可用性要跟着刷新
-            // ★ r115：随包通道带的是「显示 9 项 + 同步 5 项」。显示类在教室机没有可看界面，
+            // ★ r115：随包通道带的是「显示 9 项 + 同步 5 项」（教师机轮询开关不随包）。显示类在教室机没有可看界面，
             //   但同步开关就在「信息管理」页上 —— 不重载同样要退出重登才看到，和独立下发是同一个坑。
             if (IsLoaded && ap.SettingsApplied) LoadInfoSettings();
             RefreshUpdateStatus();
@@ -6789,6 +6792,7 @@ public partial class MainWindow : Window
         ChkInfoFullScreen.IsChecked = s.BoardSyncFullScreenReminder;
         ChkInfoVoice.IsChecked = s.BoardSyncVoiceReminder;
         ChkInfoAutoApply.IsChecked = s.BoardSyncAutoApply;
+        ChkInfoTeacherPolling.IsChecked = s.BoardSyncTeacherPolling;
         TxtInfoRoot.Text = s.BoardSyncRoot ?? "";
         TxtInfoPoll.Text = Math.Max(15, s.BoardSyncPollSeconds).ToString();
         TxtInfoKeepDays.Text = Math.Max(0, s.BoardSyncLedgerKeepDays).ToString();
@@ -7011,6 +7015,9 @@ public partial class MainWindow : Window
                 : "❌ " + string.Join("；", errs);
             TxtStatus.Text = msg;
             if (TxtInfoStatus != null) TxtInfoStatus.Text = msg;
+            // 教师机定时轮询可能被下发关掉：发布成功当场补拉一次回执，
+            // 否则「已发布」之后状态一直不动，老师会以为消息丢了。
+            if (ok > 0) BoardSyncNotifier.CheckNow();
         }
         catch (Exception ex)
         {
@@ -7071,6 +7078,7 @@ public partial class MainWindow : Window
             s.BoardSyncFullScreenReminder = ChkInfoFullScreen.IsChecked == true;
             s.BoardSyncVoiceReminder = ChkInfoVoice.IsChecked == true;
             s.BoardSyncAutoApply = ChkInfoAutoApply.IsChecked == true;
+            s.BoardSyncTeacherPolling = ChkInfoTeacherPolling.IsChecked == true;
             s.BoardSyncRoot = (TxtInfoRoot.Text ?? "").Trim();
             s.BoardSyncPollSeconds = int.TryParse((TxtInfoPoll.Text ?? "").Trim(), out var n)
                 ? Math.Max(15, Math.Min(600, n)) : 60;

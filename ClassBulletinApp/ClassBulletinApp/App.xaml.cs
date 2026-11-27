@@ -5670,6 +5670,10 @@ public partial class App : System.Windows.Application
                     if (ins.Meta.Reminder != null)
                         throw new Exception("新包仍写入了老兼容字段 meta.Reminder（提醒不该随包）");
 
+                    // 教师机轮询开关同理：现场按 FTP 负载决定的运维策略，不能被发课表冲掉
+                    if (ins.Meta.Settings.BoardSyncTeacherPolling != null)
+                        throw new Exception("随包通道仍带着教师机轮询开关（只能走独立下发）");
+
                     // 排除本机私有：把整个 meta 序列化后不得出现密码 / 设备 ID / 数据源路径串
                     string metaJson = System.Text.Json.JsonSerializer.Serialize(ins.Meta);
                     if (metaJson.Contains("SECRET_TOKEN_X") || metaJson.Contains("SECRET_PWD")
@@ -6113,6 +6117,13 @@ public partial class App : System.Windows.Application
                     var g2 = SettingsPushService.TouchedGroups(st, ps2);
                     if (!g2.Sync) throw new Exception("只改同步开关时没识别出同步组");
                     if (g2.Reminder) throw new Exception("只改同步却被判成提醒组变了");
+
+                    // 情况四：只改教师机轮询开关 → 同步组，且不误判成提醒组
+                    var ps3 = SchedulePackage.BuildPackageSettings(st, includeSourceGroup: false);
+                    ps3.BoardSyncTeacherPolling = !st.BoardSyncTeacherPolling;
+                    var g3 = SettingsPushService.TouchedGroups(st, ps3);
+                    if (!g3.Sync) throw new Exception("只改教师机轮询开关时没识别出同步组");
+                    if (g3.Reminder) throw new Exception("只改教师机轮询却被判成提醒组变了");
 
                     // 提醒页必须有 x:Name，切页刷新才挂得上
                     var w = new MainWindow();
@@ -9902,6 +9913,35 @@ public partial class App : System.Windows.Application
                 Check("显示全部能查到撤回通知", recs.Any(r => r.Order.IsRevoke));
             }
             finally { ledgerDiag.Close(); UseMachine(classDir, "a-classroom"); }
+
+            // ⑥b 教师机轮询开关：只管教师机的自动轮；手动检查永远放行；教室机恒轮询
+            UseMachine(classDir, "a-classroom");
+            var cp = Store.LoadSettings();
+            cp.BoardSyncTeacherPolling = false;
+            Store.SaveSettings(cp);
+            Check("教室机不受教师机轮询开关影响", BoardSyncNotifier.ShouldPull(false));
+            Check("教室机手动检查放行", BoardSyncNotifier.ShouldPull(true));
+
+            UseMachine(teacherDir, "a-teacher");
+            var tp2 = Store.LoadSettings();
+            tp2.BoardSyncTeacherPolling = false;
+            Store.SaveSettings(tp2);
+            Check("关掉后教师机不再自动轮询", !BoardSyncNotifier.ShouldPull(false));
+            Check("关掉后手动检查仍可用", BoardSyncNotifier.ShouldPull(true));
+            tp2.BoardSyncTeacherPolling = true;
+            Store.SaveSettings(tp2);
+            Check("打开后教师机恢复自动轮询", BoardSyncNotifier.ShouldPull(false));
+
+            // 包兼容：老包没有这个字段（null）不能把本机值改成默认 true；新包 false 要能写进去
+            var legacyPs = SchedulePackage.BuildPackageSettings(tp2, includeSourceGroup: false);
+            legacyPs.BoardSyncTeacherPolling = null;
+            SchedulePackage.ApplyPackageSettings(tp2, legacyPs);
+            Check("老包缺字段时保留本机轮询设置", tp2.BoardSyncTeacherPolling);
+            var closedPs = SchedulePackage.BuildPackageSettings(tp2, includeSourceGroup: false);
+            closedPs.BoardSyncTeacherPolling = false;
+            SchedulePackage.ApplyPackageSettings(tp2, closedPs);
+            Check("下发 false 能写进本机", !tp2.BoardSyncTeacherPolling);
+            UseMachine(classDir, "a-classroom");
 
             // ⑦ 坏文件 / 过期 / 通知 / 游客 / 权限 / 断连
             File.WriteAllText(Path.Combine(msgDir, "m-bad.json"), "{ this is not json");

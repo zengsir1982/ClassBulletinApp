@@ -47,7 +47,7 @@ public static class BoardSyncNotifier
         if (_timer == null)
         {
             _timer = new DispatcherTimer { Interval = Interval() };
-            _timer.Tick += (_, _) => Tick();
+            _timer.Tick += (_, _) => Tick();   // 定时轮：会被「教师机轮询」开关拦住
             _timer.Start();
         }
         HookContentChanged();
@@ -95,14 +95,38 @@ public static class BoardSyncNotifier
         _timer.Interval = Interval();
     }
 
-    public static void CheckNow() => Tick();
+    /// <summary>
+    /// 下发设置落地后的即时生效入口。轮询开关本身在每轮 Tick 时重读，不用重建定时器；
+    /// 但间隔可能同时被改，仍要刷一次。留在主线程调用，不碰网络。
+    /// </summary>
+    public static void RefreshPolling() => RefreshInterval();
+
+    /// <summary>手动「立即检查」：任何角色、任何开关状态下都放行。</summary>
+    public static void CheckNow() => Tick(manual: true);
+
+    /// <summary>
+    /// 这一轮要不要真去拉。抽成纯函数，诊断可以直接测策略，不必真的连 FTP。
+    /// <para>★ 角色锚点用 <see cref="BoardSyncService.IsClassroomMachine"/>（显式勾选 / 学生身份），
+    /// 不用「当前登录的是不是老师」：教师机上临时用学生账号登录，不该把这台机器变成教室机而绕过开关。</para>
+    /// <para>★ 判不准时宁可照旧轮询——漏掉教室机的消息远比多一次登录严重。</para>
+    /// </summary>
+    internal static bool ShouldPull(bool manual)
+    {
+        if (manual) return true;                        // 「立即检查」是人工意图，永远尊重
+        if (!BoardSyncService.IsEnabled) return false;  // 未启用 / 未配数据源：完全不碰共享盘
+        if (BoardSyncService.IsClassroomMachine) return true;
+        return Store.LoadSettings().BoardSyncTeacherPolling;
+    }
+
+    /// <summary>诊断用：被开关拦下的自动轮次数（进程内累计）。</summary>
+    internal static int DiagAutoSkipped;
 
     /// <summary>发起一轮轮询：立刻返回，真正的网络 I/O 在后台线程跑。</summary>
-    static void Tick()
+    static void Tick(bool manual = false)
     {
         try
         {
-            if (!BoardSyncService.IsEnabled) return;    // 未启用 / 未配数据源：完全不碰共享盘
+            if (!ShouldPull(manual)) { DiagAutoSkipped++; return; }
             if (Interlocked.CompareExchange(ref _ticking, 1, 0) != 0) return;
 
             Task.Run(() =>

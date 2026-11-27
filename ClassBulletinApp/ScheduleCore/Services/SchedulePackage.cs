@@ -168,6 +168,11 @@ public static class SchedulePackage
                 //   置 null = 本包不带提醒，`ApplyPackageSettings` 会跳过该项（老包仍兼容）。
                 ps.Reminder = null;
 
+                // ★ 教师机轮询开关同理退出随包通道：它是按现场负载决定的运维策略，
+                //   发布机（个人台式机）的取值不该在每次发课表时把已下发的「关」冲回「开」。
+                //   null = 本包不带，`ApplyPackageSettings` 跳过；只由独立下发通道携带。
+                ps.BoardSyncTeacherPolling = null;
+
                 string fp = SettingsFingerprint(ps);
 
                 bool contentChanged = !string.Equals(fp, settings.SettingsPublishFingerprint,
@@ -663,6 +668,7 @@ public static class SchedulePackage
             BoardSyncFullScreenReminder = s.BoardSyncFullScreenReminder,
             BoardSyncVoiceReminder = s.BoardSyncVoiceReminder,
             BoardSyncAutoApply = s.BoardSyncAutoApply,
+            BoardSyncTeacherPolling = s.BoardSyncTeacherPolling,
 
             SourceGroupIncluded = includeSourceGroup
         };
@@ -793,6 +799,7 @@ public static class SchedulePackage
             B("BoardSyncFullScreenReminder", ps.BoardSyncFullScreenReminder);
             B("BoardSyncVoiceReminder", ps.BoardSyncVoiceReminder);
             B("BoardSyncAutoApply", ps.BoardSyncAutoApply);
+            B("BoardSyncTeacherPolling", ps.BoardSyncTeacherPolling);
             if (ps.SourceGroupIncluded)
             {
                 B("AutoUpdateEnabled", ps.AutoUpdateEnabled);
@@ -836,6 +843,10 @@ public static class SchedulePackage
         st.BoardSyncFullScreenReminder = ps.BoardSyncFullScreenReminder;
         st.BoardSyncVoiceReminder = ps.BoardSyncVoiceReminder;
         st.BoardSyncAutoApply = ps.BoardSyncAutoApply;
+        // ★ null = 这次下发/这个包没带本项（老客户端 / 随包通道）：保留本机原值。
+        //   老版本发布端没有这个字段，反序列化后是 null，升级后不会被误关掉。
+        if (ps.BoardSyncTeacherPolling.HasValue)
+            st.BoardSyncTeacherPolling = ps.BoardSyncTeacherPolling.Value;
 
         // ★ 更新来源 + 同步根目录只在显式声明包含时才写，否则一律保留本机原值。
         if (ps.SourceGroupIncluded)
@@ -1324,6 +1335,12 @@ public class PackageSettings
     public bool BoardSyncFullScreenReminder { get; set; }
     public bool BoardSyncVoiceReminder { get; set; }
     public bool BoardSyncAutoApply { get; set; }
+
+    /// <summary>
+    /// 教师机是否参与定时轮询。用可空 bool 是为了区分「明确下发 false」与「老包没这个字段」——
+    /// 后者必须保留本机原值，否则老版本发布端一次下发就会把全校教师机轮询误关掉。
+    /// </summary>
+    public bool? BoardSyncTeacherPolling { get; set; }
 
     // ── 教学日历（校历 + 开学日，r143）──────────────────────────────────
     // ★ 为什么单独一组而不是塞进「显示 9 项」：校历写在 schedule.json 里，不在 settings.json。

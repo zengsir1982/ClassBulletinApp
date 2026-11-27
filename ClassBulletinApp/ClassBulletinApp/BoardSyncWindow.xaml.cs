@@ -104,7 +104,15 @@ public class BoardSyncWindow : Window
     
         // 台账窗口开着时所有通知都能看到，不再朗读：打开（真正显示）时进入抑制，
         // 关闭时退出。用 Loaded 而不是构造函数 —— 诊断里大量 new 窗口只为读字段，不该静音。
-        Loaded += (_, _) => VoiceSpeaker.EnterSuppression();
+        Loaded += (_, _) =>
+        {
+            VoiceSpeaker.EnterSuppression();
+            // 教师机定时轮询被下发关掉后，打开台账是看回执的主要入口，补拉一次。
+            // 开关还开着时不补：定时轮询已在跑，别让每次开窗都多一次 FTP 登录。
+            var s = Store.LoadSettings();
+            if (s.BoardSyncEnabled && !BoardSyncService.IsClassroomMachine && !s.BoardSyncTeacherPolling)
+                DoPull();
+        };
         Closed += (_, _) => VoiceSpeaker.ExitSuppression();
         GlassChrome.Prepare(this);}
 
@@ -459,6 +467,9 @@ public class BoardSyncWindow : Window
             : "❌ " + string.Join("；", errs);
         _view.SelectedIndex = 1;
         Refresh();
+        // 教师机定时轮询可能被下发关掉：发布成功当场补拉一次回执，
+        // 否则老师要等到手动点「立即检查」才知道教室机收没收到。
+        if (ok > 0) BoardSyncNotifier.CheckNow();
     }
 
     /// <summary>r147：刷新待办分组条。数字与托盘 / 悬浮课表同一口径（PendingTodoService）。</summary>

@@ -597,6 +597,15 @@ public class AppSettings
     /// <summary>轮询摆渡目录的间隔（秒）。默认 60，下限 15，避免给共享盘/FTP 造成登录压力。</summary>
     public int BoardSyncPollSeconds { get; set; } = 60;
 
+    /// <summary>
+    /// 教师机是否参与<b>定时</b>轮询摆渡目录（默认开，保持现状）。
+    /// <para>★ 只影响教师机：教室机恒轮询，与本项无关。教师机跑定时 Pull 只是为了收回执推进状态，
+    /// 几百台规模下这笔 FTP 登录开销很大。关掉后仍可手动拉取——发布成功后的本机检查、
+    /// 「信息管理 → 立即检查」、台账窗口的刷新都不受本项限制，消息照发、回执照收。</para>
+    /// <para>★ 这是可下发的运维开关（随包通道不带，只走独立下发通道），便于灰度与回滚。</para>
+    /// </summary>
+    public bool BoardSyncTeacherPolling { get; set; } = true;
+
     /// <summary>有新变更单时在课间弹提示窗；上课期间静默入档，绝不打断课堂。</summary>
     public bool BoardSyncPopupDuringBreak { get; set; } = true;
 

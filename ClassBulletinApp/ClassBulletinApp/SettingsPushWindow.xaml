@@ -119,6 +119,8 @@
                             <CheckBox x:Name="ChkSyncFullScreen" Content="全屏提醒" FontSize="13" Margin="0,0,22,10"/>
                             <CheckBox x:Name="ChkSyncVoice" Content="语音提醒" FontSize="13" Margin="0,0,22,10"/>
                             <CheckBox x:Name="ChkSyncAutoApply" Content="自动应用变动" FontSize="13" Margin="0,0,22,10"/>
+                            <CheckBox x:Name="ChkSyncTeacherPolling" Content="教师机定时检查回执" FontSize="13" Margin="0,0,22,10"
+                                      ToolTip="关掉后教师机不再定时去 FTP 拉回执（发消息照常、手动检查照常）；教室机不受影响。只走本下发通道，不随课表包覆盖"/>
                         </WrapPanel>
                     </StackPanel>
                 </Border>

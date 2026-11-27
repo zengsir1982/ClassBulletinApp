@@ -1157,8 +1157,10 @@
                                                       ToolTip="教师机发布时勾了「课间全屏提醒」，教室机才会在课间整屏提示；上课时间绝不打断课堂"/>
                                             <CheckBox x:Name="ChkInfoVoice" Content="语音播报收到的变更单" FontSize="14" Margin="0,0,24,6" VerticalAlignment="Center"
                                                       ToolTip="教师机发布时勾了「🔊 语音提醒」，教室机才用系统语音朗读（音色 / 语速 / 音量沿用「提醒设置」）；关掉则一律不念"/>
-                                            <CheckBox x:Name="ChkInfoAutoApply" Content="允许通知直接增加（无需电教管理员确认）" FontSize="14" Margin="0,0,0,6" VerticalAlignment="Center"
+                                            <CheckBox x:Name="ChkInfoAutoApply" Content="允许通知直接增加（无需电教管理员确认）" FontSize="14" Margin="0,0,24,6" VerticalAlignment="Center"
                                                       ToolTip="教师机发布「本班通知」时可指定直接增加；教室机收到后自动新增一条并回执。关掉后这类单退回普通收件箱由电教管理员裁决，绝不丢消息。自动增加只新增，不覆盖教室机原有内容"/>
+                                            <CheckBox x:Name="ChkInfoTeacherPolling" Content="教师机定时检查回执" FontSize="14" Margin="0,0,0,6" VerticalAlignment="Center"
+                                                      ToolTip="关掉后教师机不再定时去摆渡目录拉回执，减轻 FTP 压力；发消息照常、手动「立即检查」照常可用。教室机不受影响，仍照常收消息"/>
                                         </WrapPanel>
                                         <WrapPanel Margin="0,0,0,12">
                                             <StackPanel Orientation="Horizontal" Margin="0,0,20,6" VerticalAlignment="Center">

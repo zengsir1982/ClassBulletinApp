@@ -272,16 +272,16 @@ public static class SettingsPushService
     /// <summary>本次下发包含多少项设置（更新来源组按 7 项计，教学日历按 1 组计）。</summary>
     public static int CountItems(PackageSettings ps)
     {
-        int n = 9 + 1 /* Reminder */ + 5 /* 同步开关 */;
+        int n = 9 + 1 /* Reminder */ + 6 /* 同步开关（含教师机轮询） */;
         if (ps.SourceGroupIncluded) n += 7;
         if (ps.CalendarIncluded) n += 1;
         return n;
     }
 
-    /// <summary>生成给人看的分组摘要，如「显示 9 项 · 提醒 1 组 · 同步 5 项 · 更新来源 7 项」。</summary>
+    /// <summary>生成给人看的分组摘要，如「显示 9 项 · 提醒 1 组 · 同步 6 项 · 更新来源 7 项」。</summary>
     public static string Summary(PackageSettings ps)
     {
-        var parts = new List<string> { "显示 9 项", "提醒 1 组", "同步 5 项" };
+        var parts = new List<string> { "显示 9 项", "提醒 1 组", "同步 6 项" };
         if (ps.SourceGroupIncluded) parts.Add("更新来源 7 项");
         if (ps.CalendarIncluded) parts.Add("教学日历 1 组");
         return string.Join(" · ", parts);
@@ -308,6 +308,8 @@ public static class SettingsPushService
                     || st.BoardSyncFullScreenReminder != ps.BoardSyncFullScreenReminder
                     || st.BoardSyncVoiceReminder != ps.BoardSyncVoiceReminder
                     || st.BoardSyncAutoApply != ps.BoardSyncAutoApply
+                    || (ps.BoardSyncTeacherPolling.HasValue
+                        && st.BoardSyncTeacherPolling != ps.BoardSyncTeacherPolling.Value)
                     || (ps.SourceGroupIncluded
                         && !string.Equals((st.BoardSyncRoot ?? "").Trim(),
                                           (ps.BoardSyncRoot ?? "").Trim(), StringComparison.Ordinal));
@@ -357,6 +359,9 @@ public static class SettingsPushService
         C("全屏提醒", st.BoardSyncFullScreenReminder, ps.BoardSyncFullScreenReminder);
         C("语音提醒", st.BoardSyncVoiceReminder, ps.BoardSyncVoiceReminder);
         C("自动应用变动", st.BoardSyncAutoApply, ps.BoardSyncAutoApply);
+        // 老包没这个字段（null）：不算变化，也不该在回执里写一条莫名其妙的「关→开」。
+        if (ps.BoardSyncTeacherPolling.HasValue)
+            C("教师机定时检查", st.BoardSyncTeacherPolling, ps.BoardSyncTeacherPolling.Value);
 
         if (ps.SourceGroupIncluded)
         {

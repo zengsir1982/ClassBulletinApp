@@ -111,6 +111,7 @@ public partial class SettingsPushWindow : Window
         ChkSyncFullScreen.IsChecked = _s.BoardSyncFullScreenReminder;
         ChkSyncVoice.IsChecked = _s.BoardSyncVoiceReminder;
         ChkSyncAutoApply.IsChecked = _s.BoardSyncAutoApply;
+        ChkSyncTeacherPolling.IsChecked = _s.BoardSyncTeacherPolling;
 
         ChkIncludeSource.IsChecked = false;
         ChkAutoUpdate.IsChecked = _s.AutoUpdateEnabled;
@@ -245,7 +246,8 @@ public partial class SettingsPushWindow : Window
             BoardSyncPopupDuringBreak = ChkSyncPopup.IsChecked == true,
             BoardSyncFullScreenReminder = ChkSyncFullScreen.IsChecked == true,
             BoardSyncVoiceReminder = ChkSyncVoice.IsChecked == true,
-            BoardSyncAutoApply = ChkSyncAutoApply.IsChecked == true
+            BoardSyncAutoApply = ChkSyncAutoApply.IsChecked == true,
+            BoardSyncTeacherPolling = ChkSyncTeacherPolling.IsChecked == true
         };
 
         if (ChkIncludeSource.IsChecked == true)
