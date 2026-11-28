@@ -423,6 +423,8 @@ public partial class App : System.Windows.Application
                     "boardsendmissing" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityMissing),
                     "boardsendweek" => DiagBoardSendWeekly(),
                     "boardsendnotice" => new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityNotice),
+                    // r167：长通知形态 —— 验播报框随内容长高 + 播报词不带字段标签
+                    "boardsendlong" => DiagBoardSendLongNotice(),
                     "boardsync" => new BoardSyncWindow(),
                     // r158：教师机形态的台账（教室机上「只看我发的」按设计隐藏，截不到）
                     "boardsyncteacher" => DiagLedgerTeacher(),
@@ -1954,6 +1956,78 @@ public partial class App : System.Windows.Application
             {
                 var w = new MainWindow { InitialTabIndex = 9 };
                 if (w.MainTabs.SelectedIndex != 9) throw new Exception("今日页索引不是 9");
+                return w;
+            });
+            // r167：二级导航改成分段条 —— 底板一块 + 当前页一块白。
+            // 原来组内「哪一项是当前页」没人管，点完「用户中心」六项长得一模一样；
+            // 这几条断言盯的就是这个缺陷不会再回来。
+            Check("r167 二级分段条（底板 + 选中白块 + 换页跟随）", () =>
+            {
+                // 用 alpha 判亮：未选中是 Transparent（A=0），选中是 White（A=255）。
+                // 不要比引用 —— BrushConverter 对已知色名返回冻结单例，比引用哪天失效了都不好查。
+                static bool Lit(System.Windows.Media.Brush? b) =>
+                    b is System.Windows.Media.SolidColorBrush s && s.Color.A > 0;
+                static (int count, string tag) Tally(System.Windows.Controls.Panel host)
+                {
+                    int n = 0; string t = "";
+                    foreach (var child in host.Children)
+                        if (child is System.Windows.Controls.Button b && Lit(b.Background))
+                        { n++; t = b.Tag as string ?? ""; }
+                    return (n, t);
+                }
+
+                var w = new MainWindow { InitialTabIndex = 2 };   // 2 = 显示设置 → 归「设置」组
+                if (w.FindName("SubNavStrip") is not System.Windows.FrameworkElement strip
+                    || w.FindName("SubNavBar") is not System.Windows.Controls.Border bar
+                    || w.FindName("SubNavHost") is not System.Windows.Controls.StackPanel host)
+                    throw new Exception("分段条控件缺失（SubNavStrip / SubNavBar / SubNavHost）");
+                if (bar.CornerRadius.TopLeft <= 0) throw new Exception("分段条底板没套 SegBar（圆角为 0）");
+                if (strip.Visibility != System.Windows.Visibility.Visible)
+                    throw new Exception("「设置」组底下分段条不该收起");
+
+                // ★ SubNavHost 的子项是五个「组容器」，按钮在组容器里 —— 数按钮必须下钻一层，
+                //   直接数 SubNavHost.Children 会数到 0（第一版断言就栽在这）
+                if (w.FindName("SubNavSetting") is not System.Windows.Controls.StackPanel setPanel)
+                    throw new Exception("SubNavSetting 缺失");
+
+                var (n1, t1) = Tally(setPanel);
+                if (n1 != 1) throw new Exception("分段条亮着的项数量不对：" + n1 + "（应为 1）");
+                if (t1 != w.MainTabs.SelectedIndex.ToString())
+                    throw new Exception("亮的不是当前页：Tag=" + t1 + " / SelectedIndex=" + w.MainTabs.SelectedIndex);
+
+                // 换页后高亮必须跟过去，且旧项是清本地值回到透明（不是留两个白块）
+                w.MainTabs.SelectedIndex = 7;
+                var (n2, t2) = Tally(setPanel);
+                if (n2 != 1 || t2 != "7")
+                    throw new Exception("换到「用户中心」后高亮没跟上：亮着 " + n2 + " 项 / Tag=" + t2);
+
+                // 动作项（发布信息 / 帮助）是动作不是页面，永远不许被点亮
+                if (t2 is "publish" or "help")
+                    throw new Exception("动作按钮被当成页面点亮了：" + t2);
+
+                // 全条合计（五组 + 两条竖线）只允许有一块白 —— 组切换后旧组必须清干净
+                int litAll = 0;
+                foreach (var g in host.Children)
+                    if (g is System.Windows.Controls.StackPanel gp) litAll += Tally(gp).count;
+                if (litAll != 1)
+                    throw new Exception("整条分段条亮了 " + litAll + " 块白（只该有 1 块）");
+
+                // 「今日」组没有二级页 —— 整条收起，不留空槽
+                var w2 = new MainWindow { InitialTabIndex = 9 };
+                if (w2.FindName("SubNavStrip") is System.Windows.FrameworkElement strip2
+                    && strip2.Visibility != System.Windows.Visibility.Collapsed)
+                    throw new Exception("「今日」组的分段条没收起");
+                return w;
+            });
+            Check("r167 课程表提示从槽内挪到槽外", () =>
+            {
+                var w = new MainWindow { InitialTabIndex = 0 };   // 周课程表
+                if (w.FindName("TxtSubNavHint") is not System.Windows.Controls.TextBlock hint)
+                    throw new Exception("TxtSubNavHint 缺失");
+                if (hint.Visibility != System.Windows.Visibility.Visible || hint.Text.Length == 0)
+                    throw new Exception("课程表组的分段条提示没显示");
+                if (w.FindName("SubNavWeek") is not System.Windows.Controls.StackPanel week)
+                    throw new Exception("SubNavWeek 不在 / 类型被改（App.xaml.cs 别处按 StackPanel 取它）");
                 return w;
             });
             // P2：重复入口只收起、不物理删除 —— 唯一入口要可见，旧控件要还在（随时可改回 Visible）
@@ -5080,6 +5154,53 @@ public partial class App : System.Windows.Application
                 return w;
             });
 
+            // r167：发布窗下拉统一成 AppCombo（圆角描边 + 完整模板）。
+            // 真正的风险在「可编辑」的那只班级下拉：模板里少了 PART_EditableTextBox，
+            // 就会「能拉开、点不进去、打不了字」—— 一体机上没有右键菜单，名单外的班级
+            // 只能靠老师手打，所以这条必须实测，光看样式套上了不算数。
+            Check("r167 发布窗下拉统一模板（可编辑框能打字）", () =>
+            {
+                var w = new BoardSendWindow(new[] { "一班" }, BoardSyncConsts.EntityNotice);
+                w.Show();
+                w.UpdateLayout();
+
+                var expect = w.TryFindResource("AppCombo") as System.Windows.Style;
+                if (expect == null) throw new Exception("AppCombo 样式丢了");
+
+                var combos = new List<System.Windows.Controls.ComboBox>();
+                void Walk(System.Windows.DependencyObject d)
+                {
+                    // 碰到 ComboBox 就收队，不往它的模板里钻 —— 模板里那个 TextBox 是另一个层级的事
+                    if (d is System.Windows.Controls.ComboBox c) { combos.Add(c); return; }
+                    int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(d);
+                    for (int i = 0; i < n; i++) Walk(System.Windows.Media.VisualTreeHelper.GetChild(d, i));
+                }
+                Walk(w);
+                if (combos.Count < 4) throw new Exception("发布窗下拉数量不对：" + combos.Count);
+                foreach (var c in combos)
+                    if (!ReferenceEquals(c.Style, expect))
+                        throw new Exception("有下拉没套 AppCombo（" + (c.Name.Length == 0 ? "(无名)" : c.Name) + "）");
+
+                var ci = w.ClassInputBox;
+                if (!ci.IsEditable) throw new Exception("班级下拉被改成只读：名单外的班级就打不进去了");
+                if (ci.Template?.FindName("PART_EditableTextBox", ci) is not System.Windows.Controls.TextBox tb)
+                    throw new Exception("可编辑下拉缺 PART_EditableTextBox（能拉开但打不了字）");
+
+                ci.Text = "九年级(9)班";
+                if (!string.Equals(tb.Text, "九年级(9)班", StringComparison.Ordinal))
+                    throw new Exception("打的字没进到模板里的输入框：tb.Text=" + tb.Text);
+
+                // 手写模板第二个常见坑：只画了三角，没把 Popup 接上 —— 看着像下拉，点了没反应。
+                // 这里直接把它掰开，确认弹层真的会开、而且里面有内容。
+                if (ci.Template?.FindName("PART_Popup", ci) is not System.Windows.Controls.Primitives.Popup pop)
+                    throw new Exception("下拉模板缺 PART_Popup（箭头点不动）");
+                ci.IsDropDownOpen = true;
+                if (!pop.IsOpen) throw new Exception("设了 IsDropDownOpen 但弹层没开");
+                if (pop.Child == null) throw new Exception("弹层是空壳，里面没挂列表面板");
+                ci.IsDropDownOpen = false;
+                return w;
+            });
+
             // 发布窗：全屏与语音同一行；通知的全屏 / 语音都用完整内容，其余全屏完整、语音摘要。
             Check("r71 发布窗提醒同一行与完整内容文案", () =>
             {
@@ -5094,8 +5215,22 @@ public partial class App : System.Windows.Application
                 if (!full.Contains("标题：") || !full.Contains("内容：")
                     || !full.Contains("有效期至：") || !full.Contains("明天带跳绳"))
                     throw new Exception("通知的完整内容没带齐标题 / 正文 / 截止日期：" + full);
-                if (w.DiagVoiceText != full)
-                    throw new Exception("通知的语音播报应念完整内容（含新增字段）");
+                // r167：播报词与全屏卡片分家 —— 全屏是给人「看」的，需要字段标签；
+                // 语音是给人「听」的，念「本班通知」「标题：」纯是噪音。
+                string voice = w.DiagVoiceText;
+                if (voice.Contains("本班通知") || voice.Contains("标题：") || voice.Contains("内容：")
+                    || voice.Contains("有效期至"))
+                    throw new Exception("播报词里还带着字段标签（念出来是噪音）：" + voice);
+                if (!voice.Contains("明天带跳绳") || !voice.Contains("自备跳绳"))
+                    throw new Exception("播报词没把标题和正文都念上：" + voice);
+                if (!voice.EndsWith("。", StringComparison.Ordinal))
+                    throw new Exception("播报词结尾没补句号，念起来会和下一句粘住：" + voice);
+
+                // 播报框要「看得见全文」：自动长高的前提是不写死 Height（写了就量不长）
+                if (w.VoiceTextBox.Height is double h && !double.IsNaN(h))
+                    throw new Exception("播报框被写死了 Height=" + h + "，不会随内容变高");
+                if (w.VoiceTextBox.TextWrapping != TextWrapping.Wrap)
+                    throw new Exception("播报框没开自动换行，长内容会被挤成一行看不到尾巴");
 
                 var hw = new BoardSendWindow(new[] { "一班" }, BoardSyncConsts.EntityHomework);
                 hw.Field1Box.Text = "语文";
@@ -6429,7 +6564,10 @@ public partial class App : System.Windows.Application
                     var clsPnl = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClasses")!;
                     var clsRows = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClassRows")!;
                     var stPnl = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayStatus")!;
-                    var clsActs = (System.Windows.Controls.StackPanel)w.FindName("PnlTodayClassActions")!;
+                    // r167：动作行容器从 StackPanel 换成 DockPanel（链接贴左、按钮贴右）。
+                    // 断言只关心「这块在不在、显不显示」，跟容器是哪种面板无关，所以类型放宽到 FrameworkElement ——
+                    // 以后再换容器也不用回来改这里（上一轮就是因为按 StackPanel 硬转，换 DockPanel 直接抛 InvalidCast）
+                    var clsActs = (System.Windows.FrameworkElement)w.FindName("PnlTodayClassActions")!;
                     if (title4.Text != "我的班级速览")
                         throw new Exception("教师模式下第四张卡标题还是「" + title4.Text + "」");
                     if (clsPnl.Visibility != Visibility.Visible || stPnl.Visibility != Visibility.Collapsed)
@@ -6493,16 +6631,30 @@ public partial class App : System.Windows.Application
                         bool mineFlag = (bool)typeof(BoardSyncWindow).GetField("_mineOnly", bfl)!.GetValue(ledger)!;
                         if (mineFlag != PendingTodoService.MineOnlyDefault)
                             throw new Exception("台账「只看我发的」默认值与今日卡口径不一致");
-                        var boxMine = (System.Windows.Controls.CheckBox)
-                            typeof(BoardSyncWindow).GetField("_mineOnlyBox", bfl)!.GetValue(ledger)!;
-                        if (boxMine.IsChecked != PendingTodoService.MineOnlyDefault)
-                            throw new Exception("勾选框状态与内部筛选状态对不上");
-                        if (BoardSyncService.IsClassroomMachine && boxMine.Visibility != Visibility.Collapsed)
+                        // r167：勾选框换成筛选下拉 —— 看下拉里有没有「只看我发的」项、
+                        // 选中的是不是它，两件事都要对得上内部状态
+                        var filterBox = (System.Windows.Controls.ComboBox)
+                            typeof(BoardSyncWindow).GetField("_filter", bfl)!.GetValue(ledger)!;
+                        string key = (string)typeof(BoardSyncWindow).GetField("_filterKey", bfl)!.GetValue(ledger)!;
+                        bool hasMine = filterBox.Items.Cast<System.Windows.Controls.ComboBoxItem>()
+                                                .Any(i => (i.Tag as string) == "mine");
+                        if ((key == "mine") != PendingTodoService.MineOnlyDefault)
+                            throw new Exception("筛选下拉的默认项与今日卡口径不一致：key=" + key);
+                        if (!hasMine && mineFlag)
+                            throw new Exception("下拉里没有「只看我发的」，内部却还开着这个筛选");
+                        if (BoardSyncService.IsClassroomMachine && hasMine)
                             throw new Exception("教室机上还留着「只看我发的」（收件箱按人筛会漏单）");
+                        // 状态筛选的 5 个项目必须齐：全部 / 未处理 / 已处理 / 冲突 / 撤回
+                        if (filterBox.Items.Count < (hasMine ? 6 : 5))
+                            throw new Exception("筛选下拉选项不全，只有 " + filterBox.Items.Count + " 项");
+                        if (typeof(BoardSyncWindow).GetField("_range", bfl)!.GetValue(ledger)
+                            is not System.Windows.Controls.ComboBox rangeBox || rangeBox.Items.Count < 1)
+                            throw new Exception("时间范围下拉缺失（原「显示全部」勾选框的位置）");
 
                         var shown = (List<BoardMessageRecord>)
                             typeof(BoardSyncWindow).GetField("_records", bfl)!.GetValue(ledger)!;
-                        if (shown.Any(r => !PendingTodoService.IsMine(r.Order)))
+                        // 这条只在「只看我发的」真的生效时才有意义（默认视图 / 默认口径下生效才查）
+                        if (key == "mine" && shown.Any(r => !PendingTodoService.IsMine(r.Order)))
                             throw new Exception("台账列表混进了别人发的单");
                     }
                     finally { ledger.Close(); }
@@ -9367,6 +9519,21 @@ public partial class App : System.Windows.Application
         return w;
     }
 
+    /// <summary>
+    /// 诊断截图：长通知下的发布窗。
+    /// <para>看两件事：① 播报内容框会不会随文字长高（不再只露一行）；② 播报词里有没有「本班通知 / 标题：」
+    /// 这些念出来纯属噪音的标签。两件事都得肉眼确认，光靠断言只能确认控件属性对不对。</para>
+    /// </summary>
+    private static Window DiagBoardSendLongNotice()
+    {
+        var w = new BoardSendWindow(new[] { "八年级(1)班" }, BoardSyncConsts.EntityNotice);
+        w.Field1Box.Text = "本周五秋季运动会";
+        w.Field2Box.Text = "本周五上午八点在学校操场举行秋季运动会，请全体同学七点四十到班集合，"
+                         + "穿运动服和运动鞋，带好水杯和遮阳帽。当天不上晚自习，下午四点放学。"
+                         + "有身体不适的同学请提前告知班主任。";
+        return w;
+    }
+
     /// <summary>诊断截图：手动录入窗口（带一个班的课 + 已保存的课程设置 + 一个课表方案）。</summary>
     private static Window DiagManualWindow()
     {
@@ -9893,24 +10060,58 @@ public partial class App : System.Windows.Application
             Check("教室机标记已撤回", rvr != null && rvr.Status == BoardSyncConsts.StRevoked,
                   rvr?.Status ?? "null");
 
-            // 台账展示：撤回通知默认不列（原记录已是「已撤回」），勾「显示全部」仍能查到
+            // 台账展示：撤回通知默认不列（原记录已是「已撤回」），选「全部时段」或「只看撤回」仍能查到
             // ★ 发送箱是教师机视角，必须先切回教师机；教室机台账里这些记录是 DirIn，不在 Outbox。
             UseMachine(teacherDir, "a-teacher");
             var ledgerDiag = new BoardSyncWindow();
             try
             {
                 var lf = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-                var viewBox = (System.Windows.Controls.ComboBox)
-                    typeof(BoardSyncWindow).GetField("_view", lf)!.GetValue(ledgerDiag)!;
+                object Field(string n) => typeof(BoardSyncWindow).GetField(n, lf)!.GetValue(ledgerDiag)!;
+                List<BoardMessageRecord> Recs() => (List<BoardMessageRecord>)Field("_records");
+
+                var viewBox = (System.Windows.Controls.ComboBox)Field("_view");
                 viewBox.SelectedIndex = 1;   // 发送箱；SelectedIndex 变化会触发 Refresh
-                var recs = (List<BoardMessageRecord>)
-                    typeof(BoardSyncWindow).GetField("_records", lf)!.GetValue(ledgerDiag)!;
-                Check("发送箱默认不列撤回通知", !recs.Any(r => r.Order.IsRevoke));
-                typeof(BoardSyncWindow).GetField("_showAll", lf)!.SetValue(ledgerDiag, true);
-                typeof(BoardSyncWindow).GetMethod("Refresh", lf)!.Invoke(ledgerDiag, null);
-                recs = (List<BoardMessageRecord>)
-                    typeof(BoardSyncWindow).GetField("_records", lf)!.GetValue(ledgerDiag)!;
-                Check("显示全部能查到撤回通知", recs.Any(r => r.Order.IsRevoke));
+                Check("发送箱默认不列撤回通知", !Recs().Any(r => r.Order.IsRevoke));
+
+                // r167：筛选从「两个勾选框」改成「两个下拉」—— 每一项都必须真的筛住，
+                // 不能只是换了个标签（下拉最容易出的错就是「选了没反应」）。
+                var filterBox = (System.Windows.Controls.ComboBox)Field("_filter");
+                var rangeBox = (System.Windows.Controls.ComboBox)Field("_range");
+                int IdxOf(string key)
+                {
+                    for (int i = 0; i < filterBox.Items.Count; i++)
+                        if ((filterBox.Items[i] as System.Windows.Controls.ComboBoxItem)?.Tag as string == key) return i;
+                    return -1;
+                }
+                Check("筛选下拉备齐 状态项", IdxOf("pending") >= 0 && IdxOf("done") >= 0
+                      && IdxOf("conflict") >= 0 && IdxOf("revoke") >= 0);
+                Check("时间范围下拉有 2 档", rangeBox.Items.Count == 2);
+                Check("教师机发送箱有「只看我发的」", IdxOf("mine") >= 0);
+
+                filterBox.SelectedIndex = IdxOf("revoke");
+                var revs = Recs();
+                Check("只看撤回记录：列表里只有撤回单", revs.Count > 0 && revs.All(r => r.Order.IsRevoke));
+                filterBox.SelectedIndex = IdxOf("all");
+
+                rangeBox.SelectedIndex = rangeBox.Items.Count - 1;   // 全部时段（含更早）
+                Check("全部时段能查到撤回通知", Recs().Any(r => r.Order.IsRevoke));
+                rangeBox.SelectedIndex = 0;                          // 回到「最近 N 天」
+
+                filterBox.SelectedIndex = IdxOf("pending");
+                Check("只看未处理：没有已终结 / 撤回 / 冲突的单",
+                      Recs().All(r => !r.IsTerminal && !r.Order.IsRevoke
+                                      && r.Status != BoardSyncConsts.StConflict));
+
+                filterBox.SelectedIndex = IdxOf("done");
+                Check("只看已处理：每条都已终结或已应用",
+                      Recs().All(r => r.Status != BoardSyncConsts.StConflict
+                                      && (r.IsTerminal || r.Status == BoardSyncConsts.StApplied)));
+
+                filterBox.SelectedIndex = IdxOf("all");
+                rangeBox.SelectedIndex = rangeBox.Items.Count - 1;
+                Check("切回「全部记录 + 全部时段」把单子放回来",
+                      Recs().Count > 0 && Recs().Any(r => !r.Order.IsRevoke));
             }
             finally { ledgerDiag.Close(); UseMachine(classDir, "a-classroom"); }
 

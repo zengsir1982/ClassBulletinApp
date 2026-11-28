@@ -41,26 +41,47 @@ public class BoardSyncWindow : Window
     // 设置项全部集中到控制面板「信息管理」页，这里只保留发布入口，界面不再堆一排输入框。
     readonly Wpf.Button _send = new() { Content = "＋ 发布信息", Padding = new Thickness(12, 5, 12, 5) };
 
-    /// <summary>勾上 = 不按保留期过滤，把更早的记录也列出来（默认只看最近 N 天）。</summary>
-    readonly Wpf.CheckBox _showAllBox = new()
-    {
-        Content = "显示全部", FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, 0, 10, 0),
-        ToolTip = "默认只列最近 N 天的记录（N 在「信息管理 → ③ 同步设置」里改，默认 7 天），发送箱也不列撤回通知；勾上则连更早的记录和撤回通知一起显示"
-    };
+    // ---------------- r167：列表筛选改成两个下拉 ----------------
+    // 原来是「只看我发的」+「显示全部」两个勾选框。问题在教室机上：「只看我发的」被整个藏掉，
+    // 那一行只剩一个「显示全部」，看起来像根本筛不了东西。现在拆成两个维度、都用下拉：
+    //   查什么（谁发的 / 状态）  ×  查多久以前（保留期 / 全部时段）
+    // 两个维度独立，互不吞掉对方 —— 比如「只看未处理 + 全部时段」这种组合以前做不出来。
 
-    /// <summary>
-    /// 「只看我发的」（r158）：教师机上多人共用一台机器时，A 老师不该在列表里看到 B 老师的单。
-    /// <para>★ 口径与今日卡 / 托盘角标完全一致（<see cref="PendingTodoService.IsMine"/>），
-    /// 否则会出现「今日卡说 2 条、这里列 5 条」，让人以为丢单。</para>
-    /// </summary>
-    readonly Wpf.CheckBox _mineOnlyBox = new()
+    /// <summary>筛选键：全部记录。</summary>
+    const string FAll = "all";
+    /// <summary>筛选键：只看我发的（仅教师机发送箱）。</summary>
+    const string FMine = "mine";
+    /// <summary>筛选键：待裁决 / 待核对 / 待重试。</summary>
+    const string FPending = "pending";
+    /// <summary>筛选键：已应用 / 已核对 / 已忽略 / 已过期。</summary>
+    const string FDone = "done";
+    /// <summary>筛选键：有冲突。</summary>
+    const string FConflict = "conflict";
+    /// <summary>筛选键：撤回记录。</summary>
+    const string FRevoke = "revoke";
+
+    readonly Wpf.ComboBox _filter = new()
     {
-        Content = "只看我发的", FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, 0, 10, 0),
-        ToolTip = "只列发件人是当前登录账号的记录（发件人为空的老记录仍会列出，避免漏单）；"
-                + "教室机看的是本班所有到件，不参与这个筛选"
+        Width = 200, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
+        ToolTip = "按「谁发的 / 办到哪一步」筛；「全部时段」在右边那个下拉里"
     };
+    /// <summary>时间范围（原「显示全部」勾选框）。</summary>
+    readonly Wpf.ComboBox _range = new()
+    {
+        Width = 170, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(8, 0, 0, 0),
+        ToolTip = "默认只列最近 N 天的记录（N 在「信息管理 → ③ 同步设置」里改）；"
+                + "更早的记录选「全部时段」再翻，未处理的不受保留期限制"
+    };
+    /// <summary>筛选结果提示：条数 + 被时间 / 条件各筛掉多少，免得以为丢单。</summary>
+    readonly Wpf.TextBlock _filterHint = new()
+    {
+        FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(10, 0, 0, 0),
+        Foreground = new SolidColorBrush(Muted)
+    };
+    /// <summary>代码在重建下拉项 / 同步选中项，别把 SelectionChanged 当成用户操作。</summary>
+    bool _filterSync, _rangeSync;
 
     /// <summary>「清除台账…」：唯一会真的删记录的地方，只对教师 / 管理员开放。</summary>
     readonly Wpf.Button _clear = new()
@@ -68,12 +89,19 @@ public class BoardSyncWindow : Window
         Content = "🧹 清除台账…", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 10, 0)
     };
 
-    /// <summary>是否显示全部（不受保留期限制）。</summary>
+    /// <summary>是否「全部时段」（不受保留期限制）。由右边那个下拉驱动。</summary>
     bool _showAll;
 
     /// <summary>
-    /// 是否「只看我发的」（r158）。默认值直接取今日卡 / 托盘角标同一口径，
+    /// 当前筛选键（<see cref="FAll"/> / <see cref="FMine"/> / …）。
+    /// <para>★ 这是「查什么」的唯一真源，Refresh 只认它；<see cref="_mineOnly"/> 是镜像。</para>
+    /// </summary>
+    string _filterKey = PendingTodoService.MineOnlyDefault ? FMine : FAll;
+
+    /// <summary>
+    /// 「只看我发的」镜像（r158 起就在，待办条与诊断读它）。默认值直接取今日卡 / 托盘角标同一口径，
     /// 老师打开台账看到的条数与角标一致；教室机上这个筛选无意义（收件箱看的是本班全部到件）。
+    /// <para>★ 只由筛选下拉的 SelectionChanged 和 <see cref="RebuildFilterItems"/> 写，别处一律只读。</para>
     /// </summary>
     bool _mineOnly = PendingTodoService.MineOnlyDefault;
 
@@ -141,7 +169,7 @@ public class BoardSyncWindow : Window
         _view.SelectedIndex = UserSession.IsStudent ? 0 : 1;
         _view.Width = 190;
         _view.Margin = new Thickness(0, 0, 10, 0);
-        _view.SelectionChanged += (_, _) => Refresh();
+        _view.SelectionChanged += (_, _) => { RebuildFilterItems(); Refresh(); };
         head.Children.Add(_view);
 
         var btnRefresh = new Wpf.Button { Content = "↻ 立即检查", Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(0, 0, 10, 0) };
@@ -153,16 +181,7 @@ public class BoardSyncWindow : Window
         _send.Click += (_, _) => DoSend();
         head.Children.Add(_send);
 
-        // r158：两个筛选复选框从顶栏挪到独立一行 —— 顶栏加上它们会把「关闭」挤出窗口右边缘
-        // （1040 宽时刚好差 80px），而且「筛选」本来就和「动作」不是一类东西，分开更好读。
-        _mineOnlyBox.IsChecked = _mineOnly;
-        _mineOnlyBox.Checked += (_, _) => { _mineOnly = true; Refresh(); };
-        _mineOnlyBox.Unchecked += (_, _) => { _mineOnly = false; Refresh(); };
-
-        // 保留期：默认只看最近 N 天（未处理的永远显示），更早的点「显示全部」还能翻回来
-        _showAllBox.Checked += (_, _) => { _showAll = true; Refresh(); };
-        _showAllBox.Unchecked += (_, _) => { _showAll = false; Refresh(); };
-
+        // r167：筛选条的两个下拉在下面 filters 那一段接事件（这里是旧的两个勾选框，已删）。
         _clear.Click += (_, _) => ClearLedgerNow();
         head.Children.Add(_clear);
 
@@ -216,7 +235,7 @@ public class BoardSyncWindow : Window
         grid.Children.Add(todoWrap);
         _todoButtons = new[] { btnJudge, btnVerify, btnConflict };
 
-        // ---- r158 列表筛选条：按谁发的筛（人） + 按多久以前筛（时间），两个条件独立 ----
+        // ---- r167 列表筛选条：查什么（下拉） × 查多久以前（下拉） ----
         var filters = new Wpf.StackPanel
         {
             Orientation = Wpf.Orientation.Horizontal,
@@ -227,8 +246,23 @@ public class BoardSyncWindow : Window
             Text = "列表筛选", FontSize = 12, Foreground = new SolidColorBrush(Muted),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0)
         });
-        filters.Children.Add(_mineOnlyBox);
-        filters.Children.Add(_showAllBox);
+        _filter.SelectionChanged += (_, _) =>
+        {
+            if (_filterSync) return;
+            _filterKey = (_filter.SelectedItem as Wpf.ComboBoxItem)?.Tag as string ?? FAll;
+            // _mineOnly 是给待办条和诊断读的镜像：只在一个地方算出来，别两处各判一次
+            _mineOnly = _filterKey == FMine;
+            Refresh();
+        };
+        _range.SelectionChanged += (_, _) =>
+        {
+            if (_rangeSync) return;
+            _showAll = _range.SelectedItem is Wpf.ComboBoxItem ri && ri.Tag is bool rb && rb;
+            Refresh();
+        };
+        filters.Children.Add(_filter);
+        filters.Children.Add(_range);
+        filters.Children.Add(_filterHint);
         Wpf.Grid.SetRow(filters, 3);
         grid.Children.Add(filters);
 
@@ -365,17 +399,10 @@ public class BoardSyncWindow : Window
         _send.ToolTip = can ? "发布作业 / 缺交 / 通知信息给所选班级"
                             : UserSession.DenyPublishInfo;
 
-        // r158：「只看我发的」只给教师机。教室机收件箱要确认的是本班全部到件，
-        // 隐藏起来比禁用更好 —— 放着不勾也会让人怀疑「是不是漏了别人发来的」。
-        bool isClassroom = BoardSyncService.IsClassroomMachine;
-        _mineOnlyBox.Visibility = isClassroom ? Visibility.Collapsed : Visibility.Visible;
-        if (isClassroom && _mineOnly)
-        {
-            _mineOnly = false;
-            _mineOnlyBox.IsChecked = false;
-        }
-        string me = (UserSession.Current?.Username ?? "").Trim();
-        _mineOnlyBox.Content = me.Length > 0 ? "只看我发的（" + me + "）" : "只看我发的";
+        // r167：两个下拉的候选项按「当前视图 + 这台机器」重建：
+        // 「只看我发的」只在教师机的发送箱出现 —— 教室机收件箱要确认的是本班全部到件，
+        // 列出来人反而会怀疑「是不是漏了别人发来的」。
+        RebuildFilterItems();
 
         // 清除只给教师 / 管理员：电教管理员误清会把待处理消息一起清掉
         _clear.IsEnabled = !UserSession.IsStudent && Store.EnablePersistence;
@@ -395,6 +422,91 @@ public class BoardSyncWindow : Window
     }
 
     bool IsOut => (_view.SelectedItem as Wpf.ComboBoxItem)?.Tag as string == "out";
+
+    /// <summary>
+    /// 重建两个筛选下拉的候选项（切视图 / 换机器 / 打开窗口时各来一次）。
+    /// <para>★ 重建时必须挂 _filterSync / _rangeSync：Items.Clear() 会把 SelectedIndex 打成 -1，
+    /// 不挡住就会触发 SelectionChanged → 把 _filterKey 覆成「全部记录」再 Refresh 一次，
+    /// 结果就是「切个视图筛选自己就复位了」。</para>
+    /// </summary>
+    void RebuildFilterItems()
+    {
+        string me = (UserSession.Current?.Username ?? "").Trim();
+        bool allowMine = !BoardSyncService.IsClassroomMachine && IsOut;
+
+        _filterSync = true;
+        try
+        {
+            _filter.Items.Clear();
+            void Add(string label, string key)
+                => _filter.Items.Add(new Wpf.ComboBoxItem { Content = label, Tag = key });
+            Add("全部记录", FAll);
+            if (allowMine)
+                Add(me.Length > 0 ? "只看我发的（" + me + "）" : "只看我发的", FMine);
+            Add("只看未处理", FPending);
+            Add("只看已处理", FDone);
+            Add("只看有冲突", FConflict);
+            Add("只看撤回记录", FRevoke);
+
+            // 找回原来那一项；这台机器 / 这个视图没有它（比如切到收件箱时的「只看我发的」）就落回全部
+            int idx = 0;
+            for (int i = 0; i < _filter.Items.Count; i++)
+                if ((_filter.Items[i] as Wpf.ComboBoxItem)?.Tag as string == _filterKey) { idx = i; break; }
+            _filter.SelectedIndex = idx;
+            _filterKey = (_filter.Items[idx] as Wpf.ComboBoxItem)?.Tag as string ?? FAll;
+            _mineOnly = _filterKey == FMine;
+        }
+        finally { _filterSync = false; }
+
+        int keep = KeepDays();
+        _rangeSync = true;
+        try
+        {
+            _range.Items.Clear();
+            if (keep <= 0)
+            {
+                // 保留期设成 0 = 本来就不限时间，别摆一个点了没反应的「最近 0 天」
+                _showAll = true;
+                _range.Items.Add(new Wpf.ComboBoxItem { Content = "全部时段", Tag = true });
+                _range.SelectedIndex = 0;
+            }
+            else
+            {
+                _range.Items.Add(new Wpf.ComboBoxItem { Content = "最近 " + keep + " 天", Tag = false });
+                _range.Items.Add(new Wpf.ComboBoxItem { Content = "全部时段（含更早）", Tag = true });
+                _range.SelectedIndex = _showAll ? 1 : 0;
+            }
+            _range.IsEnabled = keep > 0;
+        }
+        finally { _rangeSync = false; }
+    }
+
+    /// <summary>
+    /// 「查什么」的判定。
+    /// <para>★「只看我发的」走 <see cref="PendingTodoService.IsMine"/> —— 与今日卡 / 托盘角标同一口径，
+    /// 两处各写一份就会出现「今日卡说 2 条、这里列 5 条」。发件人为空的老记录算「我的」，宁可多列不漏单。</para>
+    /// </summary>
+    bool FilterPredicate(BoardMessageRecord r)
+    {
+        switch (_filterKey)
+        {
+            case FMine:
+                return PendingTodoService.IsMine(r.Order);
+            case FPending:
+                // 待重试（StRetry）也在这里：它同样还没办完
+                return !r.IsTerminal && !r.Order.IsRevoke && r.Status != BoardSyncConsts.StConflict;
+            case FDone:
+                // 已应用不是 IsTerminal（后面还要核对一次），但老师眼里它已经办完了
+                return r.Status != BoardSyncConsts.StConflict
+                       && (r.IsTerminal || r.Status == BoardSyncConsts.StApplied);
+            case FConflict:
+                return r.Status == BoardSyncConsts.StConflict;
+            case FRevoke:
+                return r.Order.IsRevoke;
+            default:
+                return true;
+        }
+    }
 
     async void DoPull()
     {
@@ -524,30 +636,29 @@ public class BoardSyncWindow : Window
         {
             var st = BoardSyncService.LoadState();
             var all = IsOut ? BoardSyncService.Outbox(st) : BoardSyncService.Inbox(st);
+            int total = all.Count;
 
-            // r158：只对「发件箱」按发件人筛。收件箱（教室机）看的是本班<b>所有</b>到件，
-            // 按人筛会漏单 —— 那正是电教管理员最怕的事。
-            _mineHidden = 0;
-            if (IsOut && _mineOnly)
-            {
-                var kept = all.Where(r => PendingTodoService.IsMine(r.Order)).ToList();
-                _mineHidden = all.Count - kept.Count;
-                all = kept;
-            }
+            // r167：先按「查什么」筛，再按「查多久以前」筛 —— 两个维度分开算，
+            // 提示里各报各的数，才说得清「一条都没了」到底是筛掉了还是时间挡住了。
+            var byFilter = all.Where(FilterPredicate).ToList();
+            int hiddenByFilter = total - byFilter.Count;
+            _mineHidden = _filterKey == FMine ? hiddenByFilter : 0;
 
-            // 保留期只影响「默认显示哪一段」：勾了「显示全部」就一股脑列出来。
             // ★ 未处理的收件箱不受保留期影响（见 FilterByKeepDays），避免消息被藏起来。
             int keepDays = KeepDays();
-            var withinKeep = _showAll ? all : BoardSyncService.FilterByKeepDays(all, keepDays);
-            int hiddenByTime = all.Count - withinKeep.Count;
+            var withinKeep = _showAll ? byFilter : BoardSyncService.FilterByKeepDays(byFilter, keepDays);
+            int hiddenByTime = byFilter.Count - withinKeep.Count;
+
             // 撤回通知只是技术回执：原记录已经显示「已撤回」，默认不该再列一条
-            // 「[已发出] … 撤回：xxx」让人误以为又发了新信息。勾「显示全部」仍可查审计痕迹。
-            var shown = IsOut && !_showAll
-                ? withinKeep.Where(r => !r.Order.IsRevoke).ToList()
-                : withinKeep;
-            _showAllBox.Content = hiddenByTime > 0
-                ? $"显示全部（另有 {hiddenByTime} 条更早）" : "显示全部";
+            // 「[已发出] … 撤回：xxx」让人误以为又发了新信息。
+            // 选「全部时段」或明确选「只看撤回记录」时才列 —— 那是审计痕迹，不是新消息。
+            bool hideRevoke = IsOut && !_showAll && _filterKey != FRevoke;
+            var shown = hideRevoke ? withinKeep.Where(r => !r.Order.IsRevoke).ToList() : withinKeep;
             _records = shown;
+
+            _filterHint.Text = "共 " + shown.Count + " 条"
+                + (hiddenByTime > 0 ? "，另有 " + hiddenByTime + " 条更早（时间范围里可见）" : "")
+                + (hiddenByFilter > 0 ? "；按当前条件筛掉 " + hiddenByFilter + " 条" : "");
 
             int prev = _list.SelectedIndex;
             _list.Items.Clear();

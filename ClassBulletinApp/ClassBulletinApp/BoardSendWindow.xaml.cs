@@ -78,7 +78,7 @@ public class BoardSendWindow : Window
     /// <summary>通知专用「直接增加」：教室机自动收下，不用电教管理员点确认。</summary>
     readonly Wpf.CheckBox _auto = new()
     {
-        Content = "⚡ 直接增加（教室机自动收下，无需电教管理员确认）",
+        Content = "直接增加（教室机自动收下，无需电教管理员确认）",
         FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         ToolTip = "只会往教室机新增一条通知，不替换 / 不删除原有内容；删除或替换仍必须由电教管理员确认"
     };
@@ -138,7 +138,7 @@ public class BoardSendWindow : Window
 
     readonly Wpf.CheckBox _force = new()
     {
-        Content = "🖥 课间全屏提醒",
+        Content = "课间全屏提醒",
         FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         ToolTip = "勾上后教室机会在课间 / 放学后用整屏大字提示一次；上课时间绝不打断课堂。" +
                   "全屏内容自动取本次发送的标题与完整正文，不用另填"
@@ -147,7 +147,7 @@ public class BoardSendWindow : Window
     // 通知默认勾上；时机默认「课间播」，最急的可以改成「收到就播」。
     readonly Wpf.CheckBox _voice = new()
     {
-        Content = "🔊 语音提醒",
+        Content = "语音提醒",
         FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         ToolTip = "勾上后教室机用系统语音把播报内容念一遍；发布本班通知时默认勾上"
     };
@@ -156,7 +156,21 @@ public class BoardSendWindow : Window
         Width = 148, FontSize = 12, Margin = new Thickness(10, 0, 0, 0),
         ToolTip = "课间播 = 上课时间先排队，下课再念（默认）；收到就播 = 上课也立刻念，只给真正紧急的通知用"
     };
-    readonly Wpf.TextBox _voiceText = new() { Width = 420, FontSize = 12 };
+    /// <summary>
+    /// 播报文字。r167：改成「按内容自动长高」——
+    /// 通知念的是整段正文，原来那一个固定单行框只能露出十来个字，
+    /// 老师根本看不出教室机等会儿会念什么。
+    /// <para>★ 不设 Height，靠 MinLines / MaxLines 让它自己量：1 行起步、最多长到 5 行，
+    /// 再长就在框里滚动。设了 Height 就不会自适应了。</para>
+    /// <para>★ AcceptsReturn 保持 false：Enter 不该往播报词里插换行，
+    /// 换行只由自动折行产生（TextWrapping=Wrap 已经能触发多行样式）。</para>
+    /// </summary>
+    readonly Wpf.TextBox _voiceText = new()
+    {
+        Width = 420, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+        MinLines = 1, MaxLines = 5,
+        VerticalScrollBarVisibility = Wpf.ScrollBarVisibility.Auto
+    };
     bool _voiceTouched;        // 用户亲手改过勾选：切换内容类型时不再自动勾 / 取消
     bool _voiceTextTouched;    // 用户亲手改过播报文字：不再用默认文案覆盖
     bool _voiceSync;           // 代码在改勾选 / 文字（不是用户操作），别把事件当成用户改动
@@ -212,6 +226,8 @@ public class BoardSendWindow : Window
     internal string DiagFullText => ComposeFullText();
     internal string DiagVoiceText => ComposeDefaultVoiceText();
     internal string DiagVoiceInput => _voiceText.Text ?? "";
+    /// <summary>诊断用：播报框本身 —— 要验「不写死高度、开了自动换行」这两条。</summary>
+    internal Wpf.TextBox VoiceTextBox => _voiceText;
 
     /// <summary>诊断用：程序化切换「一次安排一周」并立刻重画（Click 事件不会因代码赋值而触发）。</summary>
     internal void SetWeekModeForDiag(bool on)
@@ -256,14 +272,100 @@ public class BoardSendWindow : Window
         _presetEntity = entity;
 
         BuildUi();
+        // r166：窗内所有 TextBox 在加载后统一成圆角输入框（各控件本地设过的 Height 仍然优先）
+        Loaded += (_, _) => ApplyRoundedInputs(this);
     
         GlassChrome.Prepare(this);}
 
+    // ---------------- r166：黑板发送窗视觉收敛 ----------------
+
+    /// <summary>
+    /// 单行输入框的圆角外观。WPF 默认 TextBox 模板是直角 + 系统描边，和主窗口的卡片风完全不像一个程序；
+    /// 这里只做「圆角 8 + 1px 输入描边 + 聚焦时主色」，其余全部交给控件自己的本地值。
+    /// </summary>
+    static readonly Style RoundedInput = BuildRoundedInput(multiline: false);
+
+    /// <summary>多行输入框（作业内容）：同样的框，但内距上下留 6，不锁高度。</summary>
+    static readonly Style RoundedInputMulti = BuildRoundedInput(multiline: true);
+
+    static Style BuildRoundedInput(bool multiline)
+    {
+        string height = multiline ? "" : "<Setter Property='Height' Value='32'/>";
+        string padding = multiline ? "8,6" : "8,0";
+        string vertical = multiline ? "Stretch" : "Center";
+        string xaml = @"<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+            xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type TextBox}'>"
+            + height +
+            @"<Setter Property='Padding' Value='" + padding + @"'/>
+          <Setter Property='VerticalContentAlignment' Value='" + vertical + @"'/>
+          <Setter Property='BorderThickness' Value='1'/>
+          <Setter Property='BorderBrush' Value='#C7CFDA'/>
+          <Setter Property='Background' Value='White'/>
+          <Setter Property='Foreground' Value='#1B2836'/>
+          <Setter Property='Template'>
+            <Setter.Value>
+              <ControlTemplate TargetType='{x:Type TextBox}'>
+                <Border x:Name='Bd' CornerRadius='8' Background='{TemplateBinding Background}'
+                        BorderBrush='{TemplateBinding BorderBrush}' BorderThickness='{TemplateBinding BorderThickness}'>
+                  <ScrollViewer x:Name='PART_ContentHost' Margin='{TemplateBinding Padding}' VerticalAlignment='{TemplateBinding VerticalContentAlignment}'/>
+                </Border>
+                <ControlTemplate.Triggers>
+                  <Trigger Property='IsKeyboardFocusWithin' Value='True'>
+                    <Setter TargetName='Bd' Property='BorderBrush' Value='#1E4FA3'/>
+                  </Trigger>
+                  <Trigger Property='IsEnabled' Value='False'>
+                    <Setter TargetName='Bd' Property='Background' Value='#F4F6FA'/>
+                  </Trigger>
+                </ControlTemplate.Triggers>
+              </ControlTemplate>
+            </Setter.Value>
+          </Setter>
+        </Style>";
+        return (Style)System.Windows.Markup.XamlReader.Parse(xaml);
+    }
+
+    /// <summary>
+    /// 递归套用输入框 / 下拉框外观。
+    /// <para>r166 只处理 TextBox —— 当时怕换 ComboBox 模板把「可编辑下拉」弄坏。</para>
+    /// <para>r167：ComboBox 一并用 AppCombo（完整模板，PART_EditableTextBox 已写进模板里），
+    /// 可编辑的那个班级下拉照常能打字、回车、回填。</para>
+    /// <para>★ ComboBox 分支必须 continue，不能往里递归：模板里的 PART_EditableTextBox 也是 TextBox，
+    /// 递归进去会被套上 RoundedInput，可编辑下拉就变成「圆角框套圆角框」。</para>
+    /// </summary>
+    void ApplyRoundedInputs(DependencyObject root)
+    {
+        int n = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < n; i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is Wpf.TextBox tb)
+            {
+                tb.Style = (tb.AcceptsReturn || tb.TextWrapping != TextWrapping.NoWrap)
+                    ? RoundedInputMulti : RoundedInput;
+            }
+            else if (child is Wpf.ComboBox cb)
+            {
+                if (TryFindResource("AppCombo") is Style comboStyle) cb.Style = comboStyle;
+                continue;
+            }
+            ApplyRoundedInputs(child);
+        }
+    }
+
+    /// <summary>
+    /// 行标签。r167：改成「固定 68 + 右留 8」= 内容列从 76 起 —— 和原来一样宽，
+    /// 但文字靠右贴住输入框，标签不再参差不齐地吊在左边，一眼能顺着右边缘找到框。
+    /// </summary>
     static Wpf.TextBlock Lab(string text) => new()
     {
-        Text = text, FontSize = 13, Width = 92, VerticalAlignment = VerticalAlignment.Center,
-        Foreground = new SolidColorBrush(Color.FromRgb(0x44, 0x55, 0x66))
+        Text = text, FontSize = 13, Width = 68, TextAlignment = TextAlignment.Right,
+        Margin = new Thickness(0, 0, 8, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = new SolidColorBrush(Color.FromRgb(0x47, 0x54, 0x67))
     };
+
+    /// <summary>表单项左边距 = 标签列宽（76）。缩进的整行（勾选框 / 提示）都用它，别再手写数字。</summary>
+    const double FormIndent = 76;
 
     static Wpf.StackPanel Row(params UIElement[] children)
     {
@@ -355,7 +457,7 @@ public class BoardSendWindow : Window
     void BuildWeekTable()
     {
         _weekPanel.Orientation = Wpf.Orientation.Vertical;
-        _weekPanel.Margin = new Thickness(92, 0, 0, 12);
+        _weekPanel.Margin = new Thickness(FormIndent, 0, 0, 12);
         _weekPanel.Children.Add(new Wpf.TextBlock
         {
             Text = "一周值日安排（留空的行自动跳过）", FontSize = 13, FontWeight = FontWeights.SemiBold,
@@ -529,9 +631,31 @@ public class BoardSendWindow : Window
         return sb.ToString();
     }
 
-    /// <summary>默认播报文案：通知念完整内容，其余只念摘要（按用户拍板）。</summary>
+    /// <summary>
+    /// 默认播报文案。
+    /// <para>r167：通知改成「只念标题 + 正文」，不再念「本班通知」「标题：」「内容：」这些标签 ——
+    /// 教室里听的人不需要被告知「这是一条通知」，标签念出来纯是噪音；
+    /// 截止日期也只进全屏卡片，不念。作业 / 缺交 / 值日仍保留「作业：」这类两字前缀，
+    /// 因为听的人得先知道这是哪一类事，否则「数学课本 P42」会被当成随口一句。</para>
+    /// </summary>
     string ComposeDefaultVoiceText()
-        => Entity == BoardSyncConsts.EntityNotice ? ComposeFullText() : ComposeVoiceText();
+        => Entity == BoardSyncConsts.EntityNotice ? ComposeNoticeVoiceText() : ComposeVoiceText();
+
+    /// <summary>通知播报词：标题。正文。 —— 标签一律不念，句号补齐读起来才不粘连。</summary>
+    string ComposeNoticeVoiceText()
+    {
+        var parts = new List<string>();
+        void Add(string s)
+        {
+            s = (s ?? "").Trim();
+            if (s.Length == 0) return;
+            if (!"。！？；…，、".Contains(s[^1])) s += "。";
+            parts.Add(s);
+        }
+        Add(_field1.Text);
+        Add(_field2.Text);
+        return string.Join("", parts);
+    }
 
     /// <summary>内容一改，自动把「播报内容」同步成发送的内容；老师亲手改过就不再覆盖。</summary>
     void RefreshAutoTexts()
@@ -544,9 +668,16 @@ public class BoardSendWindow : Window
         var root = new Wpf.StackPanel { Margin = new Thickness(18) };
         root.Children.Add(new Wpf.TextBlock
         {
-            Text = "把这一条信息发给所选班级的教室机，由电教管理员确认后应用",
-            FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6),
-            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x33, 0x55))
+            Text = "把这一条信息发给所选班级的教室机",
+            FontSize = 16, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 0, 0, 4),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1B, 0x28, 0x36))
+        });
+        // r166：标题与说明拆两行 —— 标题 16 号只说做什么，确认流程放到 12 号灰字里
+        root.Children.Add(new Wpf.TextBlock
+        {
+            Text = "由电教管理员确认后应用；回执可在「消息台账 / 回执」里核对。",
+            FontSize = 12, Margin = new Thickness(0, 0, 0, 6),
+            Foreground = new SolidColorBrush(Color.FromRgb(0x66, 0x70, 0x85))
         });
         _snapshotInfo.FontSize = 12;
         _snapshotInfo.Margin = new Thickness(0, 0, 0, 14);
@@ -560,7 +691,7 @@ public class BoardSendWindow : Window
         root.Children.Add(Row(Lab("目标班级"), _class));
         var classRow2 = new Wpf.StackPanel
         {
-            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(92, -4, 0, 10)
+            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(FormIndent, -4, 0, 10)
         };
         classRow2.Children.Add(_classInput);
         classRow2.Children.Add(_addClass);
@@ -590,14 +721,23 @@ public class BoardSendWindow : Window
         _op.SelectionChanged += (_, _) => { if (!_opSync) Relabel(); };
         root.Children.Add(Row(Lab("操作"), _op));
 
-        _item.Width = 400;
+        // r167：400 会把「读取教室机内容」按钮顶到内容列外面去，300 让这一行的右边缘
+        // 和下面那些 420 宽的输入框落在同一条线上
+        _item.Width = 300;
         _item.SelectionChanged += (_, _) => { if (!_loading) OnItemChanged(); };
         var reload = new Wpf.Button
         {
-            Content = "↻ 读取教室机内容", Padding = new Thickness(10, 5, 10, 5),
+            Content = "读取教室机内容", Padding = new Thickness(11, 5, 11, 5),
             FontSize = 12, Margin = new Thickness(8, 0, 0, 0)
         };
         reload.Click += (_, _) => RefreshSnapshot();
+        // r166：窗内三个次要按钮统一成主窗口的描边样式（原来是系统默认灰按钮）
+        if (TryFindResource("AppGhostButton") is Style ghostBtn)
+        {
+            reload.Style = ghostBtn;
+            _addClass.Style = ghostBtn;
+            _removeClass.Style = ghostBtn;
+        }
         _itemRow = Row(Lab("目标条目"), _item, reload);
         root.Children.Add(_itemRow);
         _itemHint = new Controls.HelpBubble
@@ -610,13 +750,13 @@ public class BoardSendWindow : Window
         };
         _itemRow.Children.Add(_itemHint);
         _targetHint.FontSize = 12;
-        _targetHint.Margin = new Thickness(92, 0, 0, 10);
+        _targetHint.Margin = new Thickness(FormIndent, 0, 0, 10);
         _targetHint.Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x66, 0x3C));
         root.Children.Add(_targetHint);
 
         // 通知「直接增加」：只有本班通知 + 新增时可勾（默认开），删除 / 替换一律人工裁决。
         _autoRow.Orientation = Wpf.Orientation.Horizontal;
-        _autoRow.Margin = new Thickness(92, 0, 0, 2);
+        _autoRow.Margin = new Thickness(FormIndent, 0, 0, 2);
         _auto.Click += (_, _) => { _autoTouched = true; Relabel(); };
         _autoRow.Children.Add(_auto);
         _autoRow.Children.Add(_autoBubble);
@@ -624,22 +764,18 @@ public class BoardSendWindow : Window
 
         // 截止日期：通知到哪天为止。默认今天 —— 多数班级通知就是当天的事。
         _dueRow.Orientation = Wpf.Orientation.Horizontal;
-        _dueRow.Margin = new Thickness(92, 0, 0, 2);
+        // r167：这一行原来自己缩进 76 又自带一个左对齐标签，标签落在 76、日历落在 132，
+        // 和上面「通知标题」那一列对不上。改用同一个 Lab，缩进交给标签列本身。
+        _dueRow.Margin = new Thickness(0, 0, 0, 2);
         _due.SelectedDate = DateTime.Today;
         _due.ToolTip = "到期后这条不再显示在通知公告便签与跑马灯上，但数据保留、可在编辑窗恢复；置顶的通知不会自动撤下";
-        _dueRow.Children.Add(new Wpf.TextBlock
-        {
-            Text = "截止日期",
-            FontSize = 13,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        });
+        _dueRow.Children.Add(Lab("截止日期"));
         _dueRow.Children.Add(_due);
         _dueRow.Children.Add(_dueHint);
         root.Children.Add(_dueRow);
 
         _overwriteRow.Orientation = Wpf.Orientation.Horizontal;
-        _overwriteRow.Margin = new Thickness(92, 0, 0, 12);
+        _overwriteRow.Margin = new Thickness(FormIndent, 0, 0, 12);
         _overwriteRow.Children.Add(_overwrite);
         root.Children.Add(_overwriteRow);
 
@@ -663,7 +799,7 @@ public class BoardSendWindow : Window
         _weekMode.Click += (_, _) => Relabel();
         var weekSwitch = new Wpf.StackPanel
         {
-            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(92, 0, 0, 10)
+            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(FormIndent, 0, 0, 10)
         };
         _weekSwitch = weekSwitch;
         weekSwitch.Children.Add(_weekMode);
@@ -698,7 +834,7 @@ public class BoardSendWindow : Window
         InitVoiceControls();
         _reminderRow = new Wpf.StackPanel
         {
-            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(92, 0, 0, 6)
+            Orientation = Wpf.Orientation.Horizontal, Margin = new Thickness(FormIndent, 0, 0, 6)
         };
         _reminderRow.Children.Add(_force);
         _reminderRow.Children.Add(_voice);
@@ -706,13 +842,13 @@ public class BoardSendWindow : Window
         root.Children.Add(_reminderRow);
         root.Children.Add(Row(Lab("播报内容"), _voiceText));
 
-        root.Children.Add(new Wpf.TextBlock
-        {
-            Text = "教室机当前内容（只读，来自共享目录里的教室机快照）",
-            FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 4, 0, 6),
-            Foreground = new SolidColorBrush(Color.FromRgb(0x44, 0x55, 0x66))
-        });
-        root.Children.Add(_preview);
+        // r167：原来这块是无标签通栏，左边缘和上面那些输入框错开 56px，看着像另一个程序。
+        // 现在收进「标签 + 内容」两列，左边缘和所有输入框同一条竖线；
+        // 那句「只读，来自…」搬进框里当首行（和主窗口预览卡一个习惯），
+        // 免得它顶在标签上、把「教室机现状」四个字挤到两行之间去。
+        _preview.Width = 420;
+        _preview.Margin = new Thickness(0);
+        root.Children.Add(Row(Lab("教室机现状"), _preview));
 
         _msg.FontSize = 12;
         _msg.Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
@@ -725,12 +861,21 @@ public class BoardSendWindow : Window
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
             Margin = new Thickness(18, 0, 18, 16)     // 与内容区的 18 边距对齐
         };
-        var ok = new Wpf.Button { Content = "发布信息", Padding = new Thickness(16, 7, 16, 7), FontSize = 14 };
-        ok.Click += (_, _) => Confirm();
-        var cancel = new Wpf.Button { Content = "取消", Padding = new Thickness(16, 7, 16, 7), FontSize = 14, Margin = new Thickness(10, 0, 0, 0) };
+        // r167：顺序改成「取消 → 发布信息」：主按钮永远贴最右，
+        // 手指从右边滑过来先碰到的是「发布」，取消退到它左边（误点的代价小得多）。
+        var cancel = new Wpf.Button { Content = "取消", Padding = new Thickness(15, 7, 15, 7), FontSize = 13 };
+        if (TryFindResource("AppGhostButton") is Style cancelStyle) cancel.Style = cancelStyle;
         cancel.Click += (_, _) => { DialogResult = false; Close(); };
-        bar.Children.Add(ok);
+        var ok = new Wpf.Button
+        {
+            Content = "发布信息", Padding = new Thickness(16, 7, 16, 7), FontSize = 13,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        // r166：底部两个按钮换成主窗口同一套模板（实心主色 / 描边），不再是系统默认灰按钮
+        if (TryFindResource("AppPrimaryButton") is Style okStyle) ok.Style = okStyle;
+        ok.Click += (_, _) => Confirm();
         bar.Children.Add(cancel);
+        bar.Children.Add(ok);
 
         // 底部按钮固定在窗口最下、只有内容区滚动。
         // 125% 缩放的 1080p 工作区只有 816 DIP 高，加了「语音提醒」两块后一屏放不下 ——
@@ -786,14 +931,14 @@ public class BoardSendWindow : Window
         }
         else
         {
-            _snapshotInfo.Text = "📡 正在读取教室机内容…";
+            _snapshotInfo.Text = "正在读取教室机内容…";
             _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x4F, 0xA3));
             try
             {
                 var (s, msg) = await Task.Run(() => BoardSyncService.LoadRemoteSnapshot(cls));
                 if (gen != _snapGen) return;      // 用户已切到别的内容类型，这轮结果丢掉
                 snap = s;
-                _snapshotInfo.Text = "📡 " + msg;
+                _snapshotInfo.Text = msg;
                 _snapshotInfo.Foreground = new SolidColorBrush(snap == null
                     ? Color.FromRgb(0xC0, 0x6A, 0x2B)
                     : Color.FromRgb(0x1E, 0x4F, 0xA3));
@@ -801,7 +946,7 @@ public class BoardSendWindow : Window
             catch (Exception ex)
             {
                 if (gen != _snapGen) return;
-                _snapshotInfo.Text = "⚠ 读取教室机内容失败：" + ex.Message;
+                _snapshotInfo.Text = "读取教室机内容失败：" + ex.Message;
                 _snapshotInfo.Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x39, 0x2B));
             }
         }
@@ -825,7 +970,7 @@ public class BoardSendWindow : Window
             : items.Count == 0
                 ? "教室机这一类内容目前是空的，只能新增一条。"
                 : "共 " + items.Count + " 条可选；选中一条会自动带出教室机原文，改完再发出。";
-        _preview.Text = BuildPreview(items);
+        SetPreview(BuildPreview(items));
         if (multi)
         {
             _snapshotInfo.Text = "📦 已选中 " + _classes.Count + " 个班：每个班各发一条新信息。"
@@ -854,6 +999,14 @@ public class BoardSendWindow : Window
         catch { }
         return list;
     }
+
+    /// <summary>
+    /// 教室机现状框的内容 = 首行说明 + 正文。
+    /// <para>首行说明放在框里、而不是标签旁边的一个独立小灰字：那样标签会被挤到
+    /// 「小灰字 + 框」两个人的中间，看起来像没对齐。放进框里，标签就只对着一个框。</para>
+    /// </summary>
+    void SetPreview(string body)
+        => _preview.Text = "（只读，来自共享目录里的教室机快照）\n\n" + body;
 
     static string BuildPreview(List<BoardSnapshotItem> items)
     {

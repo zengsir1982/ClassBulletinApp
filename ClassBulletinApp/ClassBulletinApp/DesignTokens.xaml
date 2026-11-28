@@ -35,6 +35,12 @@
     <SolidColorBrush x:Key="SuccessBorderBrush" Color="#B7D6C4"/>
     <SolidColorBrush x:Key="BarSurfaceBrush" Color="#F1F4F9"/>    <!-- 工具条 / 分组条的浅底 -->
     <SolidColorBrush x:Key="BarDividerBrush" Color="#E1E6EE"/>    <!-- 条内分隔线 -->
+    <!-- r166：提示条（琥珀）。原来信息管理页把 #FFF4E5 / #E8B874 / #8A5A00 / #9A6B22
+         四个值直接写在 XAML 里，别处想用同一套颜色只能再抄一遍 -->
+    <SolidColorBrush x:Key="WarnSoftBrush" Color="#FFF6E5"/>
+    <SolidColorBrush x:Key="WarnBorderBrush" Color="#F0DCB0"/>
+    <SolidColorBrush x:Key="WarnTextBrush" Color="#8A5A00"/>
+    <SolidColorBrush x:Key="WarnSubTextBrush" Color="#9A6B22"/>
 
     <!--
         工具条（格式条）共用外观 —— r75 从 Controls/TextStylePicker.xaml 上移到这里。
@@ -401,29 +407,65 @@
         </Setter>
     </Style>
 
-    <!-- 二级导航（分段条）按钮 -->
+    <!--
+        二级导航（分段条）—— r167 重做。
+        原来这一排是「通栏白底 + 几个透明按钮」，组内哪一项对应当前页谁都没标，
+        在「设置」组里点「用户中心」之后，条上六项长得一模一样，得回头看内容才知道自己在哪。
+        现在：底板一块（SegBar）、当前页一块白（本地值 Background=White），其余透明。
+        ★ 悬浮态必须写在 Style.Triggers 里，不能写进 ControlTemplate.Triggers：
+          依赖属性优先级是「本地值 > Style 触发器 > Style Setter > 模板触发器」，
+          放进模板触发器会把代码设的白色也一起盖掉 —— 选中项一悬浮就变回灰底。
+        ★ BorderThickness 恒为 1、未选中 BorderBrush 透明：不是装饰，
+          是为了选中时只换颜色不换尺寸，否则白块出现的一瞬间文字会横跳 1px。
+    -->
+    <Style x:Key="SegBar" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource BarSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="9"/>
+        <Setter Property="Padding" Value="3"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <Style x:Key="SegDivider" TargetType="Border">
+        <Setter Property="Width" Value="1"/>
+        <Setter Property="Height" Value="15"/>
+        <Setter Property="Background" Value="{DynamicResource LineBrush}"/>
+        <Setter Property="Margin" Value="5,0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
     <Style x:Key="AppSubNavButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
         <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
-        <Setter Property="Padding" Value="12,6"/>
+        <Setter Property="Height" Value="26"/>
+        <Setter Property="Padding" Value="12,0"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
+                    <!-- 圆角 7 = 底板 9 减去内边距 2，白块看上去才像嵌在槽里 -->
                     <Border x:Name="Bd" Background="{TemplateBinding Background}"
-                            CornerRadius="{DynamicResource CrControl}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                            CornerRadius="7" SnapsToDevicePixels="True"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            </Trigger>
+            <!-- 动作项（发布信息 / 帮助）点了不常驻，靠这层淡描边提示「可以点，但不是页面」 -->
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource PrimarySoftBrush}"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!--
@@ -585,6 +627,265 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="CornerRadius" Value="{DynamicResource CrCard}"/>
         <Setter Property="Padding" Value="14"/>
+    </Style>
+
+    <!--
+        ===== P6 主窗口四页视觉收敛（r166）=====
+
+        背景：主窗口今日 / 信息管理 / 显示设置 / 黑板发送窗四页各写各的字号、圆角、按钮颜色，
+        同一屏里 14 / 15 / 16 / 13 / 12.5 / 11.5 混用，四类发布按钮还是蓝 / 红 / 绿 / 紫各一色。
+        这一组键只做「收敛」：把重复出现的组合收成有语义的名字，页面里改成引用。
+
+        ★ 边界（很重要）：
+          1. 只新增键，不改动上面任何既有键的取值 —— 悬浮课表窗（ScheduleWindow）等
+             已经不打算再动，改旧键会连带把它们的观感改掉。
+          2. 不设隐式样式（没有 x:Key 的 Style），否则会打到 WeekView、各编辑窗、
+             台账窗等没参与本轮收敛的界面。
+          3. 所有 Height 只写在本组键里，页面就地引用；不往 AppGhostButton 里加，
+             否则编辑窗那排紧凑按钮会集体长高 2px。
+    -->
+
+    <!-- 卡片小标签（「需要你处理」「今天怎么上」）：12 号灰字，只作分类用，不抢主文 -->
+    <Style x:Key="CardLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsCaption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 卡片主文（「没有待办」「最近检查失败」）：20 号，全页最大的字就这一档 -->
+    <Style x:Key="CardHeadline" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsPage}"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- 卡片说明：12 号正文色，行高 19（原来 12.5 是半档，已废弃） -->
+    <Style x:Key="CardDesc" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsCaption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BodyBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="LineHeight" Value="19"/>
+    </Style>
+
+    <!-- 状态胶囊：高 20、圆角 10（正好半高）、左右留 8。底色与文字色由各处指定，
+         因为同一种「正常」在今日页是绿色、在信息管理页是灰色，语义色不在这里写死 -->
+    <Style x:Key="StatusPill" TargetType="Border">
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="Height" Value="20"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="HorizontalAlignment" Value="Right"/>
+    </Style>
+    <Style x:Key="StatusPillText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsCaption}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 区块标题（「发布哪一类信息」「界面主题」）：16 号，取代原来的 15 Bold + ①②③ 圈号 -->
+    <Style x:Key="BlockTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsSection}"/>
+        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- 区块说明（跟在标题右边那一句）：12 号提示色，不换行时也只占一行 -->
+    <Style x:Key="BlockDesc" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsCaption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource HintBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- 设置页复选框：标签 13 号 + 说明 12 号灰字分两行，替掉原来「一句话塞两件事」的长 Content -->
+    <Style x:Key="OptLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="OptDesc" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsCaption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource HintBrush}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="LineHeight" Value="18"/>
+        <Setter Property="Margin" Value="0,2,0,0"/>
+    </Style>
+
+    <!-- 白卡（信息管理 / 显示设置的分组）：12 圆角 + 1px 线，和今日四卡同一套 -->
+    <Style x:Key="GroupCard" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{DynamicResource CrCard}"/>
+        <Setter Property="Padding" Value="16,14"/>
+    </Style>
+
+    <!-- 表单行标签：右对齐到固定宽度，输入框左边缘才能齐成一条竖线 -->
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BodyBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextAlignment" Value="Right"/>
+    </Style>
+
+    <!-- 输入框 / 下拉：高 32、圆角 8、1px 输入描边。ComboBox 只给 MinHeight，
+         因为默认模板的内部内容不跟 Height 居中，硬拉会偏 -->
+    <Style x:Key="AppInput" TargetType="TextBox">
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+        <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    </Style>
+    <!--
+        下拉项（r167）：白弹层里的一行。原来沿用系统高亮蓝，和主色 #1E4FA3 不是同一个蓝，
+        在黑板发送窗那种一屏五个下拉的地方特别显眼。现在选中 / 悬浮都用主色淡底。
+    -->
+    <Style x:Key="AppComboItem" TargetType="ComboBoxItem">
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BodyBrush}"/>
+        <Setter Property="Padding" Value="8,0"/>
+        <Setter Property="MinHeight" Value="28"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBoxItem">
+                    <Border x:Name="Bd" Background="Transparent" CornerRadius="6"
+                            Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                        <ContentPresenter VerticalAlignment="Center"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          ClipToBounds="True"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PrimarySoftBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource PrimaryDarkBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource HintBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        统一下拉框（r167 由「只设字号」升级为完整模板）。
+        为什么要自己写模板：默认模板是系统灰底直角，黑板发送窗一块白卡上嵌四个，
+        和旁边已圆角的输入框明显不是一套。
+        ★ 唯一必须守住的：可编辑下拉（IsEditable=true，老师要能手打名单外的班级名）
+          依赖名叫 PART_EditableTextBox 的 TextBox 部件，ComboBox 内部按名字找它。
+          名字写错或漏掉 → 下拉能拉开、但点不进去也打不了字，是最容易踩的坑。
+        ★ 层级顺序：底色 → 整个 ToggleButton（含右侧三角）→ 只读文本 → 可编辑 TextBox。
+          ToggleButton 必须垫在文本下面：只读时文本层 IsHitTestVisible=False，点击直接落到
+          ToggleButton 上（点哪都开）；可编辑时 TextBox 在上面接住打字，右侧 28px 的
+          Margin 空档留给箭头，点那里照样展开。
+    -->
+    <Style x:Key="AppCombo" TargetType="ComboBox">
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="Padding" Value="10,0,28,0"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+        <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource InputBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="MaxDropDownHeight" Value="260"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource AppComboItem}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ComboBox">
+                    <Grid>
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{DynamicResource CrControl}" SnapsToDevicePixels="True"/>
+
+                        <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
+                                      Background="Transparent" BorderThickness="0"
+                                      IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                          RelativeSource={RelativeSource TemplatedParent}}">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="Transparent">
+                                        <Path x:Name="Arrow" Data="M0,0 L4.5,5 L9,0 Z"
+                                              Fill="{DynamicResource MutedBrush}"
+                                              HorizontalAlignment="Right" VerticalAlignment="Center"
+                                              Margin="0,0,11,0"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Arrow" Property="Fill" Value="{DynamicResource InkBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+
+                        <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                          Margin="{TemplateBinding Padding}"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"
+                                          HorizontalAlignment="Left" VerticalAlignment="Center"
+                                          ClipToBounds="True"/>
+
+                        <!-- 名字不能改：ComboBox 内部按 PART_EditableTextBox 找它 -->
+                        <TextBox x:Name="PART_EditableTextBox" Visibility="Collapsed"
+                                 Margin="{TemplateBinding Padding}" Padding="0"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="{TemplateBinding Foreground}"
+                                 FontSize="{TemplateBinding FontSize}"
+                                 VerticalContentAlignment="Center"
+                                 IsReadOnly="{TemplateBinding IsReadOnly}"/>
+
+                        <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True"
+                               Focusable="False" PopupAnimation="Fade"
+                               IsOpen="{TemplateBinding IsDropDownOpen}"
+                               PlacementTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}">
+                            <Border Background="{DynamicResource CardBrush}"
+                                    BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                    CornerRadius="{DynamicResource CrControl}" Padding="4"
+                                    Margin="0,3,0,0"
+                                    MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                    MaxHeight="{Binding MaxDropDownHeight, RelativeSource={RelativeSource TemplatedParent}}">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="14" ShadowDepth="2" Direction="270" Opacity="0.14" Color="#101828"/>
+                                </Border.Effect>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" SnapsToDevicePixels="True">
+                                    <ItemsPresenter/>
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsDropDownOpen" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BarSurfaceBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource HintBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!--

@@ -3645,6 +3645,68 @@ public partial class MainWindow : Window
             int[] def = { 9, 0, 4, 6, 2 };
             MainTabs.SelectedIndex = Math.Clamp(def[group], 0, MainTabs.Items.Count - 1);
         }
+        // r167：必须在 SelectedIndex 定下来之后再算高亮，否则读到的是上一页
+        ApplySubNavHighlight(group);
+    }
+
+    /// <summary>
+    /// r167：把二级分段条里「当前页」那一项点亮。
+    /// <para>判据直接复用按钮的 Tag —— 它们本来就是 TabControl 的索引（"0"/"2"/"3"/"1"/"7"/"8"），
+    /// 所以不用给按钮补 x:Name，也不用维护第二份映射表；"publish" / "help" 不是数字，
+    /// 天然落不进选中态：它们是动作，不是页面。</para>
+    /// <para>还原用 <c>ClearValue</c> 而不是写回某个颜色 —— 清掉本地值才会回到 Style 的透明/灰字，
+    /// 悬浮触发器也才跟着恢复；写回颜色会把 Style 的悬浮态永久压死。</para>
+    /// </summary>
+    private void ApplySubNavHighlight(int group)
+    {
+        try
+        {
+            // 今日组没有二级页：整条收起，内容区直接顶到顶栏下面（不留下一条空槽）
+            if (SubNavStrip != null)
+                SubNavStrip.Visibility = group == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+            // 组内提示：原来只有课程表有一句，且塞在槽里会把槽撑宽，现在挪到槽外
+            string hint = group switch
+            {
+                1 => "拖动课程卡可交换两节课，双击可编辑",
+                _ => ""
+            };
+            if (TxtSubNavHint != null)
+            {
+                TxtSubNavHint.Text = hint;
+                TxtSubNavHint.Visibility = hint.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            var segs = new[] { SubNavToday, SubNavWeek, SubNavContent, SubNavMessage, SubNavSetting };
+            if (group < 0 || group >= segs.Length || segs[group] == null) return;
+
+            int idx = MainTabs?.SelectedIndex ?? -1;
+            var white = System.Windows.Media.Brushes.White;
+            var edge = TryFindResource("LineBrush") as System.Windows.Media.Brush;
+            var priDark = TryFindResource("PrimaryDarkBrush") as System.Windows.Media.Brush
+                          ?? System.Windows.Media.Brushes.DarkBlue;
+
+            foreach (var child in segs[group]!.Children)
+            {
+                if (child is not System.Windows.Controls.Button b) continue;
+                bool on = b.Tag is string t && int.TryParse(t, out int ti) && ti == idx;
+                if (on)
+                {
+                    b.Background = white;
+                    if (edge != null) b.BorderBrush = edge;
+                    b.Foreground = priDark;
+                    b.FontWeight = FontWeights.Medium;
+                }
+                else
+                {
+                    b.ClearValue(System.Windows.Controls.Control.BackgroundProperty);
+                    b.ClearValue(System.Windows.Controls.Control.BorderBrushProperty);
+                    b.ClearValue(System.Windows.Controls.Control.ForegroundProperty);
+                    b.ClearValue(System.Windows.Controls.Control.FontWeightProperty);
+                }
+            }
+        }
+        catch { /* 导航外观失败不能挡住切页 */ }
     }
 
     private void NavGroup_Click(object sender, RoutedEventArgs e)
@@ -6925,12 +6987,12 @@ public partial class MainWindow : Window
                           || !string.IsNullOrWhiteSpace(s.BoardSyncRoot);
         if (!can)
         {
-            TxtInfoHint.Text = "🔒 " + UserSession.DenyPublishInfo;
+            TxtInfoHint.Text = "无法发布：" + UserSession.DenyPublishInfo;
             TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xB0, 0x6A, 0x20));
         }
         else if (!s.BoardSyncEnabled)
         {
-            TxtInfoHint.Text = "提示：同步还没启用。展开下面「③ 同步设置」勾选「启用同步」并保存后才能发布信息。";
+            TxtInfoHint.Text = "提示：同步还没启用。展开下面「同步设置（本机）」勾选「启用同步」并保存后才能发布信息。";
             TxtInfoHint.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x66, 0x70, 0x85));
         }
         else if (!configured)
