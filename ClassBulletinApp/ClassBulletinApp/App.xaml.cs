@@ -412,6 +412,8 @@ public partial class App : System.Windows.Application
                     "maininfoteacher" => DiagTeacherInfoView(),
                     "maindata" => new MainWindow { InitialTabIndex = 1 },
                     "maindisplay" => new MainWindow { InitialTabIndex = 2 },
+                    // r169：显示设置页滚到底 —— 界面主题（配色方案下拉）与玻璃底色在首屏之外
+                    "maindisplayend" => new MainWindow { InitialTabIndex = 2, DisplayScrollEnd = true },
                     "mainnotice" => new MainWindow { InitialTabIndex = 4 },
                     "mainhw" => new MainWindow { InitialTabIndex = 5 },
                     "mainnotes" => new MainWindow { InitialTabIndex = 5, NotesScrollEnd = true },
@@ -2028,6 +2030,43 @@ public partial class App : System.Windows.Application
                     throw new Exception("课程表组的分段条提示没显示");
                 if (w.FindName("SubNavWeek") is not System.Windows.Controls.StackPanel week)
                     throw new Exception("SubNavWeek 不在 / 类型被改（App.xaml.cs 别处按 StackPanel 取它）");
+                return w;
+            });
+            // r169：配色方案下拉必须显示中文名。
+            // ★ 用户报的「界面主题显示英语」= AppCombo 是自定义模板，DisplayMemberPath 在框里不生效，
+            //   框内拿到的是匿名对象本身 → ToString()「{ Key = ClassicBlue, Name = 经典蓝 }」。
+            //   现在走 ItemTemplate 绑 Name；这条断言锁住「不许改回 DisplayMemberPath」。
+            Check("r169 配色方案下拉用项模板显示中文名（不是对象 ToString）", () =>
+            {
+                var w = new MainWindow { InitialTabIndex = 2 };
+                // ★ Func 版 Check 不会 Show 窗口，而配色下拉是在 Loaded 之后才填的 ——
+                //   不 Show 就永远是空壳，会误判成「没设 ItemTemplate」。
+                w.Show();
+                w.UpdateLayout();
+                if (w.FindName("CbTheme") is not System.Windows.Controls.ComboBox cb)
+                    throw new Exception("配色方案下拉（CbTheme）缺失");
+                if (cb.ItemTemplate == null)
+                    throw new Exception("配色下拉没设 ItemTemplate —— 框里会显示 { Key = ..., Name = ... }");
+                if (!string.IsNullOrEmpty(cb.DisplayMemberPath))
+                    throw new Exception("ItemTemplate 与 DisplayMemberPath 同时存在，框里仍会显示对象的 ToString");
+                if (cb.SelectedItem == null) throw new Exception("打开显示设置时配色下拉没有选中项");
+
+                string path = "";
+                void Walk(System.Windows.DependencyObject d)
+                {
+                    if (path.Length > 0) return;
+                    if (d is System.Windows.Controls.TextBlock t)
+                    {
+                        path = t.GetBindingExpression(System.Windows.Controls.TextBlock.TextProperty)
+                                  ?.ParentBinding?.Path?.Path ?? "";
+                        return;
+                    }
+                    int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(d);
+                    for (int i = 0; i < n; i++) Walk(System.Windows.Media.VisualTreeHelper.GetChild(d, i));
+                }
+                if (cb.ItemTemplate.LoadContent() is System.Windows.DependencyObject tplRoot) Walk(tplRoot);
+                if (path != "Name")
+                    throw new Exception("配色项模板绑的不是 Name（实际：" + path + "）");
                 return w;
             });
             // P2：重复入口只收起、不物理删除 —— 唯一入口要可见，旧控件要还在（随时可改回 Visible）
@@ -5201,6 +5240,28 @@ public partial class App : System.Windows.Application
                 return w;
             });
 
+            // r169：发布窗按设计图重排 —— 目标班级改成「胶囊 + 已加入 N 个」，
+            // 行布局改成「标签列 + 内容列」，播报行三个控件同排且都直接挂在那一行上。
+            Check("r169 发布窗：班级胶囊 / 计数 / 播报行三控件同排", () =>
+            {
+                var w = new BoardSendWindow(new[] { "八年级(1)班", "八年级(2)班" },
+                                            BoardSyncConsts.EntityHomework);
+                if (w.ClassChips.Children.Count != 2)
+                    throw new Exception("两个目标班级却画了 " + w.ClassChips.Children.Count + " 颗胶囊");
+                if (w.ClassCountText.Text != "已加入 2 个")
+                    throw new Exception("班级计数文案不对：" + w.ClassCountText.Text);
+                if (w.ReminderRow is not System.Windows.Controls.Panel row)
+                    throw new Exception("提醒那一行不是 Panel，取不到子项");
+                if (!row.Children.Contains(w.ForceBox) || !row.Children.Contains(w.VoiceBox))
+                    throw new Exception("全屏提醒 / 语音提醒没直接挂在同一行上（会被挤到行中间去）");
+                // 行布局是两列 Grid：第 0 列标签、第 1 列控件。标签列宽固定，
+                // 控件才可能左边缘对齐 —— 改回 StackPanel 这条就红。
+                if (w.Field1Box.Parent is not System.Windows.Controls.Grid g1
+                    || g1.ColumnDefinitions.Count < 2)
+                    throw new Exception("输入行没走「标签列 + 内容列」的 Grid 布局");
+                return w;
+            });
+
             // 发布窗：全屏与语音同一行；通知的全屏 / 语音都用完整内容，其余全屏完整、语音摘要。
             Check("r71 发布窗提醒同一行与完整内容文案", () =>
             {
@@ -6658,6 +6719,33 @@ public partial class App : System.Windows.Application
                             throw new Exception("台账列表混进了别人发的单");
                     }
                     finally { ledger.Close(); }
+
+                    // r169：教室机（电教管理员登录）打开台账默认「只看未处理」——
+                    // 打开就是来裁决的，不该先在一排已核对的旧记录里翻。
+                    {
+                        var prevUser2 = UserSession.Current;
+                        try
+                        {
+                            UserSession.SignIn(new AppUser { Username = "diag-student", Role = UserRole.Student });
+                            var cl = new BoardSyncWindow();
+                            try
+                            {
+                                var lf2 = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                                string ck = (string)typeof(BoardSyncWindow).GetField("_filterKey", lf2)!.GetValue(cl)!;
+                                if (ck != "pending")
+                                    throw new Exception("教室机打开台账没有默认「只看未处理」：key=" + ck);
+                                var purgeBtn = (System.Windows.Controls.Button)
+                                    typeof(BoardSyncWindow).GetField("_purge", lf2)!.GetValue(cl)!;
+                                if (purgeBtn.IsEnabled)
+                                    throw new Exception("电教管理员不该能点「清除筛选结果」");
+                            }
+                            finally { cl.Close(); }
+                        }
+                        finally
+                        {
+                            if (prevUser2 != null) UserSession.SignIn(prevUser2); else UserSession.SignOut();
+                        }
+                    }
 
                     // 再切回我的课表，验证不会一刷新就被拉回班级视图
                     typeof(MainWindow).GetMethod("ApplyOwnScheduleDefault", bf)!.Invoke(w, new object[] { false });
@@ -10779,6 +10867,35 @@ public partial class App : System.Windows.Application
                 Check("电教管理员清台账被拒", !deny.Ok && deny.Message.Contains("电教管理员"), deny.Message);
 
                 UserSession.SignIn(new AppUser { Username = "diag-teacher", Role = UserRole.Teacher });
+
+                // r169：按筛选结果清除 —— 只能清已终结的，未处理的收件必须留下。
+                // ★ 先跑这一条再跑原来的 ClearLedger，跑完把台账原样写回，后面的断言依赖这份数据。
+                var stBeforePurge = BoardSyncService.LoadState();
+                try
+                {
+                    var done = stBeforePurge.Records.FirstOrDefault(r => r.IsTerminal);
+                    var pend = stBeforePurge.Records.FirstOrDefault(r => !r.IsTerminal);
+                    if (done == null || pend == null)
+                        throw new Exception("诊断数据缺少「已终结 / 未处理」各一条，无法验证按筛选清除");
+                    var pur = BoardSyncService.ClearLedgerRecords(new[] { done.MsgId, pend.MsgId });
+                    var afterPurge = BoardSyncService.LoadState().Records;
+                    Check("按筛选清除：清掉了已终结那条", pur.Ok && afterPurge.All(r => r.MsgId != done.MsgId), pur.Message);
+                    Check("按筛选清除：未处理的变更单被保留",
+                          afterPurge.Any(r => r.MsgId == pend.MsgId), pur.Message);
+                    Check("按筛选清除：提示里说明保留了未处理",
+                          pur.Message.Contains("未处理") || pur.Message.Contains("保留"), pur.Message);
+
+                    UserSession.SignIn(new AppUser { Username = "diag-student", Role = UserRole.Student });
+                    var denyPurge = BoardSyncService.ClearLedgerRecords(new[] { pend.MsgId });
+                    Check("电教管理员按筛选清除也被拒",
+                          !denyPurge.Ok && denyPurge.Message.Contains("电教管理员"), denyPurge.Message);
+                    UserSession.SignIn(new AppUser { Username = "diag-teacher", Role = UserRole.Teacher });
+                }
+                finally
+                {
+                    BoardSyncService.SaveState(stBeforePurge);   // 还原，别影响下面的原有断言
+                }
+
                 int pendingBefore = BoardSyncService.LoadState().Records.Count(r => !r.IsTerminal);
                 int terminalBefore = BoardSyncService.LoadState().Records.Count(r => r.IsTerminal);
                 var clr = BoardSyncService.ClearLedger(false);

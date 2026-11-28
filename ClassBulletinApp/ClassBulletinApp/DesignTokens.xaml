@@ -227,6 +227,48 @@
     </Style>
 
     <!-- 次按钮：描边 + 主色文字 -->
+    <!--
+        浅底 + 主色描边的次级按钮（r169）。
+        ★ 由来：「课表悬浮：开 / 关」原来靠内联 Background/BorderBrush 撑出浅蓝底，
+          可旁边「布局设置 / 启动选项 / 任务栏菜单 / 黑板管理」用的是没设模板的 TabBtn，
+          走系统默认灰方块 —— 五个按钮并排，一看就是两套东西。
+        ★ 现在颜色收进样式：开关按钮只管改文字（代码只动 Content），内联颜色全部删掉，
+          以后再往这一排加按钮，套 AppSoftButton 就自动一致。
+    -->
+    <Style x:Key="AppSoftButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource PrimaryDarkBrush}"/>
+        <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
+        <Setter Property="Padding" Value="13,7"/>
+        <Setter Property="MinWidth" Value="118"/>
+        <Setter Property="Margin" Value="0,0,10,10"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="{DynamicResource PrimaryLightBrush}"
+                            BorderBrush="{DynamicResource PrimaryBorderBrush}" BorderThickness="1"
+                            CornerRadius="{DynamicResource CrControl}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PrimarySoftBrush}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource PrimaryBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource PrimaryBorderBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Bd" Property="Opacity" Value="0.45"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="AppGhostButton" TargetType="Button">
         <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
         <Setter Property="FontSize" Value="{DynamicResource FsSmall}"/>
@@ -758,6 +800,9 @@
                             Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                         <ContentPresenter VerticalAlignment="Center"
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          ContentStringFormat="{TemplateBinding ContentStringFormat}"
                                           ClipToBounds="True"/>
                     </Border>
                     <ControlTemplate.Triggers>

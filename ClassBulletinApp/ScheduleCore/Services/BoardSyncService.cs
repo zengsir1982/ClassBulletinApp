@@ -1984,6 +1984,59 @@ public static class BoardSyncService
     }
 
     /// <summary>
+    /// 按「当前筛选出来的这些记录」清除（r169，台账里「清除筛选结果」用）。
+    /// <para>权限与 <see cref="ClearLedger"/> 一致：电教管理员只能看，不能清。</para>
+    /// <para>★ 未处理的收件一律跳过：那是教室机还没裁决的变更单，清掉之后教师机仍显示「已发出」，
+    /// 而本机不再提醒 —— 等于静默丢消息。跳过的条数会在返回文案里说明。</para>
+    /// <para>★ 清前同样备份 <c>board_sync.json.bak</c>，备份失败就不清。</para>
+    /// </summary>
+    public static (bool Ok, string Message) ClearLedgerRecords(IEnumerable<string>? msgIds)
+    {
+        if (UserSession.IsStudent)
+            return (false, "电教管理员只能查看台账，不能清除（请用班主任 / 科任 / 管理员账号）。");
+        if (!Store.EnablePersistence)
+            return (false, "游客模式不写盘，台账没有清除。请先登录。");
+
+        var ids = new HashSet<string>(
+            (msgIds ?? Enumerable.Empty<string>()).Where(x => !string.IsNullOrWhiteSpace(x)),
+            StringComparer.Ordinal);
+        if (ids.Count == 0) return (true, "当前筛选下没有可清除的记录。");
+
+        lock (_stateGate)
+        {
+            BoardSyncState st;
+            try { st = LoadState(); }
+            catch (Exception ex) { return (false, "台账读取失败：" + ex.Message); }
+
+            int hit = st.Records.Count(r => ids.Contains(r.MsgId));
+            // 未处理 + 收件 = 教室机还没裁决的变更单，绝不清
+            int n = st.Records.RemoveAll(r => ids.Contains(r.MsgId)
+                                           && !(r.Direction == BoardSyncConsts.DirIn && !r.IsTerminal));
+            int kept = hit - n;
+            if (n == 0)
+                return (true, kept > 0
+                    ? $"没有清除任何记录：选中的 {kept} 条都是未处理的变更单（要先裁决，不能清）。"
+                    : "台账里已经找不到这些记录（可能刚被别的窗口清掉了）。");
+
+            try
+            {
+                if (File.Exists(StatePath)) File.Copy(StatePath, StatePath + ".bak", true);
+            }
+            catch (Exception ex)
+            {
+                return (false, "备份台账失败，已放弃清除：" + ex.Message);
+            }
+
+            if (!SaveState(st))
+                return (false, "清除后台账写盘失败：" + (Store.LastWriteError ?? "未知原因"));
+
+            return (true, $"已清除 {n} 条记录"
+                + (kept > 0 ? $"（另有 {kept} 条未处理的变更单保留，需先在收件箱裁决）" : "")
+                + $"（清前已备份为 board_sync.json.bak），剩余 {st.Records.Count} 条。");
+        }
+    }
+
+    /// <summary>
     /// 人工清除台账（唯一会真的删记录的地方，绝不自动执行）。
     /// <para>权限：班主任 / 科任 / 管理员可清；电教管理员（教室机开机身份）只能看 ——
     /// 他误清会把待处理的消息一起清掉，而教师机那边的发送箱还留着，两边就对不上了。</para>

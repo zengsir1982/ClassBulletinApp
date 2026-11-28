@@ -77,7 +77,10 @@ public class BoardSyncWindow : Window
     readonly Wpf.TextBlock _filterHint = new()
     {
         FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(10, 0, 0, 0),
+        Margin = new Thickness(10, 0, 10, 0),
+        // r169：筛选条改成「左下拉 + 右清除按钮」后，中间这段只剩几百像素 ——
+        // 长了就省略号 + 悬停看全文，别硬裁半截字。
+        TextTrimming = TextTrimming.CharacterEllipsis,
         Foreground = new SolidColorBrush(Muted)
     };
     /// <summary>代码在重建下拉项 / 同步选中项，别把 SelectionChanged 当成用户操作。</summary>
@@ -89,14 +92,39 @@ public class BoardSyncWindow : Window
         Content = "🧹 清除台账…", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 10, 0)
     };
 
+    /// <summary>
+    /// 「清除筛选结果」：只清列表里现在这些（视图 + 筛选条件 + 时间范围三者叠加后的结果）。
+    /// <para>★ 为什么需要它：原来的「清除台账…」只有「全部清空 / 只清已终结」两个选项，
+    /// 想只清某个班某段时间只能清全部再补救，实际没人敢点。</para>
+    /// <para>★ 未处理的收件一律保留（<see cref="BoardSyncService.ClearLedgerRecords"/> 里兜底）：
+    /// 那是教室机还没裁决的变更单，清了教师机仍显示「已发出」，本机却不再提醒 —— 等于静默丢消息。</para>
+    /// </summary>
+    readonly Wpf.Button _purge = new()
+    {
+        Content = "清除筛选结果", Padding = new Thickness(10, 4, 10, 4), FontSize = 12,
+        ToolTip = "把列表里现在这些记录从本机台账删掉（清前自动备份）；未处理的变更单会保留，不会被误清"
+    };
+
     /// <summary>是否「全部时段」（不受保留期限制）。由右边那个下拉驱动。</summary>
     bool _showAll;
 
     /// <summary>
     /// 当前筛选键（<see cref="FAll"/> / <see cref="FMine"/> / …）。
     /// <para>★ 这是「查什么」的唯一真源，Refresh 只认它；<see cref="_mineOnly"/> 是镜像。</para>
+    /// <para>r169：教室机默认「只看未处理」—— 电教管理员打开台账就是来裁决的，
+    /// 一排已核对 / 已过期的旧记录挡在前面，每天都要先手动切一次。</para>
     /// </summary>
-    string _filterKey = PendingTodoService.MineOnlyDefault ? FMine : FAll;
+    string _filterKey = DefaultFilterKey();
+
+    static string DefaultFilterKey()
+    {
+        try
+        {
+            if (BoardSyncService.IsClassroomMachine) return FPending;
+        }
+        catch { }
+        return PendingTodoService.MineOnlyDefault ? FMine : FAll;
+    }
 
     /// <summary>
     /// 「只看我发的」镜像（r158 起就在，待办条与诊断读它）。默认值直接取今日卡 / 托盘角标同一口径，
@@ -235,17 +263,15 @@ public class BoardSyncWindow : Window
         grid.Children.Add(todoWrap);
         _todoButtons = new[] { btnJudge, btnVerify, btnConflict };
 
-        // ---- r167 列表筛选条：查什么（下拉） × 查多久以前（下拉） ----
-        var filters = new Wpf.StackPanel
-        {
-            Orientation = Wpf.Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 10)
-        };
-        filters.Children.Add(new Wpf.TextBlock
+        // ---- r167 列表筛选条：查什么（下拉） × 查多久以前（下拉）；r169 右端加「清除筛选结果」 ----
+        var filters = new Wpf.DockPanel { Margin = new Thickness(0, 0, 0, 10), LastChildFill = true };
+        var filterLab = new Wpf.TextBlock
         {
             Text = "列表筛选", FontSize = 12, Foreground = new SolidColorBrush(Muted),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0)
-        });
+        };
+        Wpf.DockPanel.SetDock(filterLab, Wpf.Dock.Left);
+        filters.Children.Add(filterLab);
         _filter.SelectionChanged += (_, _) =>
         {
             if (_filterSync) return;
@@ -260,8 +286,20 @@ public class BoardSyncWindow : Window
             _showAll = _range.SelectedItem is Wpf.ComboBoxItem ri && ri.Tag is bool rb && rb;
             Refresh();
         };
+        Wpf.DockPanel.SetDock(_filter, Wpf.Dock.Left);
         filters.Children.Add(_filter);
+        Wpf.DockPanel.SetDock(_range, Wpf.Dock.Left);
         filters.Children.Add(_range);
+
+        // r169：一键清掉「现在筛出来的这些」—— 原来只能清全部 / 清已终结，
+        // 想只清某个班、某个时间段，得先清全部再补救，实际没人敢点。
+        _purge.Margin = new Thickness(10, 0, 0, 0);
+        _purge.VerticalAlignment = VerticalAlignment.Center;
+        _purge.Click += (_, _) => PurgeFilteredNow();
+        Wpf.DockPanel.SetDock(_purge, Wpf.Dock.Right);
+        filters.Children.Add(_purge);
+
+        _filterHint.VerticalAlignment = VerticalAlignment.Center;
         filters.Children.Add(_filterHint);
         Wpf.Grid.SetRow(filters, 3);
         grid.Children.Add(filters);
@@ -409,6 +447,10 @@ public class BoardSyncWindow : Window
         _clear.ToolTip = UserSession.IsStudent
             ? "电教管理员只能查看台账，不能清除（请用班主任 / 科任 / 管理员账号）"
             : "删除已终结（已核对 / 已忽略 / 已过期 / 已撤回）或全部记录；清前自动备份 board_sync.json.bak";
+        _purge.IsEnabled = _clear.IsEnabled;
+        _purge.ToolTip = UserSession.IsStudent
+            ? "电教管理员只能查看台账，不能清除（请用班主任 / 科任 / 管理员账号）"
+            : "只删「当前筛选出来的这些记录」（清前自动备份）；未处理的变更单会保留";
 
         if (!configured)
             _status.Text = "⚠ 未配置数据源：请到「信息管理 → 同步设置」配置共享目录或 FTP，同步功能才能收发消息。";
@@ -659,6 +701,11 @@ public class BoardSyncWindow : Window
             _filterHint.Text = "共 " + shown.Count + " 条"
                 + (hiddenByTime > 0 ? "，另有 " + hiddenByTime + " 条更早（时间范围里可见）" : "")
                 + (hiddenByFilter > 0 ? "；按当前条件筛掉 " + hiddenByFilter + " 条" : "");
+            _filterHint.ToolTip = _filterHint.Text;
+
+            // r169：按钮上带条数 —— 「清除筛选结果」到底会清掉几条，点之前就该看得见
+            _purge.Content = shown.Count > 0 ? $"清除筛选结果（{shown.Count}）" : "清除筛选结果";
+            _purge.IsEnabled = shown.Count > 0 && !UserSession.IsStudent && Store.EnablePersistence;
 
             int prev = _list.SelectedIndex;
             _list.Items.Clear();
@@ -939,6 +986,38 @@ public class BoardSyncWindow : Window
     }
 
     /// <summary>
+    /// 清除「当前筛选出来的这些」（r169）：视图 + 筛选条件 + 时间范围叠加后的 <see cref="_records"/>。
+    /// <para>两步确认：先看条数与「会保留几条未处理」，再落盘。</para>
+    /// </summary>
+    void PurgeFilteredNow()
+    {
+        try
+        {
+            var targets = _records.ToList();
+            if (targets.Count == 0)
+            {
+                _status.Text = "当前筛选下没有记录，不用清除。";
+                return;
+            }
+            int pendingKept = targets.Count(r => r.Direction == BoardSyncConsts.DirIn && !r.IsTerminal);
+            string what = ((_filter.SelectedItem as Wpf.ComboBoxItem)?.Content as string ?? "全部记录")
+                        + " · " + ((_range.SelectedItem as Wpf.ComboBoxItem)?.Content as string ?? "最近记录");
+            string scope = (IsOut ? "发送箱" : "收件箱") + " · " + what;
+
+            var dlg = new LedgerPurgeWindow(targets.Count, pendingKept, scope) { Owner = this };
+            if (dlg.ShowDialog() != true) return;
+
+            var res = BoardSyncService.ClearLedgerRecords(targets.Select(r => r.MsgId));
+            _status.Text = res.Ok ? "✔ " + res.Message : "❌ " + res.Message;
+            Refresh();
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "清除筛选结果失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>
     /// 清除本机台账记录（人工，永不自动）。清前由服务备份成 board_sync.json.bak。
     /// <para>★ 只给教师 / 管理员：电教管理员误清会把待处理变更单一起清掉。</para>
     /// </summary>
@@ -1070,6 +1149,79 @@ public class LedgerCleanWindow : Window
         // ★ 必须走分层玻璃窗：本窗是纯 C# 构造、没有原生标题栏以外的容器，
         //   如果不在这里 Prepare，GlassBackdrop 的 DWM 路径会把 Window.Background 设成透明，
         //   而「非分层窗口不支持逐像素 alpha」→ 整窗被合成为纯黑（用户报的「清除台账弹窗是黑的」）。
+        GlassChrome.Prepare(this);
+    }
+}
+
+/// <summary>
+/// 「清除筛选结果」的二次确认（r169）。
+/// <para>★ 只显示「会清几条 / 会保留几条」，不提供其它选项 —— 要清的范围由窗外那两个下拉决定，
+/// 这里再放开一个「改成全部」等于让老师在一张纸上做两件事，容易清错。</para>
+/// </summary>
+public class LedgerPurgeWindow : Window
+{
+    public LedgerPurgeWindow(int count, int pendingKept, string scope)
+    {
+        Title = "清除筛选结果";
+        Width = 520;
+        SizeToContent = SizeToContent.Height;
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(0xF1, 0xF4, 0xF9));
+
+        var root = new Wpf.StackPanel { Margin = new Thickness(18) };
+        root.Children.Add(new Wpf.TextBlock
+        {
+            Text = $"将清除当前列表里的 {count} 条记录",
+            FontSize = 17, FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x33, 0x55)),
+            Margin = new Thickness(0, 0, 0, 8)
+        });
+        var body = new Wpf.TextBlock
+        {
+            Text = $"筛选范围：{scope}\n清除前会自动备份成 board_sync.json.bak。",
+            FontSize = 12, TextWrapping = TextWrapping.Wrap,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x66, 0x77)),
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+        root.Children.Add(body);
+        if (pendingKept > 0)
+        {
+            root.Children.Add(new Wpf.TextBlock
+            {
+                Text = $"★ 其中有 {pendingKept} 条是未处理的变更单，会保留不清 —— "
+                     + "它们是教室机还没裁决的事，清掉之后教师机仍显示「已发出」，本机却不再提醒。",
+                FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xB0, 0x6A, 0x20)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+        }
+
+        var bar = new Wpf.StackPanel
+        {
+            Orientation = Wpf.Orientation.Horizontal,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        var ok = new Wpf.Button
+        {
+            Content = "确定清除", Padding = new Thickness(16, 7, 16, 7), FontSize = 14,
+            Background = new SolidColorBrush(Color.FromRgb(0xFD, 0xE8, 0xE8)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0xA0, 0xA0))
+        };
+        ok.Click += (_, _) => { DialogResult = true; Close(); };
+        var cancel = new Wpf.Button
+        {
+            Content = "取消", Padding = new Thickness(16, 7, 16, 7), FontSize = 14,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        cancel.Click += (_, _) => { DialogResult = false; Close(); };
+        bar.Children.Add(ok);
+        bar.Children.Add(cancel);
+        root.Children.Add(bar);
+
+        Content = root;
+        // 与 LedgerCleanWindow 同样的原因：纯 C# 构造的窗必须走分层玻璃，否则整窗变纯黑
         GlassChrome.Prepare(this);
     }
 }

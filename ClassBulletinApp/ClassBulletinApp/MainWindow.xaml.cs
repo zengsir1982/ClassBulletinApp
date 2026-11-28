@@ -25,6 +25,9 @@ public partial class MainWindow : Window
     /// <summary>诊断用：打开便签管理页后滚到底（<c>--shot mainnotes</c>），否则「其他便签」那几张卡在折叠区外。</summary>
     internal bool NotesScrollEnd;
 
+    /// <summary>诊断用：打开「显示设置」页后滚到底（<c>--shot maindisplayend</c>），界面主题那张卡在首屏之外。</summary>
+    internal bool DisplayScrollEnd;
+
     private bool _isFull;
     private bool _locked;
     private bool _exiting;
@@ -577,6 +580,10 @@ public partial class MainWindow : Window
         // 诊断用：便签管理页滚到底，才拍得到「其他便签」那几张卡（含事项列表）
         if (NotesScrollEnd)
             Dispatcher.BeginInvoke(new Action(() => { try { NotesScroll?.ScrollToEnd(); } catch { } }));
+
+        // 诊断用：显示设置页滚到底，界面主题 / 玻璃底色那两张卡在首屏之外
+        if (DisplayScrollEnd)
+            Dispatcher.BeginInvoke(new Action(() => { try { DisplayScroll?.ScrollToEnd(); } catch { } }));
 
         // 上下课提醒后台服务
         try { ReminderService.Start(); }
@@ -2201,7 +2208,10 @@ public partial class MainWindow : Window
         CbTheme.ItemsSource = ThemeManager.Themes
             .Select(t => new { Key = t.Key, Name = t.Name })
             .ToList();
-        CbTheme.DisplayMemberPath = "Name";
+        // ★ 用 ItemTemplate 而不是 DisplayMemberPath（r169）：AppCombo 是自定义模板，
+        //   DisplayMemberPath 在 SelectionBoxItem 上不生效，框里会显示对象的 ToString
+        //   「{ Key = ClassicBlue, Name = 经典蓝 }」。
+        CbTheme.ItemTemplate = TryFindResource("ThemeComboItem") as DataTemplate;
         CbTheme.SelectedValuePath = "Key";
         CbTheme.SelectedValue = ThemeManager.Themes.Any(t => t.Key == currentTheme)
             ? currentTheme

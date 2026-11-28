@@ -9,6 +9,14 @@
         PreviewTouchDown="OnPreviewTouchDownKeepInnerTouch">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <!-- r169：配色方案下拉的项模板。
+             ★ 不能再用 DisplayMemberPath：AppCombo 是自定义 ControlTemplate（r167），
+               框里显示的是 SelectionBoxItem 那个匿名对象本身，ContentPresenter 不认
+               DisplayMemberPath，于是直接 ToString → 「{ Key = ClassicBlue, Name = 经典蓝 }」，
+               用户看到的「配色方案显示英语」就是这条。改成显式 ItemTemplate 绑 Name 才稳。 -->
+        <DataTemplate x:Key="ThemeComboItem">
+            <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+        </DataTemplate>
         <!-- 颜色下拉的统一外观：左边色块、右边名字（通知条与提醒提示外观共用） -->
         <DataTemplate x:Key="ColorSwatchTpl">
             <StackPanel Orientation="Horizontal" Margin="2">
@@ -17,14 +25,8 @@
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" FontSize="13"/>
             </StackPanel>
         </DataTemplate>
-        <Style x:Key="TabBtn" TargetType="Button">
-            <Setter Property="Margin" Value="0,0,10,10"/>
-            <Setter Property="Padding" Value="13,7"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="MinWidth" Value="118"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
+        <!-- r169：原 TabBtn（只设 Margin/字号、没设模板 → 走系统灰方块）已随「显示设置」那排按钮
+             统一到 DesignTokens 的 AppSoftButton，这里不再保留 —— 留着必然有人再套一次灰按钮。 -->
         <!-- r148：今日四卡的统一文字层级，保持信息密度但不压眼睛。
              r166：改挂 DesignTokens 的新键 —— 标题降到 12 号灰字（只当分类），
              主文 20 号是整页唯一的大字，说明 12 号（原 12.5 是半档，废弃）。 -->
@@ -340,7 +342,7 @@
 
                 <!-- 显示设置 -->
                 <TabItem Header="显示设置">
-                    <ScrollViewer Margin="14" VerticalScrollBarVisibility="Auto" PanningMode="VerticalOnly">
+                    <ScrollViewer x:Name="DisplayScroll" Margin="14" VerticalScrollBarVisibility="Auto" PanningMode="VerticalOnly">
                         <StackPanel MaxWidth="900">
                             <!-- 展示与控制：原「① 悬浮窗」与「② 展示控制」合并为一张卡片；
                                  全屏 / 锁定 / 隐藏到托盘三个按钮已移除（全屏再点退出易错，右上角 × 即可隐藏到托盘）。 -->
@@ -350,16 +352,16 @@
                                 <StackPanel>
                                     <TextBlock Text="展示与控制" Style="{StaticResource BlockTitle}"/>
                                     <TextBlock Text="决定悬浮课表、通知条和触屏在桌面上的行为。" Style="{StaticResource BlockDesc}" Margin="0,3,0,0"/>
+                                    <!-- r169：这一排五个按钮统一套 AppSoftButton（浅蓝底 + 主色描边 + 圆角）。
+                                         颜色全在样式里，开关按钮只由代码改 Content（开/关），不再内联设色 -->
                                     <WrapPanel Orientation="Horizontal" Margin="0,12,0,2">
-                                        <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleSch_Click"
-                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                                        <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource TabBtn}" Click="BtnToggleNot_Click"
-                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"/>
-                                        <Button x:Name="BtnLayout" Content="布局设置…" Style="{StaticResource TabBtn}" Click="BtnLayout_Click"
+                                        <Button x:Name="BtnToggleSch" Content="课表悬浮：关" Style="{StaticResource AppSoftButton}" Click="BtnToggleSch_Click"/>
+                                        <Button x:Name="BtnToggleNot" Content="通知悬浮：关" Style="{StaticResource AppSoftButton}" Click="BtnToggleNot_Click"/>
+                                        <Button x:Name="BtnLayout" Content="布局设置…" Style="{StaticResource AppSoftButton}" Click="BtnLayout_Click"
                                                 ToolTip="透明度、置顶、鼠标穿透、自动靠边隐藏，以及恢复默认位置"/>
-                                        <Button x:Name="BtnSettings" Content="启动选项…" Style="{StaticResource TabBtn}" Click="BtnSettings_Click"
+                                        <Button x:Name="BtnSettings" Content="启动选项…" Style="{StaticResource AppSoftButton}" Click="BtnSettings_Click"
                                                 ToolTip="开机自启、启动即全屏 / 锁定、启动时自动弹出哪些悬浮窗"/>
-                                        <Button x:Name="BtnTrayMenu" Content="任务栏菜单…" Style="{StaticResource TabBtn}" Click="BtnTrayMenu_Click"
+                                        <Button x:Name="BtnTrayMenu" Content="任务栏菜单…" Style="{StaticResource AppSoftButton}" Click="BtnTrayMenu_Click"
                                                 ToolTip="自定义托盘图标右键菜单：默认只保留「打开控制面板 / 用户中心 / 退出」，可自行增删与改名"/>
                                     </WrapPanel>
                                     <!-- r166：原来每条都是「标签＋长括号」一整行（「桌面有窗口最大化时，自动隐藏课表与通知（避免…）」），
@@ -412,10 +414,9 @@
                                     <TextBlock Text="贴在桌面底层的一块大板：便签、作业公示、课表、手写都能往上摆。教室大屏上课时挂着，不用时一键收起。"
                                                Style="{StaticResource BlockDesc}" Margin="0,3,0,0"/>
                                     <WrapPanel Orientation="Horizontal" Margin="0,12,0,2">
-                                        <Button x:Name="BtnToggleBoard" Content="黑板：关" Style="{StaticResource TabBtn}" Click="BtnToggleBoard_Click"
-                                                Background="{DynamicResource PrimaryLightBrush}" BorderBrush="{DynamicResource PrimaryBorderBrush}"
+                                        <Button x:Name="BtnToggleBoard" Content="黑板：关" Style="{StaticResource AppSoftButton}" Click="BtnToggleBoard_Click"
                                                 ToolTip="一键打开 / 收起全部黑板（收起只关窗口，板上的内容与笔迹都留着）"/>
-                                        <Button x:Name="BtnBoardManager" Content="黑板管理…" Style="{StaticResource TabBtn}" Click="BtnBoardManager_Click"
+                                        <Button x:Name="BtnBoardManager" Content="黑板管理…" Style="{StaticResource AppSoftButton}" Click="BtnBoardManager_Click"
                                                 ToolTip="新建 / 改名 / 换主题 / 删除某一块板"/>
                                     </WrapPanel>
                                     <CheckBox x:Name="ChkBoardRestore" Margin="2,8,0,0" VerticalContentAlignment="Top"
